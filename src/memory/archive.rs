@@ -25,6 +25,7 @@ impl Default for ArchiveConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Archive {
     records: VecDeque<Record>,
     config: ArchiveConfig,
@@ -125,7 +126,6 @@ impl Archive {
         for record in sorted_records.into_iter().take(self.config.top_k) {
             self.records.push_back(record);
         }
-    }
     }
 
     pub fn size(&self) -> usize {

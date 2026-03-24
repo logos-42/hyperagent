@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -18,6 +17,7 @@ pub struct EvolutionChain {
     pub nodes: Vec<Node>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lineage {
     chains: HashMap<String, EvolutionChain>,
     children_map: HashMap<String, Vec<String>>,
