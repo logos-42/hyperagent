@@ -1,5 +1,4 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::Agent;
@@ -66,48 +65,9 @@ impl<C: LLMClient> Executor<C> {
     }
 }
 
-pub struct ParallelExecutor<C: LLMClient> {
-    executor: Executor<C>,
-}
-
-impl<C: LLMClient> ParallelExecutor<C> {
-    pub fn new(client: C) -> Self {
-        Self {
-            executor: Executor::new(client),
-        }
-    }
-
-    pub async fn run_agents(
-        &self,
-        agents: &[Agent],
-        task: &str,
-    ) -> Vec<Result<ExecutionResult>> {
-        use tokio::task;
-
-        let tasks: Vec<_> = agents
-            .iter()
-            .map(|agent| {
-                let executor = Executor::new(self.executor.client.clone());
-                let task = task::spawn(async move {
-                    executor.run(agent, task).await
-                })
-            })
-            .collect();
-
-        let mut results = Vec::new();
-        for task in tasks {
-            results.push(task.await.unwrap_or_else(|e| {
-                Err(anyhow::anyhow!("Task panicked: {}", e))
-            }));
-        }
-        results
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::LLMResponse;
 
     #[tokio::test]
     async fn test_executor_creation() {

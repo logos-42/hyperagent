@@ -1,9 +1,8 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{Agent, MutationStrategy};
-use crate::llm::{LLMClient, PromptManager};
+use crate::llm::LLMClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutationHistory {
@@ -64,61 +63,6 @@ impl<C: LLMClient> Mutator<C> {
 
     pub fn update_strategy(&mut self, new_prompt: String) {
         self.strategy.evolve(new_prompt);
-    }
-}
-
-#[async_trait]
-pub trait AgentMutator: Send + Sync {
-    async fn mutate(&self, agent: &Agent, failures: &[String]) -> Result<Agent>;
-    fn get_strategy(&self) -> &MutationStrategy;
-    fn update_strategy(&mut self, new_prompt: String);
-}
-
-impl<C: LLMClient> AgentMutator for Mutator<C> {
-    async fn mutate(&self, agent: &Agent, failures: &[String]) -> Result<Agent> {
-        self.mutate(agent, failures).await
-    }
-
-    fn get_strategy(&self) -> &MutationStrategy {
-        &self.strategy
-    }
-
-    fn update_strategy(&mut self, new_prompt: String) {
-        self.strategy.evolve(new_prompt);
-    }
-}
-
-pub struct PopulationMutator<C: LLMClient> {
-    client: C,
-    population_size: usize,
-}
-
-impl<C: LLMClient> PopulationMutator<C> {
-    pub fn new(client: C, population_size: usize) -> Self {
-        Self {
-            client,
-            population_size,
-        }
-    }
-
-    pub async fn mutate_population(
-        &self,
-        agents: &[Agent],
-        failures: &[String],
-    ) -> Result<Vec<Agent>> {
-        let mut new_agents = Vec::new();
-
-        for agent in agents {
-            let mutator = Mutator::new(self.client.clone());
-            match mutator.mutate(agent, failures).await {
-                Ok(new_agent) => new_agents.push(new_agent),
-                Err(e) => {
-                    tracing::warn!("Failed to mutate agent {}: {}", agent.id, e);
-                }
-            }
-        }
-
-        Ok(new_agents)
     }
 }
 

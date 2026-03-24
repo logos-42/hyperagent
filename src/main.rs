@@ -1,5 +1,6 @@
 use anyhow::Result;
-use hyperagent::{EvolutionLoop, LLMConfig, RuntimeConfig};
+use hyperagent::{EvolutionLoop, RuntimeConfig};
+use hyperagent::llm::LLMConfig;
 use tracing_subscriber;
 
 #[tokio::main]
@@ -35,11 +36,9 @@ async fn main() -> Result<()> {
     if let Some(best_agent) = evolution_loop.get_best_agent() {
         tracing::info!("Best Agent ID: {}", best_agent.id);
         tracing::info!("Best Agent Generation: {}", best_agent.generation);
-        tracing::info!("Best Agent Prompt: {}", best_agent.prompt);
     }
 
     tracing::info!("Archive size: {}", final_state.archive.size());
-    tracing::info!("Total chains: {}", final_state.lineage.total_chains());
 
     Ok(())
 }

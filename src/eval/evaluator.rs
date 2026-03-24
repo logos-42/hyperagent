@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::llm::LLMClient;
-use crate::agent::ExecutionResult;
+use crate::agent::executor::ExecutionResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Score {

@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -115,10 +114,22 @@ impl Archive {
     }
 
     pub fn compress(&mut self) {
-        let best = self.top_k(self.config.top_k);
+        let best: Vec<Record> = self
+            .records
+            .iter()
+            .sorted_by(|a, b| {
+                b.score
+                    .value
+                    .partial_cmp(&a.score.value)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .take(self.config.top_k)
+            .cloned()
+            .collect();
+
         self.records.clear();
         for record in best {
-            self.records.push_back(record.clone());
+            self.records.push_back(record);
         }
     }
 
