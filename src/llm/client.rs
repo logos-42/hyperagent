@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use rig_core::providers::openai::OpenAi;
-use rig_core::completion::Prompt;
+use rig::providers::openai::OpenAi;
+use rig::completion::Prompt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

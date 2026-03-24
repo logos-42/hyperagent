@@ -1,5 +1,4 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::llm::LLMClient;
@@ -101,73 +100,6 @@ Return ONLY the new mutation strategy prompt, nothing else."#,
 
     pub fn set_strategy(&mut self, strategy: MutationStrategy) {
         self.current_strategy = strategy;
-    }
-}
-
-#[async_trait]
-pub trait MetaEvolutionary: Send + Sync {
-    async fn evolve(&mut self, history: &str) -> Result<MutationStrategy>;
-    fn get_strategy(&self) -> &MutationStrategy;
-    fn get_history(&self) -> &[EvolutionHistory];
-    fn generation(&self) -> u32;
-}
-
-impl<C: LLMClient> MetaEvolutionary for MetaMutator<C> {
-    async fn evolve(&mut self, history: &str) -> Result<MutationStrategy> {
-        self.evolve(history).await
-    }
-
-    fn get_strategy(&self) -> &MutationStrategy {
-        &self.current_strategy
-    }
-
-    fn get_history(&self) -> &[EvolutionHistory] {
-        &self.history
-    }
-
-    fn generation(&self) -> u32 {
-        self.generation
-    }
-}
-
-pub struct EnsembleMetaMutator<C: LLMClient> {
-    mutators: Vec<MetaMutator<C>>,
-    strategy: MutationStrategy,
-}
-
-impl<C: LLMClient> EnsembleMetaMutator<C> {
-    pub fn new(clients: Vec<C>) -> Self {
-        let mutators = clients
-            .into_iter()
-            .map(MetaMutator::new)
-            .collect();
-
-        Self {
-            mutators,
-            strategy: MutationStrategy::default(),
-        }
-    }
-
-    pub async fn evolve(&mut self, history: &str) -> Result<MutationStrategy> {
-        let mut new_strategies = Vec::new();
-
-        for mutator in &mut self.mutators {
-            match mutator.evolve(history).await {
-                Ok(strategy) => new_strategies.push(strategy),
-                Err(e) => {
-                    tracing::warn!("Mutator evolution failed: {}", e);
-                }
-            }
-        }
-
-        if new_strategies.is_empty() {
-            return Ok(self.strategy.clone());
-        }
-
-        let best = new_strategies.into_iter().next().unwrap();
-        self.strategy = best;
-
-        Ok(self.strategy.clone())
     }
 }
 

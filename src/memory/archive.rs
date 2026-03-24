@@ -114,23 +114,18 @@ impl Archive {
     }
 
     pub fn compress(&mut self) {
-        let best: Vec<Record> = self
-            .records
-            .iter()
-            .sorted_by(|a, b| {
-                b.score
-                    .value
-                    .partial_cmp(&a.score.value)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .take(self.config.top_k)
-            .cloned()
-            .collect();
+        let mut sorted_records: Vec<Record> = self.records.iter().cloned().collect();
+        sorted_records.sort_by(|a, b| {
+            b.score.value
+                .partial_cmp(&a.score.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         self.records.clear();
-        for record in best {
+        for record in sorted_records.into_iter().take(self.config.top_k) {
             self.records.push_back(record);
         }
+    }
     }
 
     pub fn size(&self) -> usize {

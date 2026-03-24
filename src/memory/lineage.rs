@@ -116,7 +116,12 @@ impl Lineage {
         let mut ancestors = Vec::new();
         let mut current_id = Some(agent_id.to_string());
 
-        while let Some(id) = current_id {
+        loop {
+            let id = match &current_id {
+                Some(id) => id.clone(),
+                None => break,
+            };
+
             let mut found = false;
             for chain in self.chains.values() {
                 for node in &chain.nodes {
