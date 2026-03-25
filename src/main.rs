@@ -4,6 +4,10 @@ use hyperagent::{EvolutionLoop, RuntimeConfig, RuntimeState, LLMClientImpl};
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
+    // Bypass system proxy for local LLM services (Ollama etc.)
+    if std::env::var("NO_PROXY").is_err() {
+        std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
+    }
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();

@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use tokio::sync::Semaphore;
-use reqwest::Client as ReqwestClient;
+use http::{HeaderMap, HeaderValue};
 use rig::{
     client::CompletionClient,
-    providers::openai::Client as OpenAiClient,
     completion::Prompt,
+    providers::openai::Client as OpenAiClient,
 };
+use serde::{Deserialize, Serialize};
+use tokio::sync::Semaphore;
 
 /// LLM Provider enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,7 +66,6 @@ impl Default for LLMConfig {
 }
 
 impl LLMConfig {
-    /// Create config for Ollama (local)
     pub fn ollama(model: &str, base_url: Option<&str>) -> Self {
         Self {
             provider: LLMProvider::Ollama,
@@ -79,7 +78,6 @@ impl LLMConfig {
         }
     }
 
-    /// Create config for OpenAI
     pub fn openai(model: &str, api_key: &str) -> Self {
         Self {
             provider: LLMProvider::OpenAI,
@@ -92,7 +90,6 @@ impl LLMConfig {
         }
     }
 
-    /// Create config for Qwen
     pub fn qwen(model: &str, api_key: &str) -> Self {
         Self {
             provider: LLMProvider::Qwen,
@@ -105,7 +102,6 @@ impl LLMConfig {
         }
     }
 
-    /// Create config for GLM
     pub fn glm(model: &str, api_key: &str) -> Self {
         Self {
             provider: LLMProvider::GLM,
@@ -118,7 +114,6 @@ impl LLMConfig {
         }
     }
 
-    /// Create config for MiniMax
     pub fn minimax(model: &str, api_key: &str) -> Self {
         Self {
             provider: LLMProvider::MiniMax,
@@ -171,158 +166,178 @@ pub enum MessageRole {
     Assistant,
 }
 
-/// Internal client implementations
-#[derive(Clone)]
-enum ClientBackend {
-    OpenAI(OpenAIBackend),
-    Ollama(OllamaBackend),
-    GLM(GLMBackend),
-    MiniMax(MiniMaxBackend),
-    Qwen(QwenBackend),
-}
+// ---------------------------------------------------------------------------
+// rig-powered backends (enum dispatch over non-object-safe agent types)
+// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-#[allow(dead_code)]
-struct OpenAIBackend {
-    client: Arc<OpenAiClient>,
-    model: String,
+enum InnerBackend {
+    OpenAI(Arc<OpenAiClient>, String),
+    Ollama(Arc<rig::providers::ollama::Client>, String),
+}
+
+/// Unified backend powered by rig providers.
+///
+/// - OpenAI-compatible providers (OpenAI, GLM, MiniMax, Qwen): rig's OpenAI client + base_url
+/// - Ollama (local + cloud): rig's native Ollama client + optional http_headers
+#[derive(Clone)]
+struct RigBackend {
+    inner: InnerBackend,
+    model_name: String,
+    provider_name: String,
     semaphore: Arc<Semaphore>,
+    #[allow(dead_code)]
     temperature: Option<f32>,
+    #[allow(dead_code)]
     max_tokens: Option<i32>,
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
-struct OllamaBackend {
-    http_client: ReqwestClient,
-    base_url: String,
-    model: String,
-    semaphore: Arc<Semaphore>,
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
+impl RigBackend {
+    async fn complete_prompt(&self, prompt: &str) -> Result<LLMResponse> {
+        let _permit = self.semaphore.acquire().await?;
+        let content = match &self.inner {
+            InnerBackend::OpenAI(client, model) => {
+                client.agent(model.as_str()).build().prompt(prompt).await?
+            }
+            InnerBackend::Ollama(client, model) => {
+                client.agent(model.as_str()).build().prompt(prompt).await?
+            }
+        };
+        Ok(self.make_response(content))
+    }
+
+    async fn complete_with_preamble(&self, system: &str, user: &str) -> Result<LLMResponse> {
+        let _permit = self.semaphore.acquire().await?;
+        let content = match &self.inner {
+            InnerBackend::OpenAI(client, model) => {
+                client.agent(model.as_str())
+                    .preamble(system)
+                    .build()
+                    .prompt(user)
+                    .await?
+            }
+            InnerBackend::Ollama(client, model) => {
+                client.agent(model.as_str())
+                    .preamble(system)
+                    .build()
+                    .prompt(user)
+                    .await?
+            }
+        };
+        Ok(self.make_response(content))
+    }
+
+    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
+        let _permit = self.semaphore.acquire().await?;
+
+        let mut preamble: Option<String> = None;
+        let mut user_content = String::new();
+
+        for msg in &messages {
+            match msg.role {
+                MessageRole::System => {
+                    preamble = Some(msg.content.clone());
+                }
+                MessageRole::User => {
+                    user_content.push_str(&msg.content);
+                }
+                MessageRole::Assistant => {
+                    user_content.push_str(&format!("\nAssistant: {}", msg.content));
+                }
+            }
+        }
+
+        let content = match &self.inner {
+            InnerBackend::OpenAI(client, model) => {
+                let mut builder = client.agent(model.as_str());
+                if let Some(p) = &preamble {
+                    builder = builder.preamble(p);
+                }
+                builder.build().prompt(&user_content).await?
+            }
+            InnerBackend::Ollama(client, model) => {
+                let mut builder = client.agent(model.as_str());
+                if let Some(p) = &preamble {
+                    builder = builder.preamble(p);
+                }
+                builder.build().prompt(&user_content).await?
+            }
+        };
+        Ok(self.make_response(content))
+    }
+
+    fn make_response(&self, content: String) -> LLMResponse {
+        LLMResponse {
+            content,
+            model: self.model_name.clone(),
+            provider: self.provider_name.clone(),
+            usage: None,
+        }
+    }
 }
 
-#[derive(Clone)]
-struct GLMBackend {
-    http_client: ReqwestClient,
-    base_url: String,
-    model: String,
-    api_key: String,
-    semaphore: Arc<Semaphore>,
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
-}
-
-#[derive(Clone)]
-struct MiniMaxBackend {
-    http_client: ReqwestClient,
-    base_url: String,
-    model: String,
-    api_key: String,
-    semaphore: Arc<Semaphore>,
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
-}
-
-#[derive(Clone)]
-struct QwenBackend {
-    http_client: ReqwestClient,
-    base_url: String,
-    model: String,
-    api_key: String,
-    semaphore: Arc<Semaphore>,
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
-}
-
-/// Main LLM Client that wraps different backends
+/// Main LLM Client that wraps rig backends
 #[derive(Clone)]
 pub struct LLMClientImpl {
-    backend: ClientBackend,
+    backend: RigBackend,
     provider: LLMProvider,
 }
 
 impl LLMClientImpl {
     pub fn new(config: &LLMConfig) -> Result<Self> {
-        let backend = match config.provider {
+        let (inner, provider_name) = match config.provider {
             LLMProvider::OpenAI => {
-                let mut builder = OpenAiClient::builder().api_key(&config.api_key);
-                if let Some(base_url) = &config.base_url {
-                    builder = builder.base_url(base_url);
-                }
-                ClientBackend::OpenAI(OpenAIBackend {
-                    client: Arc::new(builder.build()?),
-                    model: config.model.clone(),
-                    semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
-                    temperature: config.temperature,
-                    max_tokens: config.max_tokens,
-                })
+                let client = build_openai_client(config.api_key.as_str(), config.base_url.as_deref())?;
+                (InnerBackend::OpenAI(client, config.model.clone()), "openai".to_string())
             }
             LLMProvider::Ollama => {
-                let base_url = config.base_url.as_deref().unwrap_or("http://localhost:11434").to_string();
-                ClientBackend::Ollama(OllamaBackend {
-                    http_client: ReqwestClient::builder()
-                        .no_proxy()
-                        .build()?,
-                    base_url,
-                    model: config.model.clone(),
-                    semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
-                    temperature: config.temperature,
-                    max_tokens: config.max_tokens,
-                })
+                let client = build_ollama_client(config.base_url.as_deref(), &config.api_key)?;
+                (InnerBackend::Ollama(client, config.model.clone()), "ollama".to_string())
             }
             LLMProvider::GLM => {
-                let base_url = config.base_url.as_deref().unwrap_or("https://open.bigmodel.cn/api/paas/v4").to_string();
-                ClientBackend::GLM(GLMBackend {
-                    http_client: ReqwestClient::new(),
-                    base_url,
-                    model: config.model.clone(),
-                    api_key: config.api_key.clone(),
-                    semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
-                    temperature: config.temperature,
-                    max_tokens: config.max_tokens,
-                })
+                let base_url = config.base_url.as_deref()
+                    .unwrap_or("https://open.bigmodel.cn/api/paas/v4");
+                let client = build_openai_client(config.api_key.as_str(), Some(base_url))?;
+                (InnerBackend::OpenAI(client, config.model.clone()), "glm".to_string())
             }
             LLMProvider::MiniMax => {
-                let base_url = config.base_url.as_deref().unwrap_or("https://api.minimax.chat/v1").to_string();
-                ClientBackend::MiniMax(MiniMaxBackend {
-                    http_client: ReqwestClient::new(),
-                    base_url,
-                    model: config.model.clone(),
-                    api_key: config.api_key.clone(),
-                    semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
-                    temperature: config.temperature,
-                    max_tokens: config.max_tokens,
-                })
+                let base_url = config.base_url.as_deref()
+                    .unwrap_or("https://api.minimax.chat/v1");
+                let client = build_openai_client(config.api_key.as_str(), Some(base_url))?;
+                (InnerBackend::OpenAI(client, config.model.clone()), "minimax".to_string())
             }
             LLMProvider::Qwen => {
-                let base_url = config.base_url.as_deref().unwrap_or("https://dashscope.aliyuncs.com/compatible-mode/v1").to_string();
-                ClientBackend::Qwen(QwenBackend {
-                    http_client: ReqwestClient::new(),
-                    base_url,
-                    model: config.model.clone(),
-                    api_key: config.api_key.clone(),
-                    semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
-                    temperature: config.temperature,
-                    max_tokens: config.max_tokens,
-                })
+                let base_url = config.base_url.as_deref()
+                    .unwrap_or("https://dashscope.aliyuncs.com/compatible-mode/v1");
+                let client = build_openai_client(config.api_key.as_str(), Some(base_url))?;
+                (InnerBackend::OpenAI(client, config.model.clone()), "qwen".to_string())
             }
         };
 
         Ok(Self {
-            backend,
+            backend: RigBackend {
+                inner,
+                model_name: config.model.clone(),
+                provider_name,
+                semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
+                temperature: config.temperature,
+                max_tokens: config.max_tokens,
+            },
             provider: config.provider.clone(),
         })
     }
 
-    /// Create from environment variables (reads LLM_PROVIDER, provider-specific vars)
+    /// Create from environment variables
     pub fn from_env() -> Result<Self> {
         let provider_str = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "openai".to_string());
         let config = match provider_str.to_lowercase().as_str() {
             "ollama" => {
                 let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama2".to_string());
                 let base_url = std::env::var("OLLAMA_BASE_URL").ok();
-                LLMConfig::ollama(&model, base_url.as_deref())
+                let api_key = std::env::var("OLLAMA_API_KEY").unwrap_or_default();
+                let mut cfg = LLMConfig::ollama(&model, base_url.as_deref());
+                cfg.api_key = api_key;
+                cfg
             }
             "openai" => {
                 let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
@@ -358,815 +373,83 @@ impl LLMClientImpl {
         Self::new(&config)
     }
 
-    /// Get the current provider
     pub fn provider(&self) -> &LLMProvider {
         &self.provider
     }
 
-    /// Get the current model
     pub fn model(&self) -> &str {
-        match &self.backend {
-            ClientBackend::OpenAI(b) => &b.model,
-            ClientBackend::Ollama(b) => &b.model,
-            ClientBackend::GLM(b) => &b.model,
-            ClientBackend::MiniMax(b) => &b.model,
-            ClientBackend::Qwen(b) => &b.model,
-        }
+        &self.backend.model_name
     }
 }
 
 #[async_trait]
 impl LLMClient for LLMClientImpl {
     async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        match &self.backend {
-            ClientBackend::OpenAI(client) => client.complete(prompt).await,
-            ClientBackend::Ollama(client) => client.complete(prompt).await,
-            ClientBackend::GLM(client) => client.complete(prompt).await,
-            ClientBackend::MiniMax(client) => client.complete(prompt).await,
-            ClientBackend::Qwen(client) => client.complete(prompt).await,
-        }
-        .map(|mut resp| {
-            resp.provider = self.provider.to_string();
-            resp
-        })
+        self.backend.complete_prompt(prompt).await
     }
 
     async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        match &self.backend {
-            ClientBackend::OpenAI(client) => client.complete_with_system(system_prompt, user_prompt).await,
-            ClientBackend::Ollama(client) => client.complete_with_system(system_prompt, user_prompt).await,
-            ClientBackend::GLM(client) => client.complete_with_system(system_prompt, user_prompt).await,
-            ClientBackend::MiniMax(client) => client.complete_with_system(system_prompt, user_prompt).await,
-            ClientBackend::Qwen(client) => client.complete_with_system(system_prompt, user_prompt).await,
-        }
-        .map(|mut resp| {
-            resp.provider = self.provider.to_string();
-            resp
-        })
+        self.backend.complete_with_preamble(system_prompt, user_prompt).await
     }
 
     async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        match &self.backend {
-            ClientBackend::OpenAI(client) => client.complete_with_messages(messages).await,
-            ClientBackend::Ollama(client) => client.complete_with_messages(messages).await,
-            ClientBackend::GLM(client) => client.complete_with_messages(messages).await,
-            ClientBackend::MiniMax(client) => client.complete_with_messages(messages).await,
-            ClientBackend::Qwen(client) => client.complete_with_messages(messages).await,
-        }
-        .map(|mut resp| {
-            resp.provider = self.provider.to_string();
-            resp
-        })
+        self.backend.complete_with_messages(messages).await
     }
 }
 
-// OpenAI Implementation
-impl OpenAIBackend {
-    async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
+// ---------------------------------------------------------------------------
+// rig client builders
+// ---------------------------------------------------------------------------
 
-        let agent = self.client.agent(&self.model).build();
-        let response = agent.prompt(prompt).await?;
+/// Build an OpenAI-compatible client (covers OpenAI, GLM, MiniMax, Qwen).
+fn build_openai_client(
+    api_key: &str,
+    base_url: Option<&str>,
+) -> Result<Arc<OpenAiClient>> {
+    let mut builder = OpenAiClient::builder().api_key(api_key);
 
-        Ok(LLMResponse {
-            content: response,
-            model: self.model.clone(),
-            provider: "openai".to_string(),
-            usage: None,
-        })
+    if let Some(url) = base_url {
+        builder = builder.base_url(url);
     }
 
-    async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let agent = self.client.agent(&self.model)
-            .preamble(system_prompt)
-            .build();
-        let response = agent.prompt(user_prompt).await?;
-
-        Ok(LLMResponse {
-            content: response,
-            model: self.model.clone(),
-            provider: "openai".to_string(),
-            usage: None,
-        })
-    }
-
-    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let mut preamble = String::new();
-        let mut user_prompt = String::new();
-
-        for msg in messages {
-            match msg.role {
-                MessageRole::System => {
-                    preamble = msg.content;
-                }
-                MessageRole::User => {
-                    user_prompt = msg.content;
-                }
-                MessageRole::Assistant => {
-                    // For simplicity, append to user prompt
-                    user_prompt.push_str(&format!("\nAssistant: {}", msg.content));
-                }
-            }
-        }
-
-        let agent = if !preamble.is_empty() {
-            self.client.agent(&self.model)
-                .preamble(&preamble)
-                .build()
-        } else {
-            self.client.agent(&self.model).build()
-        };
-
-        let response = agent.prompt(&user_prompt).await?;
-
-        Ok(LLMResponse {
-            content: response,
-            model: self.model.clone(),
-            provider: "openai".to_string(),
-            usage: None,
-        })
-    }
+    Ok(Arc::new(builder.build()?))
 }
 
-// Ollama Implementation
-impl OllamaBackend {
-    async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
+/// Build an Ollama client (local or cloud).
+///
+/// Note: We set `NO_PROXY=localhost,127.0.0.1` so that rig's reqwest 0.13
+/// (which auto-detects system proxy) doesn't route local Ollama requests
+/// through a proxy and get 502 errors.
+fn build_ollama_client(
+    base_url: Option<&str>,
+    api_key: &str,
+) -> Result<Arc<rig::providers::ollama::Client>> {
+    use rig::client::Nothing;
 
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "stream": false
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["options"] = serde_json::json!({
-                "temperature": temp
-            });
-        }
-
-        let resp = self.http_client
-            .post(&format!("{}/api/chat", self.base_url))
-            .json(&request_body)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let body_text = resp.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("Ollama API error {}: {}", status, body_text);
-        }
-
-        let response: serde_json::Value = serde_json::from_str(&body_text)
-            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {} | body: {}", e, &body_text[..body_text.len().min(200)]))?;
-
-        let content = response.get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "ollama".to_string(),
-            usage: None,
-        })
+    // Ensure local Ollama traffic bypasses any system proxy
+    if std::env::var("NO_PROXY").is_err() {
+        std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
     }
 
-    async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
+    let mut builder = rig::providers::ollama::Client::builder().api_key(Nothing);
 
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ],
-            "stream": false
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["options"] = serde_json::json!({
-                "temperature": temp
-            });
-        }
-
-        let resp = self.http_client
-            .post(&format!("{}/api/chat", self.base_url))
-            .json(&request_body)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let body_text = resp.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("Ollama API error {}: {}", status, body_text);
-        }
-
-        let response: serde_json::Value = serde_json::from_str(&body_text)
-            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {} | body: {}", e, &body_text[..body_text.len().min(200)]))?;
-
-        let content = response.get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "ollama".to_string(),
-            usage: None,
-        })
+    if let Some(url) = base_url {
+        builder = builder.base_url(url);
     }
 
-    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let ollama_messages: Vec<serde_json::Value> = messages
-            .into_iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({
-                    "role": role,
-                    "content": msg.content
-                })
-            })
-            .collect();
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": false
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["options"] = serde_json::json!({
-                "temperature": temp
-            });
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/api/chat", self.base_url))
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "ollama".to_string(),
-            usage: None,
-        })
+    if !api_key.is_empty() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", api_key))
+                .map_err(|e| anyhow::anyhow!("Invalid API key: {}", e))?,
+        );
+        builder = builder.http_headers(headers);
     }
+
+    Ok(Arc::new(builder.build()?))
 }
 
-// GLM Implementation
-impl GLMBackend {
-    async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "glm".to_string(),
-            usage,
-        })
-    }
-
-    async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ]
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "glm".to_string(),
-            usage,
-        })
-    }
-
-    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let api_messages: Vec<serde_json::Value> = messages
-            .into_iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({
-                    "role": role,
-                    "content": msg.content
-                })
-            })
-            .collect();
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": api_messages
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "glm".to_string(),
-            usage,
-        })
-    }
-}
-
-// MiniMax Implementation
-impl MiniMaxBackend {
-    async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let messages = serde_json::json!([
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]);
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": messages,
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/text/chatcompletion_v2", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "minimax".to_string(),
-            usage: None,
-        })
-    }
-
-    async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let messages = serde_json::json!([
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": user_prompt
-            }
-        ]);
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": messages,
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/text/chatcompletion_v2", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "minimax".to_string(),
-            usage: None,
-        })
-    }
-
-    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let api_messages: Vec<serde_json::Value> = messages
-            .into_iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({
-                    "role": role,
-                    "content": msg.content
-                })
-            })
-            .collect();
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "messages": api_messages,
-        });
-
-        if let Some(temp) = self.temperature {
-            request_body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            request_body["max_tokens"] = serde_json::json!(tokens);
-        }
-
-        let response = self.http_client
-            .post(&format!("{}/text/chatcompletion_v2", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "minimax".to_string(),
-            usage: None,
-        })
-    }
-}
-
-// Qwen Implementation
-impl QwenBackend {
-    async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "input": {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            }
-        });
-
-        let mut parameters = serde_json::json!({});
-        if let Some(temp) = self.temperature {
-            parameters["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            parameters["max_tokens"] = serde_json::json!(tokens);
-        }
-        request_body["parameters"] = parameters;
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "qwen".to_string(),
-            usage,
-        })
-    }
-
-    async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "input": {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": user_prompt
-                    }
-                ]
-            }
-        });
-
-        let mut parameters = serde_json::json!({});
-        if let Some(temp) = self.temperature {
-            parameters["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            parameters["max_tokens"] = serde_json::json!(tokens);
-        }
-        request_body["parameters"] = parameters;
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "qwen".to_string(),
-            usage,
-        })
-    }
-
-    async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        let _permit = self.semaphore.acquire().await?;
-
-        let api_messages: Vec<serde_json::Value> = messages
-            .into_iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({
-                    "role": role,
-                    "content": msg.content
-                })
-            })
-            .collect();
-
-        let mut request_body = serde_json::json!({
-            "model": self.model,
-            "input": {
-                "messages": api_messages
-            }
-        });
-
-        let mut parameters = serde_json::json!({});
-        if let Some(temp) = self.temperature {
-            parameters["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(tokens) = self.max_tokens {
-            parameters["max_tokens"] = serde_json::json!(tokens);
-        }
-        request_body["parameters"] = parameters;
-
-        let response = self.http_client
-            .post(&format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
-
-        let content = response.get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let usage = response.get("usage").map(|u| TokenUsage {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        });
-
-        Ok(LLMResponse {
-            content,
-            model: self.model.clone(),
-            provider: "qwen".to_string(),
-            usage,
-        })
-    }
-}
 // Type aliases for convenience
 pub type DynLLMClient = Box<dyn LLMClient>;
 
