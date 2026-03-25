@@ -499,7 +499,12 @@ impl OllamaBackend {
 
         let mut request_body = serde_json::json!({
             "model": self.model,
-            "prompt": prompt,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
             "stream": false
         });
 
@@ -510,7 +515,7 @@ impl OllamaBackend {
         }
 
         let resp = self.http_client
-            .post(&format!("{}/api/generate", self.base_url))
+            .post(&format!("{}/api/chat", self.base_url))
             .json(&request_body)
             .send()
             .await?;
@@ -525,7 +530,8 @@ impl OllamaBackend {
         let response: serde_json::Value = serde_json::from_str(&body_text)
             .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {} | body: {}", e, &body_text[..body_text.len().min(200)]))?;
 
-        let content = response.get("response")
+        let content = response.get("message")
+            .and_then(|m| m.get("content"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -539,8 +545,57 @@ impl OllamaBackend {
     }
 
     async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        let combined_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
-        self.complete(&combined_prompt).await
+        let _permit = self.semaphore.acquire().await?;
+
+        let mut request_body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_prompt
+                }
+            ],
+            "stream": false
+        });
+
+        if let Some(temp) = self.temperature {
+            request_body["options"] = serde_json::json!({
+                "temperature": temp
+            });
+        }
+
+        let resp = self.http_client
+            .post(&format!("{}/api/chat", self.base_url))
+            .json(&request_body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let body_text = resp.text().await?;
+
+        if !status.is_success() {
+            anyhow::bail!("Ollama API error {}: {}", status, body_text);
+        }
+
+        let response: serde_json::Value = serde_json::from_str(&body_text)
+            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {} | body: {}", e, &body_text[..body_text.len().min(200)]))?;
+
+        let content = response.get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        Ok(LLMResponse {
+            content,
+            model: self.model.clone(),
+            provider: "ollama".to_string(),
+            usage: None,
+        })
     }
 
     async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
