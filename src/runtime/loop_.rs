@@ -105,7 +105,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         // 去重（同 id 只保留最高 fitness）
         candidates.dedup_by(|a, b| a.0.id == b.0.id);
 
-        // 确定性拥挤选择
+        // 确定性拥挤选择 - 两阶段处理避免级联效应
         let mut selected: Vec<crate::agent::Agent> = Vec::new();
         let mut selected_fitness: Vec<f32> = Vec::new();
         
@@ -133,7 +133,9 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 selected.push(agent.clone());
                 selected_fitness.push(*fitness);
             } else {
-                // 检查是否比相似度过高的已选个体更强（拥挤替换）
+                // 两阶段处理：收集所有可能的替换，不立即修改
+                let mut best_replacement: Option<(usize, f32)> = None;
+                
                 for idx in 0..selected.len() {
                     if jaccard_similarity(&selected[idx].code, &agent.code) >= threshold {
                         // 只有当新候选的 fitness 更高时才考虑替换
@@ -154,12 +156,24 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                                 .sum();
                             
                             if new_sim_sum < old_sim_sum {
-                                selected[idx] = agent.clone();
-                                selected_fitness[idx] = *fitness;
+                                // 记录最佳替换候选（最低新相似度和）
+                                let new_total_sim = new_sim_sum;
+                                match &best_replacement {
+                                    None => best_replacement = Some((idx, new_total_sim)),
+                                    Some((_, prev_sim)) if new_total_sim < *prev_sim => {
+                                        best_replacement = Some((idx, new_total_sim));
+                                    }
+                                    _ => {}
+                                }
                             }
-                            break;
                         }
                     }
+                }
+                
+                // 阶段2：应用最佳替换（如果存在）
+                if let Some((idx, _)) = best_replacement {
+                    selected[idx] = agent.clone();
+                    selected_fitness[idx] = *fitness;
                 }
             }
         }

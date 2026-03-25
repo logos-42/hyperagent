@@ -68,3 +68,14 @@
 [2m2026-03-25T16:23:52.265790Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the adaptive cooling logic to correctly compute the adaptation factor so that high entropy production slows cooling (temperature stays higher) and low entropy production accelerates cooling (temperature drops faster).
 [2m2026-03-25T16:24:04.860636Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
 [2m2026-03-25T16:24:07.485286Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-25T16:24:07.553773Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[4]: runtime/thermodynamics.rs — Fix the adaptive cooling logic to correctly compute the adap (Improved)
+[2m2026-03-25T16:24:07.553834Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T16:24:12.970692Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 5] Improving src/runtime/loop_.rs
+[2m2026-03-25T16:24:16.204026Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 89/91 tests
+[2m2026-03-25T16:24:18.235344Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust generic struct with multiple trait bounded fields best practices", "Rust struct with many fields initialization patterns new method", "Rust code organization splitting large structs with generics"]
+[2m2026-03-25T16:24:18.866086Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust generic struct with multiple trait bounded fields best practices'
+[2m2026-03-25T16:24:19.139514Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct with many fields initialization patterns new method'
+[2m2026-03-25T16:24:19.419775Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust code organization splitting large structs with generics'
+[2m2026-03-25T16:25:19.980307Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the deterministic crowding selection to use a two-phase approach that first collects all replacement candidates, then applies replacements after iteration completes, preventing cascading effects and ensuring consistent fitness tracking.
+[2m2026-03-25T16:25:29.606874Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
+[2m2026-03-25T16:25:40.448806Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
