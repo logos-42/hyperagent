@@ -107,6 +107,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
 
         // 确定性拥挤选择
         let mut selected: Vec<crate::agent::Agent> = Vec::new();
+        let mut selected_fitness: Vec<f32> = Vec::new();
         
         for (agent, fitness) in &candidates {
             if selected.len() >= num_branches {
@@ -116,6 +117,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             if selected.is_empty() {
                 // 第一个候选直接入选
                 selected.push(agent.clone());
+                selected_fitness.push(*fitness);
                 continue;
             }
 
@@ -129,41 +131,34 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             // 相似度低于阈值（多样性）或者 fitness 高于所有相似度超过阈值的已选个体
             if max_similarity < threshold {
                 selected.push(agent.clone());
+                selected_fitness.push(*fitness);
             } else {
                 // 检查是否比相似度过高的已选个体更强（拥挤替换）
-                let similar_selected: Vec<_> = selected
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| jaccard_similarity(&s.code, &agent.code) >= threshold)
-                    .collect();
-                
-                // 如果存在比当前候选弱且相似的已选个体，考虑替换
-                if let Some((idx, _weaker)) = similar_selected
-                    .into_iter()
-                    .find(|(_, s)| {
-                        let s_fitness = self.branches
-                            .iter()
-                            .find(|b| b.agent.id == s.id)
-                            .map(|b| b.fitness)
-                            .unwrap_or(0.0);
-                        s_fitness < *fitness
-                    })
-                {
-                    // 只有当替换能提升整体多样性时才替换
-                    let old_sim_sum: f32 = selected
-                        .iter()
-                        .filter(|s| s.id != selected[idx].id)
-                        .map(|s| jaccard_similarity(&s.code, &selected[idx].code))
-                        .sum();
-                    
-                    let new_sim_sum: f32 = selected
-                        .iter()
-                        .filter(|s| s.id != selected[idx].id)
-                        .map(|s| jaccard_similarity(&s.code, &agent.code))
-                        .sum();
-                    
-                    if new_sim_sum < old_sim_sum {
-                        selected[idx] = agent.clone();
+                for idx in 0..selected.len() {
+                    if jaccard_similarity(&selected[idx].code, &agent.code) >= threshold {
+                        // 只有当新候选的 fitness 更高时才考虑替换
+                        if *fitness > selected_fitness[idx] {
+                            // 计算替换后是否能提升整体多样性
+                            let old_sim_sum: f32 = selected
+                                .iter()
+                                .enumerate()
+                                .filter(|(j, _)| *j != idx)
+                                .map(|(_, s)| jaccard_similarity(&s.code, &selected[idx].code))
+                                .sum();
+                            
+                            let new_sim_sum: f32 = selected
+                                .iter()
+                                .enumerate()
+                                .filter(|(j, _)| *j != idx)
+                                .map(|(_, s)| jaccard_similarity(&s.code, &agent.code))
+                                .sum();
+                            
+                            if new_sim_sum < old_sim_sum {
+                                selected[idx] = agent.clone();
+                                selected_fitness[idx] = *fitness;
+                            }
+                            break;
+                        }
                     }
                 }
             }
