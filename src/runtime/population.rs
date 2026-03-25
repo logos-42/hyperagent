@@ -175,6 +175,7 @@ pub enum MessageType {
 }
 
 /// 多智能体种群进化器
+#[allow(dead_code)]
 pub struct PopulationEvolution<C: LLMClient> {
     /// 种群中的所有成员
     members: Vec<PopulationMember>,
@@ -382,6 +383,7 @@ impl<C: LLMClient + Clone> PopulationEvolution<C> {
     }
 
     /// 评估单个成员
+    #[allow(dead_code)]
     async fn evaluate_member(
         &self,
         member: &PopulationMember,

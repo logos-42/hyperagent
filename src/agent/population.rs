@@ -326,7 +326,7 @@ fn rand_simple(max: f64) -> f64 {
         .unwrap()
         .as_nanos() as u64;
     let x = splitmix64(seed);
-    x as f64 % max 
+    x as f64 % max
 }
 
 fn splitmix64(mut seed: u64) -> u64 {
@@ -361,7 +361,8 @@ mod tests {
         let config = PopulationConfig::default();
         let mut system = MultiAgentSystem::new(config);
 
-        system.update_fitness(&system.population[0].id, 0.8);
+        let agent_id = system.population[0].id.clone();
+        system.update_fitness(&agent_id, 0.8);
         assert_eq!(system.population[0].fitness, 0.8);
     }
 }

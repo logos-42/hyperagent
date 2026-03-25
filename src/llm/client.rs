@@ -182,6 +182,7 @@ enum ClientBackend {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct OpenAIBackend {
     client: Arc<OpenAiClient>,
     model: String,
@@ -191,6 +192,7 @@ struct OpenAIBackend {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct OllamaBackend {
     http_client: ReqwestClient,
     base_url: String,
