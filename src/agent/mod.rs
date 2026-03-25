@@ -1,10 +1,12 @@
 pub mod executor;
 pub mod mutator;
 pub mod meta_mutator;
+pub mod population;
 
 pub use executor::Executor;
 pub use mutator::Mutator;
 pub use meta_mutator::MetaMutator;
+pub use population::{MultiAgentSystem, PopulationConfig, PopulationAgent, AgentRole, AgentMessage};
 
 use serde::{Deserialize, Serialize};
 

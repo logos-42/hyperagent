@@ -18,6 +18,9 @@ pub use runtime::{
     ConstraintSystem, HardConstraints, SoftConstraints, CodeMetrics,
     EvolutionDirection, TopologicalConstraints,
     Selector, SelectionType, Individual, PopulationStats,
+    // Multi-agent population evolution
+    PopulationEvolution, PopulationConfig, PopulationEvolutionResult,
+    PopulationMember, AgentRole, AgentMessage, MessageType, GenerationStats,
     // Environment
     Environment, EnvironmentConfig, EnvironmentInfo,
     SessionMeta, SessionStatus,
