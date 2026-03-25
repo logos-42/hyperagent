@@ -17,6 +17,7 @@ struct BranchResult {
     score: f32,
     novelty: f32,
     fitness: f32,
+    #[allow(dead_code)]
     output: String,
 }
 
@@ -231,8 +232,110 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
     async fn run_generation(&mut self, task: &str) -> Result<Vec<BranchResult>> {
         let novelty_weight = self.state.config.novelty_weight;
 
+        // 0. Gen 1 初始化：直接执行初始 agent，不依赖父代
+        if self.branches.is_empty() && self.state.archive.size() == 0 {
+            self.state.set_phase(RuntimePhase::Executing);
+            let initial_agent = crate::agent::Agent::new(String::new(), String::new());
+            let mut results = Vec::new();
+
+            for i in 0..self.state.config.num_branches {
+                let mut agent = initial_agent.clone();
+                agent.generation = self.state.current_generation;
+                agent.id = format!("gen{}_init{}", self.state.current_generation, i);
+
+                match self.executor.run(&agent, task).await {
+                    Ok(exec_result) => {
+                        match self.evaluator.score(task, &exec_result).await {
+                            Ok(eval_result) => {
+                                let score = eval_result.score.value;
+                                let novelty = 1.0; // 首次执行，最大新颖度
+                                let fitness = compute_fitness(score, novelty, novelty_weight);
+
+                                self.state.archive.store(
+                                    agent.clone(),
+                                    eval_result.score,
+                                    task.to_string(),
+                                    exec_result.output.clone(),
+                                );
+                                self.state.lineage.add(&agent, None, score);
+                                self.state.update_best(agent.clone(), score, fitness);
+
+                                self.recent_codes.push(agent.code.clone());
+
+                                results.push(BranchResult {
+                                    agent,
+                                    score,
+                                    novelty,
+                                    fitness,
+                                    output: exec_result.output,
+                                });
+
+                                tracing::info!(
+                                    "Generation {}: init branch {}/{} | score={:.2}, novelty=1.0, fitness={:.2}",
+                                    self.state.current_generation, i + 1,
+                                    self.state.config.num_branches, score, fitness,
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("Initial eval failed (branch {}): {}", i, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Initial execution failed (branch {}): {}", i, e);
+                    }
+                }
+            }
+
+            // 热力学初始化
+            self.update_thermodynamics(&results);
+            self.branches = results;
+            return Ok(self.branches.clone());
+        }
+
         // 1. 从 archive + 当前分支中选择多样性父代
         let parents = self.select_diverse_parents();
+
+        if parents.is_empty() {
+            tracing::warn!(
+                "Generation {}: no diverse parents available, generating fresh agents",
+                self.state.current_generation
+            );
+            // 回退：生成全新的 agent
+            let mut agent = crate::agent::Agent::new(String::new(), String::new());
+            agent.generation = self.state.current_generation;
+            let mut results = Vec::new();
+            match self.executor.run(&agent, task).await {
+                Ok(exec_result) => match self.evaluator.score(task, &exec_result).await {
+                    Ok(eval_result) => {
+                        let score = eval_result.score.value;
+                        let novelty = compute_novelty(&agent.code, &self.recent_codes);
+                        let fitness = compute_fitness(score, novelty, novelty_weight);
+                        self.state.archive.store(
+                            agent.clone(),
+                            eval_result.score,
+                            task.to_string(),
+                            exec_result.output.clone(),
+                        );
+                        self.state.lineage.add(&agent, None, score);
+                        self.state.update_best(agent.clone(), score, fitness);
+                        self.recent_codes.push(agent.code.clone());
+                        results.push(BranchResult {
+                            agent,
+                            score,
+                            novelty,
+                            fitness,
+                            output: exec_result.output,
+                        });
+                    }
+                    Err(e) => tracing::warn!("Fallback eval failed: {}", e),
+                },
+                Err(e) => tracing::warn!("Fallback exec failed: {}", e),
+            }
+            self.update_thermodynamics(&results);
+            self.branches = results;
+            return Ok(self.branches.clone());
+        }
 
         // 2. Meta-mutation
         if self.state.should_meta_mutate() {
