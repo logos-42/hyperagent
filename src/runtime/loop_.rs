@@ -69,6 +69,8 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 }
             };
 
+            let gen_score = eval_result.score.value;
+
             self.state.archive.store(
                 current_agent.clone(),
                 eval_result.score,
@@ -79,10 +81,10 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             self.state.lineage.add(
                 &current_agent,
                 Some(&current_agent.id),
-                eval_result.score.value,
+                gen_score,
             );
 
-            self.state.update_best(current_agent.clone(), eval_result.score.value);
+            self.state.update_best(current_agent.clone(), gen_score);
 
             self.state.set_phase(RuntimePhase::Mutating);
             let failures = self.state.archive.get_failures_text();
@@ -92,10 +94,13 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 failures.lines().map(|s| s.to_string()).collect()
             };
             
+            let pre_mutation_agent = current_agent.clone();
             current_agent = match self.mutator.mutate(&current_agent, &failures_vec).await {
                 Ok(agent) => agent,
                 Err(e) => {
+                    tracing::error!("Generation {}: Mutation failed: {}", self.state.current_generation, e);
                     self.state.add_error(e.to_string());
+                    current_agent = pre_mutation_agent;
                     continue;
                 }
             };
@@ -114,11 +119,40 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 }
             }
 
+            // Evaluate the mutated agent for informed selection
             self.state.set_phase(RuntimePhase::Selecting);
-            if let Some(best) = self.state.archive.get_best() {
-                if best.score.value > current_agent.generation as f32 {
-                    current_agent = best.agent.clone();
+            let mutant_result = match self.executor.run(&current_agent, task).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("Generation {}: Mutant evaluation failed, keeping previous agent: {}", self.state.current_generation, e);
+                    current_agent = pre_mutation_agent;
+                    continue;
                 }
+            };
+
+            let mutant_score = match self.evaluator.score(task, &mutant_result).await {
+                Ok(e) => {
+                    tracing::info!("Generation {}: Mutant score = {:.2}", self.state.current_generation, e.score.value);
+                    e.score.value
+                }
+                Err(e) => {
+                    tracing::warn!("Generation {}: Mutant scoring failed, keeping previous agent: {}", self.state.current_generation, e);
+                    current_agent = pre_mutation_agent;
+                    continue;
+                }
+            };
+
+            if mutant_score < gen_score {
+                tracing::info!(
+                    "Generation {}: Reverting to previous agent ({:.2} > {:.2})",
+                    self.state.current_generation, gen_score, mutant_score
+                );
+                current_agent = pre_mutation_agent;
+            } else {
+                tracing::info!(
+                    "Generation {}: Keeping mutant ({:.2} >= {:.2})",
+                    self.state.current_generation, mutant_score, gen_score
+                );
             }
         }
 
@@ -170,6 +204,8 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
 
             tracing::info!("Generation {}: Score = {:.2}", self.state.current_generation, eval_result.score.value);
 
+            let gen_score = eval_result.score.value;
+
             self.state.archive.store(
                 current_agent.clone(),
                 eval_result.score,
@@ -180,10 +216,10 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             self.state.lineage.add(
                 &current_agent,
                 Some(&current_agent.id),
-                eval_result.score.value,
+                gen_score,
             );
 
-            self.state.update_best(current_agent.clone(), eval_result.score.value);
+            self.state.update_best(current_agent.clone(), gen_score);
 
             self.state.set_phase(RuntimePhase::Mutating);
             let failures = self.state.archive.get_failures_text();
@@ -193,11 +229,13 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 failures.lines().map(|s| s.to_string()).collect()
             };
 
+            let pre_mutation_agent = current_agent.clone();
             current_agent = match self.mutator.mutate(&current_agent, &failures_vec).await {
                 Ok(agent) => agent,
                 Err(e) => {
                     tracing::error!("Generation {}: Mutation failed: {}", self.state.current_generation, e);
                     self.state.add_error(e.to_string());
+                    current_agent = pre_mutation_agent;
                     continue;
                 }
             };
@@ -216,11 +254,41 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 }
             }
 
+            // Evaluate the mutated agent to make an informed selection
             self.state.set_phase(RuntimePhase::Selecting);
-            if let Some(best) = self.state.archive.get_best() {
-                if best.score.value > current_agent.generation as f32 {
-                    current_agent = best.agent.clone();
+            let mutant_result = match self.executor.run(&current_agent, task).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("Generation {}: Mutant evaluation failed, keeping previous agent: {}", self.state.current_generation, e);
+                    current_agent = pre_mutation_agent;
+                    continue;
                 }
+            };
+
+            let mutant_score = match self.evaluator.score(task, &mutant_result).await {
+                Ok(e) => {
+                    tracing::info!("Generation {}: Mutant score = {:.2}", self.state.current_generation, e.score.value);
+                    e.score.value
+                }
+                Err(e) => {
+                    tracing::warn!("Generation {}: Mutant scoring failed, keeping previous agent: {}", self.state.current_generation, e);
+                    current_agent = pre_mutation_agent;
+                    continue;
+                }
+            };
+
+            // Elitist selection: keep the better agent between pre-mutation and mutant
+            if mutant_score < gen_score {
+                tracing::info!(
+                    "Generation {}: Reverting to previous agent ({:.2} > {:.2})",
+                    self.state.current_generation, gen_score, mutant_score
+                );
+                current_agent = pre_mutation_agent;
+            } else {
+                tracing::info!(
+                    "Generation {}: Keeping mutant ({:.2} >= {:.2})",
+                    self.state.current_generation, mutant_score, gen_score
+                );
             }
         }
 

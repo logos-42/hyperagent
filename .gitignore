@@ -2,6 +2,9 @@
 /target/
 Cargo.lock
 
+# Hyperagent runtime
+.hyperagent/
+
 # IDE
 .vscode/
 .idea/
