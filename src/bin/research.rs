@@ -1,11 +1,12 @@
-//! 统一自动研究入口 — Karpathy 风格 + 结构化自改进
+//! 统一自动研究入口 — Karpathy 风格 + 结构化自改进 + Web 搜索
 //!
 //! 用法:
-//!   cargo run --bin research                           # 默认：自动 commit + push
+//!   cargo run --bin research                           # 默认：自动 commit + push + web 搜索
 //!   RESEARCH_DRY_RUN=true cargo run --bin research      # 安全模式：只观察，不提交
 //!   RESEARCH_STRICT=true cargo run --bin research       # 严格模式：测试 100% 通过才接受
 //!   RESEARCH_AUTO_PUSH=false cargo run --bin research   # 只 commit 不 push
 //!   RESEARCH_ITERATIONS=10 cargo run --bin research     # 自定义迭代数
+//!   RESEARCH_WEB=false cargo run --bin research         # 禁用 web 搜索
 
 use anyhow::Result;
 use hyperagent::{AutoResearch, LLMClientImpl, ResearchConfig};
@@ -44,6 +45,10 @@ async fn main() -> Result<()> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
 
+    let enable_web = std::env::var("RESEARCH_WEB")
+        .map(|v| !(v == "false" || v == "0"))
+        .unwrap_or(true);  // 默认开启 web 搜索
+
     if dry_run {
         tracing::warn!("DRY RUN — changes will be reverted, nothing committed");
     }
@@ -53,6 +58,7 @@ async fn main() -> Result<()> {
         dry_run,
         strict,
         max_iterations,
+        enable_web,
         ..Default::default()
     };
 

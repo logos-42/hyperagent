@@ -24,6 +24,7 @@ use std::path::PathBuf;
 
 use crate::codebase::CodebaseContext;
 use crate::llm::LLMClient;
+use crate::web::{WebSearchTool, WebFetchTool, WebSearchResult, FetchOutput, build_web_context_prompt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchConfig {
@@ -43,6 +44,12 @@ pub struct ResearchConfig {
     pub strict: bool,
     /// 每次 push 间隔（0 = 每次成功都 push）
     pub push_interval: u32,
+    /// 启用 web 搜索（研究前先搜索相关信息）
+    pub enable_web: bool,
+    /// Web 搜索结果数量
+    pub web_search_limit: usize,
+    /// 每次搜索后抓取的页面数（0 = 不抓取）
+    pub web_fetch_limit: usize,
 }
 
 impl Default for ResearchConfig {
@@ -60,6 +67,9 @@ impl Default for ResearchConfig {
             dry_run: false,
             strict: false,
             push_interval: 0,
+            enable_web: true,
+            web_search_limit: 5,
+            web_fetch_limit: 2,
         }
     }
 }
@@ -84,13 +94,14 @@ pub enum ExperimentOutcome {
     Failed,     // 编译失败
 }
 
-/// Karpathy 风格的自动研究引擎（含全局代码理解）
+/// Karpathy 风格的自动研究引擎（含全局代码理解 + Web 搜索）
 pub struct AutoResearch<C: LLMClient> {
     client: C,
     config: ResearchConfig,
     experiments: Vec<Experiment>,
     codebase: CodebaseContext,
     context_path: PathBuf,
+    web_client: WebSearchTool,
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -124,6 +135,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             experiments: Vec::new(),
             codebase,
             context_path,
+            web_client: WebSearchTool::new(),
         }
     }
 
@@ -260,8 +272,91 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         raw.trim().to_string()
     }
 
-    /// 构建研究 prompt：注入全局架构上下文
-    fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment]) -> String {
+    /// 使用 LLM 生成搜索查询，执行 Web 搜索，并返回上下文字符串
+    async fn gather_web_context(&self, file: &str, code: &str) -> Option<String> {
+        if !self.config.enable_web {
+            return None;
+        }
+
+        // 1. LLM 生成搜索查询
+        let search_prompt = format!(
+            "You are researching improvements for a Rust file. Given the code below, \
+             suggest 2-3 web search queries to find best practices, idioms, or solutions.\n\
+             Be specific. Output ONLY the queries, one per line. No numbering.\n\n\
+             File: src/{file}\n\
+             Code (first 2000 chars):\n{code_snippet}",
+            file = file,
+            code_snippet = code.chars().take(2000).collect::<String>(),
+        );
+
+        let search_response = match self.client.complete(&search_prompt).await {
+            Ok(r) => r.content,
+            Err(e) => {
+                tracing::warn!("  Web: failed to generate search queries: {}", e);
+                return None;
+            }
+        };
+
+        let queries: Vec<String> = search_response
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && l.len() < 200)
+            .take(3)
+            .collect();
+
+        if queries.is_empty() {
+            return None;
+        }
+
+        tracing::info!("  Web: searching for: {:?}", queries);
+
+        // 2. 并发搜索
+        let mut all_results: Vec<WebSearchResult> = Vec::new();
+        for query in &queries {
+            match self.web_client.search(query, self.config.web_search_limit).await {
+                Ok(results) => {
+                    tracing::info!("  Web: {} results for '{}'", results.len(), query);
+                    all_results.extend(results);
+                }
+                Err(e) => tracing::warn!("  Web: search failed for '{}': {}", query, e),
+            }
+        }
+
+        if all_results.is_empty() {
+            return None;
+        }
+
+        // 3. 抓取前 N 个页面
+        let fetch_tool = WebFetchTool::new();
+        let fetch_urls: Vec<String> = all_results
+            .iter()
+            .take(self.config.web_fetch_limit)
+            .map(|r| r.url.clone())
+            .collect();
+
+        if !fetch_urls.is_empty() {
+            tracing::info!("  Web: fetching {} pages...", fetch_urls.len());
+            let mut pages: Vec<FetchOutput> = Vec::new();
+            for url in &fetch_urls {
+                match fetch_tool.fetch(url).await {
+                    Ok(page) => {
+                        tracing::info!("  Web: fetched {} ({} chars)", url, page.text_length);
+                        pages.push(page);
+                    }
+                    Err(e) => tracing::warn!("  Web: failed to fetch {}: {}", url, e),
+                }
+            }
+
+            let context = build_web_context_prompt(&all_results, &pages);
+            tracing::info!("  Web: gathered {} chars of context", context.len());
+            return Some(context);
+        }
+
+        Some(build_web_context_prompt(&all_results, &[]))
+    }
+
+    /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文
+    fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment], web_context: Option<&str>) -> String {
         let recent_history = history.iter().rev().take(5).map(|e| {
             format!(
                 "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}",
@@ -274,6 +369,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         format!(
             "You are an AI researcher improving your own codebase. This is a self-research loop.\n\n\
              {codebase_context}\n\n\
+             {web_section}\n\
              === CURRENT FILE: src/{file} ===\n\
              {code}\n\n\
              === PAST EXPERIMENTS ===\n\
@@ -298,6 +394,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             file = file,
             code = code,
             history = if recent_history.is_empty() { "(no experiments yet)".to_string() } else { recent_history },
+            web_section = web_context.map(|ctx| format!("{}\n", ctx)).unwrap_or_default(),
         )
     }
 
@@ -399,8 +496,11 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         };
         tracing::info!("  Baseline: {}/{} tests", tests_before.0, tests_before.1);
 
-        // 3. LLM 提出改进
-        let prompt = self.build_research_prompt(file, &code, &self.experiments);
+        // 3. Web 搜索（获取外部知识）
+        let web_context = self.gather_web_context(file, &code).await;
+
+        // 4. LLM 提出改进
+        let prompt = self.build_research_prompt(file, &code, &self.experiments, web_context.as_deref());
         let response = self.client.complete(&prompt).await?;
         let response_text = response.content;
 
@@ -548,6 +648,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         tracing::info!("Auto push: {}", self.config.auto_push);
         tracing::info!("Dry run: {}", self.config.dry_run);
         tracing::info!("Strict mode: {}", self.config.strict);
+        tracing::info!("Web search: {}", self.config.enable_web);
 
         if self.config.auto_push {
             tracing::warn!("AUTO PUSH enabled — changes will be pushed to GitHub!");

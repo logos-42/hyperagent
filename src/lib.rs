@@ -6,6 +6,7 @@ pub mod memory;
 pub mod runtime;
 pub mod self_evolution;
 pub mod auto_research;
+pub mod web;
 
 pub use agent::{Agent, Executor, MetaMutator, Mutator};
 pub use codebase::CodebaseContext;
@@ -35,3 +36,4 @@ pub use runtime::{
 };
 pub use self_evolution::{SelfEvolutionEngine, SelfEvolutionConfig, SelfEvolutionStatus};
 pub use auto_research::{AutoResearch, ResearchConfig, Experiment, ExperimentOutcome};
+pub use web::{WebSearchTool, WebFetchTool, WebSearchResult, FetchOutput, SearchOutput, build_web_context_prompt};
