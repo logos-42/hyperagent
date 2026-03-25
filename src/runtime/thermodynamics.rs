@@ -92,29 +92,40 @@ impl EnergyState {
     /// - 低熵产生率（系统已稳定）：加速冷却，收敛到最优解
     ///
     /// 数学推导：
-    /// - 有效冷却率 = base_rate * adaptation_factor
-    /// - 冷却率越小 → 温度下降越快（加速冷却）
-    /// - 冷却率越大（接近1.0）→ 温度下降越慢（减缓冷却）
+    /// - 温度更新：T(t+1) = T(t) * effective_cooling_rate
+    /// - effective_cooling_rate = base_rate ^ adaptation_factor
+    /// - adaptation_factor > 1 (高熵)：effective_rate 更大 → 冷却更慢
+    /// - adaptation_factor < 1 (低熵)：effective_rate 更小 → 冷却更快
     pub fn adaptive_cool(&mut self) {
         // 计算自适应因子
-        // 高熵产生 → 因子 > 1 → effective_cooling 更接近 1.0 → 减缓冷却
-        // 低熵产生 → 因子 < 1 → effective_cooling 更小 → 加速冷却
+        // 高熵产生 → 因子 < 1 → 有效冷却率更小 → 温度下降更快 (原逻辑错误)
+        // 低熵产生 → 因子 > 1 → 有效冷却率更大 → 温度下降更慢 (原逻辑错误)
+        //
+        // 正确逻辑：
+        // 高熵产生 → 需要保持高温探索 → 冷却要慢 → effective_rate 接近 1
+        // 低熵产生 → 可以加速收敛 → 冷却要快 → effective_rate 要小
+        //
+        // 由于 effective_rate = base_rate ^ factor：
+        // - base_rate < 1，所以 factor 越大 → effective_rate 越接近 1 → 冷却越慢
+        // - base_rate < 1，所以 factor 越小 → effective_rate 越接近 0 → 冷却越快
+        
         let adaptation_factor = if self.entropy_production_rate > 0.1 {
-            // 系统活跃探索：减缓冷却，让探索继续
-            // entropy_production_rate 越大，因子越大，冷却越慢
-            1.0 + self.entropy_production_rate * 0.5
+            // 系统活跃探索：减缓冷却
+            // entropy_production_rate 范围约 [0.1, 1.0+]
+            // factor 范围约 [1.0, 2.0]，使 effective_rate 接近 1
+            1.0 + (self.entropy_production_rate - 0.1).min(1.0) * 1.0
         } else if self.entropy_production_rate < 0.01 {
-            // 系统已稳定：加速冷却，快速收敛
-            // entropy_production_rate 越小，因子越小，冷却越快
-            let stability_factor = 1.0 - (self.entropy_production_rate / 0.01).min(1.0);
-            1.0 - stability_factor * 0.3 // 最多减速30%
+            // 系统已稳定：加速冷却
+            // entropy_production_rate 范围约 [0.0, 0.01]
+            // factor 范围约 [0.0, 1.0]，使 effective_rate 更小
+            0.5 + (self.entropy_production_rate / 0.01) * 0.5
         } else {
             1.0
         };
 
-        // effective_cooling > cooling_rate 表示减慢冷却
-        // effective_cooling < cooling_rate 表示加速冷却
-        let effective_cooling = (self.cooling_rate * adaptation_factor).clamp(0.8, 0.999);
+        // effective_cooling_rate > cooling_rate 表示减慢冷却
+        // effective_cooling_rate < cooling_rate 表示加速冷却
+        let effective_cooling = self.cooling_rate.powf(adaptation_factor);
         self.temperature = (self.temperature * effective_cooling).max(self.min_temperature);
         self.generation += 1;
     }

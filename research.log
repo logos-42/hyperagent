@@ -49,3 +49,22 @@
 [2m2026-03-25T16:17:50.140703Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the deterministic crowding selection to correctly compare fitness values when considering replacement of similar individuals, ensuring consistent fitness evaluation across both branch and archive candidates.
 [2m2026-03-25T16:18:05.632864Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
 [2m2026-03-25T16:18:07.930261Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-25T16:18:08.115256Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[2]: runtime/loop_.rs — Fix the deterministic crowding selection to correctly compar (Neutral)
+[2m2026-03-25T16:18:08.115307Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T16:18:12.325024Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 3] Improving src/auto_research.rs
+[2m2026-03-25T16:18:16.336469Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 0/0 tests
+[2m2026-03-25T16:18:18.079237Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust error handling best practices using anyhow and thiserror", "Rust idiom for struct configuration with Default trait", "Rust serde serialization best practices for configuration structs"]
+[2m2026-03-25T16:18:18.822468Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust error handling best practices using anyhow and thiserror'
+[2m2026-03-25T16:18:19.144533Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiom for struct configuration with Default trait'
+[2m2026-03-25T16:18:19.409232Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust serde serialization best practices for configuration structs'
+[2m2026-03-25T16:21:25.170218Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the test result parsing in run_tests() to correctly extract passed and failed counts from cargo's actual output format ("test result: ok. X passed; Y failed; Z ignored" or "test result: FAILED. X passed; Y failed"), ensuring accurate experiment outcome classification.
+[2m2026-03-25T16:21:26.887263Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
+[2m2026-03-25T16:21:29.893481Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 4] Improving src/runtime/thermodynamics.rs
+[2m2026-03-25T16:21:40.836913Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 0/0 tests
+[2m2026-03-25T16:21:45.864580Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust struct visibility best practices public fields vs getters", "Rust floating point epsilon comparison idioms", "Rust Simulated Annealing implementation struct design"]
+[2m2026-03-25T16:21:46.657921Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct visibility best practices public fields vs getters'
+[2m2026-03-25T16:21:47.108959Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust floating point epsilon comparison idioms'
+[2m2026-03-25T16:21:47.417319Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust Simulated Annealing implementation struct design'
+[2m2026-03-25T16:23:52.265790Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the adaptive cooling logic to correctly compute the adaptation factor so that high entropy production slows cooling (temperature stays higher) and low entropy production accelerates cooling (temperature drops faster).
+[2m2026-03-25T16:24:04.860636Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
+[2m2026-03-25T16:24:07.485286Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
