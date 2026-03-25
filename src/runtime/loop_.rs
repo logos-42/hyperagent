@@ -107,63 +107,81 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         // 去重（同 id 只保留最高 fitness）
         candidates.dedup_by(|a, b| a.0.id == b.0.id);
 
-        // 确定性拥挤选择 - 两阶段处理避免级联效应
-        let mut selected: Vec<crate::agent::Agent> = Vec::new();
+        // 预计算候选者之间的相似度矩阵，避免重复计算
+        let candidate_codes: Vec<&String> = candidates.iter().map(|(a, _)| &a.code).collect();
+        let candidate_count = candidates.len();
+        
+        // 构建相似度矩阵：sim_matrix[i][j] = jaccard_similarity(code_i, code_j)
+        // 这是对称矩阵，只需计算上三角
+        let mut sim_matrix: Vec<Vec<f32>> = vec![vec![0.0; candidate_count]; candidate_count];
+        for i in 0..candidate_count {
+            sim_matrix[i][i] = 1.0; // 自相似度为1
+            for j in (i + 1)..candidate_count {
+                let sim = jaccard_similarity(candidate_codes[i], candidate_codes[j]);
+                sim_matrix[i][j] = sim;
+                sim_matrix[j][i] = sim; // 对称性
+            }
+        }
+
+        // 确定性拥挤选择
+        let mut selected: Vec<usize> = Vec::new(); // 存储选中的候选索引
         let mut selected_fitness: Vec<f32> = Vec::new();
         
-        for (agent, fitness) in &candidates {
+        for (idx, (_, fitness)) in candidates.iter().enumerate() {
             if selected.len() >= num_branches {
                 break;
             }
 
             if selected.is_empty() {
                 // 第一个候选直接入选
-                selected.push(agent.clone());
+                selected.push(idx);
                 selected_fitness.push(*fitness);
                 continue;
             }
 
-            // 计算与已选个体的最大相似度
+            // 计算与已选个体的最大相似度（使用预计算矩阵）
             let max_similarity = selected
                 .iter()
-                .map(|s| jaccard_similarity(&s.code, &agent.code))
+                .map(|&s_idx| sim_matrix[idx][s_idx])
                 .fold(0.0_f32, f32::max);
 
-            // 确定性拥挤接受条件：
-            // 相似度低于阈值（多样性）或者 fitness 高于所有相似度超过阈值的已选个体
+            // 确定性拥挤接受条件
             if max_similarity < threshold {
-                selected.push(agent.clone());
+                selected.push(idx);
                 selected_fitness.push(*fitness);
             } else {
-                // 两阶段处理：收集所有可能的替换，不立即修改
+                // 收集所有可能的替换选项
                 let mut best_replacement: Option<(usize, f32)> = None;
                 
-                for idx in 0..selected.len() {
-                    if jaccard_similarity(&selected[idx].code, &agent.code) >= threshold {
+                for (pos, &sel_idx) in selected.iter().enumerate() {
+                    // 只有当新候选与已选个体的相似度超过阈值时才考虑替换
+                    if sim_matrix[idx][sel_idx] >= threshold {
                         // 只有当新候选的 fitness 更高时才考虑替换
-                        if *fitness > selected_fitness[idx] {
-                            // 计算替换后是否能提升整体多样性
+                        if *fitness > selected_fitness[pos] {
+                            // 计算替换后的总相似度变化
+                            // 旧相似度和：被替换个体与所有其他已选个体的相似度之和
                             let old_sim_sum: f32 = selected
                                 .iter()
                                 .enumerate()
-                                .filter(|(j, _)| *j != idx)
-                                .map(|(_, s)| jaccard_similarity(&s.code, &selected[idx].code))
+                                .filter(|(j, _)| *j != pos)
+                                .map(|(_, &other_idx)| sim_matrix[sel_idx][other_idx])
                                 .sum();
                             
+                            // 新相似度和：新候选与所有其他已选个体的相似度之和
                             let new_sim_sum: f32 = selected
                                 .iter()
                                 .enumerate()
-                                .filter(|(j, _)| *j != idx)
-                                .map(|(_, s)| jaccard_similarity(&s.code, &agent.code))
+                                .filter(|(j, _)| *j != pos)
+                                .map(|(_, &other_idx)| sim_matrix[idx][other_idx])
                                 .sum();
                             
+                            // 选择能最大化降低总相似度的替换
                             if new_sim_sum < old_sim_sum {
-                                // 记录最佳替换候选（最低新相似度和）
                                 let new_total_sim = new_sim_sum;
                                 match &best_replacement {
-                                    None => best_replacement = Some((idx, new_total_sim)),
+                                    None => best_replacement = Some((pos, new_total_sim)),
                                     Some((_, prev_sim)) if new_total_sim < *prev_sim => {
-                                        best_replacement = Some((idx, new_total_sim));
+                                        best_replacement = Some((pos, new_total_sim));
                                     }
                                     _ => {}
                                 }
@@ -172,27 +190,31 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                     }
                 }
                 
-                // 阶段2：应用最佳替换（如果存在）
-                if let Some((idx, _)) = best_replacement {
-                    selected[idx] = agent.clone();
-                    selected_fitness[idx] = *fitness;
+                // 应用最佳替换
+                if let Some((pos, _)) = best_replacement {
+                    selected[pos] = idx;
+                    selected_fitness[pos] = *fitness;
                 }
             }
         }
 
-        // 如果经过拥挤选择后数量不足，放宽条件补齐
+        // 如果数量不足，放宽条件补齐
         if selected.len() < num_branches {
-            for (agent, _) in &candidates {
+            for (idx, _) in candidates.iter().enumerate() {
                 if selected.len() >= num_branches {
                     break;
                 }
-                if !selected.iter().any(|s| s.id == agent.id) {
-                    selected.push(agent.clone());
+                if !selected.contains(&idx) {
+                    selected.push(idx);
                 }
             }
         }
 
+        // 转换索引为实际的 agent
         selected
+            .into_iter()
+            .map(|idx| candidates[idx].0.clone())
+            .collect()
     }
 
     /// 计算无偏样本方差（Bessel校正）
