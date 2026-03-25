@@ -70,3 +70,14 @@ warning: `hyperagent` (lib) generated 1 warning
 [2m2026-03-25T16:58:10.657398Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `html_to_text` function has inefficient repeated allocations from `to_lowercase()` on the entire HTML string for every attribute and tag check, and creates multiple intermediate strings for tag detection - these can be eliminated by using case-insensitive matching and checking the tag buffer directly.
 [2m2026-03-25T16:58:26.953384Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 93/95 tests
 [2m2026-03-25T16:58:32.098604Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-25T16:58:32.236738Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[4]: web.rs — The `html_to_text` function has inefficient repeated allocat (Improved)
+[2m2026-03-25T16:58:32.236802Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T16:58:36.370820Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 5] Improving src/tools.rs
+[2m2026-03-25T16:58:38.521723Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 93/95 tests
+[2m2026-03-25T16:58:39.914974Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["rig-rs Tool trait implementation example", "rust idiomatic error handling anyhow", "rust walkdir grep example"]
+[2m2026-03-25T16:58:40.582264Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait implementation example'
+[2m2026-03-25T16:58:40.906098Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust idiomatic error handling anyhow'
+[2m2026-03-25T16:58:41.375621Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust walkdir grep example'
+[2m2026-03-25T17:00:02.667594Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `glob_match` function uses inefficient recursive matching that creates many intermediate slices and has exponential worst-case complexity for patterns with multiple `*` wildcards — this can be optimized using dynamic programming to achieve O(m*n) time complexity while reducing allocations.
+[2m2026-03-25T17:00:19.229230Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 94/97 tests
+[2m2026-03-25T17:00:22.121126Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved

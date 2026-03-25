@@ -812,55 +812,52 @@ impl Tool for CodebaseTreeTool {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Simple glob matching (supports * and ?).
+/// Simple glob matching (supports * and ?) using dynamic programming.
+/// Achieves O(m*n) time complexity where m = pattern length, n = text length.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let p_chars = pattern.chars();
-    let t_chars = text.chars();
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    let m = p.len();
+    let n = t.len();
 
-    // Simple recursive glob matching
-    fn match_impl(p: &[char], t: &[char]) -> bool {
-        let mut pi = 0;
-        let mut ti = 0;
+    // dp[i][j] = true if pattern[0..i] matches text[0..j]
+    let mut dp = vec![vec![false; n + 1]; m + 1];
 
-        while pi < p.len() && ti < t.len() {
-            match p[pi] {
-                '*' => {
-                    // Skip consecutive wildcards
-                    while pi < p.len() && p[pi] == '*' {
-                        pi += 1;
-                    }
-                    // Try matching rest at every position
-                    while ti <= t.len() {
-                        if match_impl(&p[pi..], &t[ti..]) {
-                            return true;
-                        }
-                        ti += 1;
-                    }
-                    return false;
-                }
-                '?' => {
-                    pi += 1;
-                    ti += 1;
-                }
-                c if c == t[ti] => {
-                    pi += 1;
-                    ti += 1;
-                }
-                _ => return false,
-            }
+    // Empty pattern matches empty text
+    dp[0][0] = true;
+
+    // Handle leading wildcards: * can match empty string
+    for i in 1..=m {
+        if p[i - 1] == '*' {
+            dp[i][0] = dp[i - 1][0];
+        } else {
+            break;
         }
-
-        // Skip trailing wildcards
-        while pi < p.len() && p[pi] == '*' {
-            pi += 1;
-        }
-
-        pi >= p.len() && ti >= t.len()
     }
 
-    let p: Vec<char> = p_chars.collect();
-    let t: Vec<char> = t_chars.collect();
-    match_impl(&p, &t)
+    // Fill the DP table
+    for i in 1..=m {
+        for j in 1..=n {
+            match p[i - 1] {
+                '*' => {
+                    // * can match:
+                    // - empty string (dp[i-1][j])
+                    // - one or more characters (dp[i][j-1])
+                    dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+                }
+                '?' => {
+                    // ? matches exactly one character
+                    dp[i][j] = dp[i - 1][j - 1];
+                }
+                c => {
+                    // Literal character must match
+                    dp[i][j] = dp[i - 1][j - 1] && c == t[j - 1];
+                }
+            }
+        }
+    }
+
+    dp[m][n]
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +899,34 @@ mod tests {
         assert!(glob_match("*test*.rs", "test_mod.rs"));
         assert!(glob_match("*/mod.rs", "agent/mod.rs"));
         assert!(!glob_match("*/mod.rs", "agent/test.rs"));
+    }
+
+    #[test]
+    fn test_glob_match_multiple_stars() {
+        // Test patterns with multiple * wildcards
+        assert!(glob_match("a*b*c", "abc"));
+        assert!(glob_match("a*b*c", "aXbYc"));
+        assert!(glob_match("a*b*c", "aXXbYYc"));
+        assert!(glob_match("**test**", "test"));
+        assert!(glob_match("**test**", "my_test_file.rs"));
+        assert!(!glob_match("a*b*c", "ac"));
+        assert!(!glob_match("a*b*c", "ab"));
+    }
+
+    #[test]
+    fn test_glob_match_edge_cases() {
+        // Empty patterns
+        assert!(glob_match("", ""));
+        assert!(!glob_match("", "a"));
+        
+        // Only wildcards
+        assert!(glob_match("*", ""));
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("**", "anything"));
+        assert!(glob_match("?", ""));
+        assert!(!glob_match("?", ""));
+        assert!(glob_match("?", "x"));
+        assert!(!glob_match("?", "xy"));
     }
 
     #[test]
