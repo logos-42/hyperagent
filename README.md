@@ -31,8 +31,11 @@
 src/
 ├── lib.rs                      # 库入口，公开 API 导出
 ├── main.rs                     # 进化引擎二进制入口
-├── auto_research.rs            # 统一自动研究循环（Karpathy + 结构化自改进）
+├── auto_research.rs            # 统一自动研究循环（Karpathy + 结构化自改进 + Web 搜索）
 ├── self_evolution.rs           # 递归自改进引擎
+├── codebase.rs                 # 全局代码理解 + 上下文注入
+├── web.rs                      # rig Tool: web_search (DuckDuckGo) + web_fetch
+├── tools.rs                    # rig Tool: codebase_grep/search/read/tree
 ├── agent/
 │   ├── mod.rs                  # Agent、MutationStrategy
 │   ├── executor.rs             # LLM 任务执行
@@ -155,6 +158,20 @@ git log --oneline
 - **自动 GitHub 推送** — 每次成功改进自动 commit + push
 - **实验日志** — Markdown 格式记录每次实验的假设、结果、反思
 - **dry_run / strict 模式** — 安全观察或严格验证
+- **Web 搜索** — 每次迭代自动搜索外部知识（DuckDuckGo），注入研究上下文
+
+### rig Tool 系统
+所有工具实现 rig-core `Tool` trait，可供 LLM Agent 直接调用：
+
+**Web 工具** (`src/web.rs`)：
+- `web_search` — DuckDuckGo 搜索（无需 API Key）
+- `web_fetch` — 抓取 URL + 提取纯文本
+
+**本地代码工具** (`src/tools.rs`)：
+- `codebase_grep` — 正则搜索源文件（支持扩展名过滤 + 上下文行）
+- `codebase_search` — glob 模式文件查找
+- `codebase_read` — 读取文件（支持分页）
+- `codebase_tree` — 目录树结构列出
 
 ## 环境变量
 
@@ -168,6 +185,7 @@ git log --oneline
 | `RESEARCH_DRY_RUN` | `false` | 安全模式 |
 | `RESEARCH_STRICT` | `false` | 严格模式 |
 | `RESEARCH_ITERATIONS` | `5` | 研究迭代数 |
+| `RESEARCH_WEB` | `true` | 启用 Web 搜索 |
 | `ITERATIONS` | `5` | 进化引擎迭代数 |
 
 ## 自动研究循环详解
@@ -178,18 +196,19 @@ git log --oneline
 │                                                      │
 │    1. READ      读取目标源文件                         │
 │    2. BASELINE  cargo test 获取基线                    │
-│    3. HYPOTHESIZE LLM 提出改进假设                     │
-│    4. APPLY     写入修改后的代码                       │
-│    5. COMPILE   cargo check                           │
+│    3. WEB       [可选] LLM 生成查询 → 搜索 → 抓取页面  │
+│    4. HYPOTHESIZE LLM + Web 上下文提出改进假设         │
+│    5. APPLY     写入修改后的代码                       │
+│    6. COMPILE   cargo check                           │
 │       ├── FAIL → git checkout 回滚 → LLM 反思 → LOG   │
 │       └── OK ↓                                       │
-│    6. TEST      cargo test                            │
+│    7. TEST      cargo test                            │
 │       ├── REGRESS → git checkout 回滚 → LLM 反思 → LOG│
 │       └── OK ↓                                       │
-│    7. REFLECT   LLM 反思实验结果                      │
-│    8. LOG       写入 research_log.md                  │
-│    9. COMMIT    git commit                            │
-│   10. PUSH      git push origin HEAD                  │
+│    8. REFLECT   LLM 反思实验结果                      │
+│    9. LOG       写入 research_log.md                  │
+│   10. COMMIT    git commit                            │
+│   11. PUSH      git push origin HEAD                  │
 │                                                      │
 │  end while                                            │
 └──────────────────────────────────────────────────────┘
@@ -199,7 +218,7 @@ git log --oneline
 
 | Crate | 用途 |
 |-------|------|
-| `rig-core` | LLM 提供商抽象 |
+| `rig-core` | LLM 提供商抽象 + Tool trait |
 | `tokio` | 异步运行时 |
 | `serde` / `serde_json` | 序列化 + 磁盘持久化 |
 | `anyhow` | 错误处理 |
@@ -207,6 +226,9 @@ git log --oneline
 | `chrono` | 时间戳 |
 | `uuid` | 唯一标识 |
 | `dotenvy` | 环境变量 |
+| `reqwest` | HTTP 客户端（Web 搜索/抓取） |
+| `regex` | 正则表达式（代码搜索） |
+| `thiserror` | 错误类型定义 |
 
 ## License
 

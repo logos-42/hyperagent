@@ -47,14 +47,15 @@ FOR generation = 1 TO max_generations:
 WHILE iteration < max:
     1. 读取目标源文件 (src/下)
     2. cargo test 获取基线测试数
-    3. LLM 读代码 → 提出 ONE 具体改进假设
-    4. 写入修改后的完整文件
-    5. cargo check → 失败则 git checkout 回滚
-    6. cargo test → 测试退化则 git checkout 回滚
-    7. LLM 反思实验结果
-    8. 写入 .hyperagent/experiments/research_log.md
-    9. git commit（成功时）
-   10. git push origin HEAD（auto_push 开启时）
+    3. [Web] LLM 生成搜索查询 → DuckDuckGo 搜索 → 抓取页面 → 构建上下文
+    4. LLM 读代码 + Web 上下文 → 提出 ONE 具体改进假设
+    5. 写入修改后的完整文件
+    6. cargo check → 失败则 git checkout 回滚
+    7. cargo test → 测试退化则 git checkout 回滚
+    8. LLM 反思实验结果
+    9. 写入 .hyperagent/experiments/research_log.md
+   10. git commit（成功时）
+   11. git push origin HEAD（auto_push 开启时）
 ```
 
 **关键特性**：
@@ -63,6 +64,7 @@ WHILE iteration < max:
 - strict 模式：测试 100% 通过才接受
 - 每次迭代自动 git commit + push 到 GitHub
 - 默认目标文件轮换：thermodynamics.rs → loop_.rs → auto_research.rs
+- **Web 搜索**：默认开启，每次迭代先搜索外部知识注入研究上下文
 
 ### Mode 3: 结构化自改进 (Self Evolution)
 
@@ -78,6 +80,7 @@ WHILE iteration < max:
 ```
 hyperagent/
 ├── Cargo.toml                  # rig-core, tokio, serde, anyhow, tracing, chrono, uuid
+│                               # 新增: reqwest, thiserror, regex
 ├── .env                        # LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 ├── .hyperagent/
 │   ├── data/
@@ -91,8 +94,11 @@ hyperagent/
 ├── src/
 │   ├── lib.rs                  # 公开 API 导出
 │   ├── main.rs                 # 进化引擎入口
-│   ├── auto_research.rs        # [核心] 统一自动研究循环
+│   ├── auto_research.rs        # [核心] 统一自动研究循环（含 Web 搜索）
 │   ├── self_evolution.rs       # 结构化自改进引擎
+│   ├── codebase.rs             # CodebaseContext: 全局代码理解 + 上下文注入
+│   ├── web.rs                  # [新] rig Tool: web_search + web_fetch (DuckDuckGo)
+│   ├── tools.rs                # [新] rig Tool: codebase_grep/search/read/tree
 │   ├── agent/
 │   │   ├── mod.rs              # Agent { id, code, prompt, generation, fitness, novelty }
 │   │   ├── executor.rs         # LLM 执行任务
@@ -121,7 +127,7 @@ hyperagent/
 │   │   ├── local_runtime.rs    # LocalRuntime
 │   │   └── multi_agent_loop.rs # 多智能体循环
 │   └── bin/
-│       ├── research.rs         # [主入口] 自动研究
+│       ├── research.rs         # [主入口] 自动研究（含 RESEARCH_WEB 环境变量）
 │       └── self_evolve.rs      # 结构化自改进
 ├── examples/
 │   └── basic.rs                # 基础用法示例
@@ -161,6 +167,9 @@ pub struct ResearchConfig {
     pub strict: bool,                   // 默认 false
     pub push_interval: u32,             // 0 = 每次成功都 push
     pub experiment_log_dir: PathBuf,    // .hyperagent/experiments
+    pub enable_web: bool,               // 默认 true — 启用 Web 搜索
+    pub web_search_limit: usize,        // 默认 5 — 每次搜索返回结果数
+    pub web_fetch_limit: usize,         // 默认 2 — 每次搜索后抓取页面数
 }
 ```
 
@@ -277,6 +286,60 @@ git log --oneline
 
 ---
 
+## Tool System (rig Tool trait)
+
+所有工具实现 rig-core `Tool` trait，可供 LLM Agent 直接调用。
+
+### Web Tools (`src/web.rs`)
+
+| Tool Name | 结构体 | 功能 |
+|-----------|--------|------|
+| `web_search` | `WebSearchTool` | DuckDuckGo HTML 搜索（无需 API Key） |
+| `web_fetch` | `WebFetchTool` | 抓取 URL + 提取纯文本（去除 script/style） |
+
+工作流程：LLM 生成搜索查询 → `web_search` 获取结果 → `web_fetch` 抓取页面 → `build_web_context_prompt()` 注入研究 prompt。
+
+```rust
+// WebSearchTool
+pub struct SearchArgs { pub query: String, pub max_results: usize }
+pub struct SearchOutput { pub results: Vec<WebSearchResult>, pub query: String }
+
+// WebFetchTool
+pub struct FetchArgs { pub url: String }
+pub struct FetchOutput { pub url: String, pub title: String, pub text: String, pub text_length: usize }
+```
+
+### Local Codebase Tools (`src/tools.rs`)
+
+| Tool Name | 结构体 | 功能 |
+|-----------|--------|------|
+| `codebase_grep` | `CodebaseGrepTool` | 正则搜索源文件内容，支持扩展名过滤 + 上下文行 |
+| `codebase_search` | `CodebaseSearchTool` | glob 模式文件查找（如 `*.rs`, `*test*`） |
+| `codebase_read` | `CodebaseReadTool` | 读取文件内容，支持分页（start_line + max_lines） |
+| `codebase_tree` | `CodebaseTreeTool` | 目录树结构列出（自动排序、过滤 target/） |
+
+```rust
+// CodebaseGrepTool
+pub struct GrepArgs { pub pattern: String, pub file_ext: String, pub max_results: usize, pub context_lines: usize }
+pub struct GrepOutput { pub pattern: String, pub matches: Vec<GrepMatch>, pub total_matches: usize, pub files_searched: usize }
+
+// CodebaseSearchTool
+pub struct SearchFilesArgs { pub pattern: String, pub max_results: usize }
+pub struct SearchFilesOutput { pub pattern: String, pub files: Vec<FileEntry>, pub total_found: usize }
+
+// CodebaseReadTool
+pub struct ReadFileArgs { pub path: String, pub start_line: usize, pub max_lines: usize }
+pub struct ReadFileOutput { pub path: String, pub total_lines: usize, pub returned_lines: usize, pub start_line: usize, pub end_line: usize, pub content: String }
+
+// CodebaseTreeTool
+pub struct TreeArgs { pub dir: String, pub max_depth: usize }
+pub struct TreeOutput { pub base_dir: String, pub entries: Vec<TreeEntry>, pub total_files: usize, pub total_dirs: usize }
+```
+
+所有本地工具都接受 `ProjectRoot` 参数（默认 `current_dir()`），自动跳过 `target/` 和隐藏目录。
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -289,6 +352,7 @@ git log --oneline
 | `RESEARCH_DRY_RUN` | `false` | Safety mode |
 | `RESEARCH_STRICT` | `false` | Strict test mode |
 | `RESEARCH_ITERATIONS` | `5` | Research loop count |
+| `RESEARCH_WEB` | `true` | Enable web search before research |
 | `ITERATIONS` | `5` | Evolution engine generations |
 | `NO_PROXY` | `localhost,127.0.0.1` | Proxy bypass |
 
@@ -337,11 +401,13 @@ git log --oneline
 
 ## Known Issues & Gotchas
 
-1. **48/49 测试**：当前有 1 个已存在的测试失败，不影响自动研究（宽松模式下只看是否退化）
+1. **87 测试全部通过**：所有测试正常，包括 6 个 rig Tool trait 测试
 2. **Novelty 坍缩**：多代进化后 novelty 从 1.0 降到 0.0，需要重启机制
 3. **LLM 响应解析**：auto_research 依赖 `HYPOTHESIS:` + `IMPROVED_CODE:` 格式，有时解析失败
 4. **编译超时**：单次 cargo check 最长 120s，cargo test 最长 300s
 5. **git push 冲突**：如果本地和远程 diverge，push 会失败（需要手动 git pull）
+6. **DuckDuckGo 限制**：web_search 使用 HTML 端点，高频调用可能被限流
+7. **HTML 解析**：纯 Rust 实现（无 scraper 依赖），复杂嵌套页面提取可能不完整
 
 ---
 

@@ -1,0 +1,1049 @@
+//! Local codebase tools for the auto research agent (rig Tool trait).
+//!
+//! Implements rig `Tool` trait so the LLM agent can directly call:
+//!   - `codebase_grep`   — regex search across all source files
+//!   - `codebase_search` — find files by name/glob pattern
+//!   - `codebase_read`   — read file content
+//!   - `codebase_tree`   — list directory structure
+//!
+//! These give the agent full introspection into its own codebase.
+
+use std::future::Future;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use rig::completion::ToolDefinition;
+use rig::tool::Tool;
+use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Shared: project root
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct ProjectRoot {
+    path: PathBuf,
+}
+
+impl ProjectRoot {
+    fn new() -> Self {
+        Self {
+            path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        }
+    }
+
+    fn with_root(root: PathBuf) -> Self {
+        Self { path: root }
+    }
+
+    fn src_dir(&self) -> PathBuf {
+        self.path.join("src")
+    }
+}
+
+impl Default for ProjectRoot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn default_project_root() -> ProjectRoot {
+    ProjectRoot::new()
+}
+
+// ---------------------------------------------------------------------------
+// rig Tool: codebase_grep
+// ---------------------------------------------------------------------------
+
+/// Arguments for the codebase_grep tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct GrepArgs {
+    /// Regex pattern to search for in file contents
+    pub pattern: String,
+    /// File extension filter (e.g. "rs", "toml"). Empty = all files.
+    #[serde(default)]
+    pub file_ext: String,
+    /// Max results to return (default: 20)
+    #[serde(default = "default_grep_max")]
+    pub max_results: usize,
+    /// Whether to show surrounding context lines (default: 0)
+    #[serde(default)]
+    pub context_lines: usize,
+}
+
+fn default_grep_max() -> usize {
+    20
+}
+
+/// A single grep match.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrepMatch {
+    pub file: String,
+    pub line_number: usize,
+    pub line: String,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}
+
+/// Output of the codebase_grep tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GrepOutput {
+    pub pattern: String,
+    pub matches: Vec<GrepMatch>,
+    pub total_matches: usize,
+    pub files_searched: usize,
+    pub truncated: bool,
+}
+
+/// Error type for codebase tools.
+#[derive(Debug, thiserror::Error)]
+pub enum CodebaseToolError {
+    #[error("File error: {0}")]
+    FileError(String),
+    #[error("Regex error: {0}")]
+    RegexError(String),
+    #[error("Path error: {0}")]
+    PathError(String),
+}
+
+/// Regex search across all source files in the codebase.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseGrepTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseGrepTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct grep (without rig Tool machinery).
+    pub fn grep(
+        &self,
+        pattern: &str,
+        file_ext: &str,
+        max_results: usize,
+        context_lines: usize,
+    ) -> Result<GrepOutput> {
+        let regex =
+            regex::Regex::new(pattern).map_err(|e| CodebaseToolError::RegexError(e.to_string()))?;
+
+        let src_dir = self.root.src_dir();
+        let mut matches = Vec::new();
+        let mut files_searched = 0usize;
+
+        Self::walk_files(&src_dir, file_ext, &mut |path, content| {
+            files_searched += 1;
+            if matches.len() >= max_results {
+                return;
+            }
+            for (idx, line) in content.lines().enumerate() {
+                if regex.is_match(line) {
+                    let all_lines: Vec<&str> = content.lines().collect();
+                    let before: Vec<String> = all_lines[(idx.saturating_sub(context_lines))..idx]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect();
+                    let after: Vec<String> = all_lines[idx + 1..]
+                        .iter()
+                        .take(context_lines)
+                        .map(|s| s.to_string())
+                        .collect();
+
+                    matches.push(GrepMatch {
+                        file: path.clone(),
+                        line_number: idx + 1,
+                        line: line.to_string(),
+                        context_before: before,
+                        context_after: after,
+                    });
+                    if matches.len() >= max_results {
+                        return;
+                    }
+                }
+            }
+        })?;
+
+        let truncated = matches.len() >= max_results;
+        let total_matches = matches.len();
+
+        Ok(GrepOutput {
+            pattern: pattern.to_string(),
+            matches,
+            total_matches,
+            files_searched,
+            truncated,
+        })
+    }
+
+    fn walk_files<F>(
+        dir: &Path,
+        file_ext: &str,
+        callback: &mut F,
+    ) -> Result<()>
+    where
+        F: FnMut(String, String),
+    {
+        if !dir.exists() {
+            return Ok(());
+        }
+        Self::walk_dir_recursive(dir, file_ext, callback)
+    }
+
+    fn walk_dir_recursive<F>(dir: &Path, file_ext: &str, callback: &mut F) -> Result<()>
+    where
+        F: FnMut(String, String),
+    {
+        let entries = std::fs::read_dir(dir)
+            .with_context(|| format!("Cannot read dir {}", dir.display()))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Skip target/ and hidden dirs
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name == "target" || file_name.starts_with('.') {
+                    continue;
+                }
+                Self::walk_dir_recursive(&path, file_ext, callback)?;
+            } else if path.is_file() {
+                // Check extension
+                if !file_ext.is_empty() {
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+                    if ext != file_ext {
+                        continue;
+                    }
+                }
+
+                let rel = path
+                    .strip_prefix(dir.parent().unwrap_or(dir))
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    callback(rel, content);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for CodebaseGrepTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseGrepTool {
+    const NAME: &'static str = "codebase_grep";
+
+    type Error = CodebaseToolError;
+    type Args = GrepArgs;
+    type Output = GrepOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_grep".to_string(),
+            description: "Search across all source files in the codebase using a regex pattern. \
+                          Returns matching lines with file paths and line numbers. \
+                          Use this to find function definitions, usages, patterns, or \
+                          any text in the code.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Regex pattern to search for"
+                    },
+                    "file_ext": {
+                        "type": "string",
+                        "description": "File extension filter (e.g. 'rs', 'toml'). Empty = all files.",
+                        "default": ""
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max matches to return (default 20)",
+                        "default": 20
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Number of context lines around each match (default 0)",
+                        "default": 0
+                    }
+                },
+                "required": ["pattern"]
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let pattern = args.pattern.clone();
+        let file_ext = args.file_ext.clone();
+        let max = args.max_results;
+        let ctx = args.context_lines;
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseGrepTool { root };
+            tool.grep(&pattern, &file_ext, max, ctx)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// rig Tool: codebase_search
+// ---------------------------------------------------------------------------
+
+/// Arguments for the codebase_search tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct SearchFilesArgs {
+    /// Glob-style pattern to match file names (e.g. "*.rs", "*config*", "*/test*.rs")
+    pub pattern: String,
+    /// Max results to return (default: 30)
+    #[serde(default = "default_search_max")]
+    pub max_results: usize,
+}
+
+fn default_search_max() -> usize {
+    30
+}
+
+/// A found file entry.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileEntry {
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+/// Output of the codebase_search tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SearchFilesOutput {
+    pub pattern: String,
+    pub files: Vec<FileEntry>,
+    pub total_found: usize,
+}
+
+/// Find files by name pattern in the codebase.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseSearchTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseSearchTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct search (without rig Tool machinery).
+    pub fn search_files(&self, pattern: &str, max_results: usize) -> Result<SearchFilesOutput> {
+        let src_dir = self.root.src_dir();
+        let mut files = Vec::new();
+
+        Self::find_files_recursive(&src_dir, pattern, &mut files, max_results)?;
+
+        let total_found = files.len();
+        Ok(SearchFilesOutput {
+            pattern: pattern.to_string(),
+            files,
+            total_found,
+        })
+    }
+
+    fn find_files_recursive(
+        dir: &Path,
+        pattern: &str,
+        files: &mut Vec<FileEntry>,
+        max_results: usize,
+    ) -> Result<()> {
+        if !dir.exists() || files.len() >= max_results {
+            return Ok(());
+        }
+
+        let entries = std::fs::read_dir(dir)
+            .with_context(|| format!("Cannot read dir {}", dir.display()))?;
+
+        for entry in entries.flatten() {
+            if files.len() >= max_results {
+                break;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name == "target" || file_name.starts_with('.') {
+                    continue;
+                }
+                Self::find_files_recursive(&path, pattern, files, max_results)?;
+            } else if path.is_file() {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if glob_match(pattern, file_name) {
+                    let rel = path
+                        .strip_prefix(dir.parent().unwrap_or(dir))
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    let metadata = entry.metadata();
+                    let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                    files.push(FileEntry {
+                        path: rel,
+                        size_bytes: size,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for CodebaseSearchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseSearchTool {
+    const NAME: &'static str = "codebase_search";
+
+    type Error = CodebaseToolError;
+    type Args = SearchFilesArgs;
+    type Output = SearchFilesOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_search".to_string(),
+            description: "Find files in the codebase by name pattern. Supports simple glob \
+                          wildcards (* = any chars, ? = single char). Returns file paths \
+                          relative to src/ and their sizes. Use this to discover what files \
+                          exist or find files matching a name pattern.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "File name pattern with glob wildcards (e.g. '*.rs', '*test*', '*/mod.rs')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max files to return (default 30)",
+                        "default": 30
+                    }
+                },
+                "required": ["pattern"]
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let pattern = args.pattern.clone();
+        let max = args.max_results;
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseSearchTool { root };
+            tool.search_files(&pattern, max)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// rig Tool: codebase_read
+// ---------------------------------------------------------------------------
+
+/// Arguments for the codebase_read tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ReadFileArgs {
+    /// File path relative to project root (e.g. "src/lib.rs", "Cargo.toml")
+    pub path: String,
+    /// Start line (1-indexed, default: 1)
+    #[serde(default = "default_start_line")]
+    pub start_line: usize,
+    /// Max number of lines to return (default: 100)
+    #[serde(default = "default_max_lines")]
+    pub max_lines: usize,
+}
+
+fn default_start_line() -> usize {
+    1
+}
+
+fn default_max_lines() -> usize {
+    100
+}
+
+/// Output of the codebase_read tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ReadFileOutput {
+    pub path: String,
+    pub total_lines: usize,
+    pub returned_lines: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String,
+}
+
+/// Read a file's content.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseReadTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseReadTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct read (without rig Tool machinery).
+    pub fn read_file(&self, path: &str, start_line: usize, max_lines: usize) -> Result<ReadFileOutput> {
+        let full_path = self.root.path.join(path);
+        let content = std::fs::read_to_string(&full_path)
+            .with_context(|| format!("Cannot read {}", full_path.display()))?;
+
+        let all_lines: Vec<&str> = content.lines().collect();
+        let total_lines = all_lines.len();
+
+        let start = if start_line < 1 { 0 } else { start_line - 1 };
+        let end = (start + max_lines).min(total_lines);
+        let slice: Vec<&str> = all_lines[start..end].to_vec();
+        let returned_content = slice.join("\n");
+
+        Ok(ReadFileOutput {
+            path: path.to_string(),
+            total_lines,
+            returned_lines: slice.len(),
+            start_line: start + 1,
+            end_line: end,
+            content: returned_content,
+        })
+    }
+}
+
+impl Default for CodebaseReadTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseReadTool {
+    const NAME: &'static str = "codebase_read";
+
+    type Error = CodebaseToolError;
+    type Args = ReadFileArgs;
+    type Output = ReadFileOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_read".to_string(),
+            description: "Read a file's content from the codebase. Returns the text content \
+                          with line numbers. Supports pagination (start_line + max_lines) \
+                          for large files. Paths are relative to the project root.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to project root (e.g. 'src/lib.rs', 'Cargo.toml')"
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Start line number (1-indexed, default 1)",
+                        "default": 1
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "Max lines to return (default 100)",
+                        "default": 100
+                    }
+                },
+                "required": ["path"]
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let path = args.path.clone();
+        let start = args.start_line;
+        let max = args.max_lines;
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseReadTool { root };
+            tool.read_file(&path, start, max)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// rig Tool: codebase_tree
+// ---------------------------------------------------------------------------
+
+/// Arguments for the codebase_tree tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TreeArgs {
+    /// Directory path relative to project root (e.g. "src", "src/runtime")
+    #[serde(default = "default_tree_dir")]
+    pub dir: String,
+    /// Max depth to recurse (default: 3)
+    #[serde(default = "default_tree_depth")]
+    pub max_depth: usize,
+}
+
+fn default_tree_dir() -> String {
+    "src".to_string()
+}
+
+fn default_tree_depth() -> usize {
+    3
+}
+
+/// A tree entry.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TreeEntry {
+    pub path: String,
+    pub is_dir: bool,
+    pub size_bytes: Option<u64>,
+}
+
+/// Output of the codebase_tree tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TreeOutput {
+    pub base_dir: String,
+    pub entries: Vec<TreeEntry>,
+    pub total_files: usize,
+    pub total_dirs: usize,
+}
+
+/// List directory structure.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseTreeTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseTreeTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct tree (without rig Tool machinery).
+    pub fn tree(&self, dir: &str, max_depth: usize) -> Result<TreeOutput> {
+        let full_path = self.root.path.join(dir);
+        if !full_path.exists() {
+            anyhow::bail!("Directory does not exist: {}", full_path.display());
+        }
+
+        let mut entries = Vec::new();
+        let mut total_files = 0usize;
+        let mut total_dirs = 0usize;
+
+        self.build_tree(&full_path, dir, max_depth, 0, &mut entries, &mut total_files, &mut total_dirs)?;
+
+        Ok(TreeOutput {
+            base_dir: dir.to_string(),
+            entries,
+            total_files,
+            total_dirs,
+        })
+    }
+
+    fn build_tree(
+        &self,
+        dir: &Path,
+        rel_prefix: &str,
+        max_depth: usize,
+        current_depth: usize,
+        entries: &mut Vec<TreeEntry>,
+        total_files: &mut usize,
+        total_dirs: &mut usize,
+    ) -> Result<()> {
+        if current_depth >= max_depth {
+            return Ok(());
+        }
+
+        let read_entries = std::fs::read_dir(dir)
+            .with_context(|| format!("Cannot read {}", dir.display()))?;
+
+        let mut items: Vec<_> = read_entries
+            .flatten()
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                !name.starts_with('.') && name != "target"
+            })
+            .collect();
+
+        // Sort: directories first, then files, alphabetically
+        items.sort_by_key(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = e.path().is_dir();
+            (std::cmp::Reverse(is_dir), name.to_lowercase())
+        });
+
+        for entry in items {
+            let path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let rel = format!("{}/{}", rel_prefix, file_name);
+
+            if path.is_dir() {
+                *total_dirs += 1;
+                entries.push(TreeEntry {
+                    path: rel.clone(),
+                    is_dir: true,
+                    size_bytes: None,
+                });
+                self.build_tree(&path, &rel, max_depth, current_depth + 1, entries, total_files, total_dirs)?;
+            } else {
+                *total_files += 1;
+                let size = entry.metadata().ok().map(|m| m.len());
+                entries.push(TreeEntry {
+                    path: rel,
+                    is_dir: false,
+                    size_bytes: size,
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for CodebaseTreeTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseTreeTool {
+    const NAME: &'static str = "codebase_tree";
+
+    type Error = CodebaseToolError;
+    type Args = TreeArgs;
+    type Output = TreeOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_tree".to_string(),
+            description: "List the directory structure of the codebase. Returns files and \
+                          directories in a tree-like format with sizes. Useful for understanding \
+                          the project layout and discovering modules.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "dir": {
+                        "type": "string",
+                        "description": "Directory path relative to project root (default 'src')"
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Max recursion depth (default 3)",
+                        "default": 3
+                    }
+                }
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let dir = args.dir.clone();
+        let max = args.max_depth;
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseTreeTool { root };
+            tool.tree(&dir, max)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Simple glob matching (supports * and ?).
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p_chars = pattern.chars();
+    let t_chars = text.chars();
+
+    // Simple recursive glob matching
+    fn match_impl(p: &[char], t: &[char]) -> bool {
+        let mut pi = 0;
+        let mut ti = 0;
+
+        while pi < p.len() && ti < t.len() {
+            match p[pi] {
+                '*' => {
+                    // Skip consecutive wildcards
+                    while pi < p.len() && p[pi] == '*' {
+                        pi += 1;
+                    }
+                    // Try matching rest at every position
+                    while ti <= t.len() {
+                        if match_impl(&p[pi..], &t[ti..]) {
+                            return true;
+                        }
+                        ti += 1;
+                    }
+                    return false;
+                }
+                '?' => {
+                    pi += 1;
+                    ti += 1;
+                }
+                c if c == t[ti] => {
+                    pi += 1;
+                    ti += 1;
+                }
+                _ => return false,
+            }
+        }
+
+        // Skip trailing wildcards
+        while pi < p.len() && p[pi] == '*' {
+            pi += 1;
+        }
+
+        pi >= p.len() && ti >= t.len()
+    }
+
+    let p: Vec<char> = p_chars.collect();
+    let t: Vec<char> = t_chars.collect();
+    match_impl(&p, &t)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hyperagent_test_{}", name));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src/runtime"));
+        let _ = fs::create_dir_all(dir.join("src/agent"));
+        let _ = fs::write(dir.join("src/lib.rs"), "pub mod agent;\npub mod runtime;\n");
+        let _ = fs::write(dir.join("src/runtime/loop_.rs"), "pub fn run() {}\npub async fn step() {}\n");
+        let _ = fs::write(dir.join("src/agent/mod.rs"), "pub struct Agent;\nimpl Agent { fn new() -> Self { Agent } }\n");
+        let _ = fs::write(dir.join("Cargo.toml"), "[package]\nname = \"test\"\n");
+        dir
+    }
+
+    #[test]
+    fn test_glob_match_star() {
+        assert!(glob_match("*.rs", "lib.rs"));
+        assert!(glob_match("*.rs", "mod.rs"));
+        assert!(!glob_match("*.rs", "lib.toml"));
+    }
+
+    #[test]
+    fn test_glob_match_question() {
+        assert!(glob_match("?.rs", "a.rs"));
+        assert!(!glob_match("?.rs", "ab.rs"));
+    }
+
+    #[test]
+    fn test_glob_match_complex() {
+        assert!(glob_match("*test*.rs", "test_mod.rs"));
+        assert!(glob_match("*/mod.rs", "agent/mod.rs"));
+        assert!(!glob_match("*/mod.rs", "agent/test.rs"));
+    }
+
+    #[test]
+    fn test_grep_tool() {
+        let dir = setup_test_dir("grep");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let result = tool.grep("pub fn", "rs", 20, 0).unwrap();
+        assert!(result.total_matches >= 1);
+        assert!(result.files_searched >= 2);
+        // Should find "pub fn run()" and "pub async fn step()"
+        let has_run = result.matches.iter().any(|m| m.line.contains("pub fn run"));
+        assert!(has_run);
+    }
+
+    #[test]
+    fn test_grep_with_context() {
+        let dir = setup_test_dir("grep_ctx");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let result = tool.grep("pub fn run", "rs", 10, 1).unwrap();
+        if let Some(m) = result.matches.iter().find(|m| m.line.contains("pub fn run")) {
+            assert!(!m.context_before.is_empty() || !m.context_after.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_grep_by_ext() {
+        let dir = setup_test_dir("grep_ext");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let rs_result = tool.grep("pub", "rs", 20, 0).unwrap();
+        let toml_result = tool.grep("pub", "toml", 20, 0).unwrap();
+        assert!(rs_result.total_matches > toml_result.total_matches);
+    }
+
+    #[test]
+    fn test_search_files_tool() {
+        let dir = setup_test_dir("search");
+        let tool = CodebaseSearchTool::with_root(dir.clone());
+
+        let result = tool.search_files("*.rs", 30).unwrap();
+        assert!(result.total_found >= 3); // lib.rs + loop_.rs + mod.rs
+        assert!(result.files.iter().any(|f| f.path.contains("lib.rs")));
+    }
+
+    #[test]
+    fn test_search_files_pattern() {
+        let dir = setup_test_dir("search_pat");
+        let tool = CodebaseSearchTool::with_root(dir.clone());
+
+        let result = tool.search_files("*mod*", 30).unwrap();
+        assert!(result.files.iter().any(|f| f.path.contains("mod.rs")));
+    }
+
+    #[test]
+    fn test_read_file_tool() {
+        let dir = setup_test_dir("read");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+
+        let result = tool.read_file("src/lib.rs", 1, 100).unwrap();
+        assert_eq!(result.total_lines, 2);
+        assert_eq!(result.returned_lines, 2);
+        assert!(result.content.contains("pub mod agent"));
+    }
+
+    #[test]
+    fn test_read_file_pagination() {
+        let dir = setup_test_dir("read_page");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+
+        let result = tool.read_file("src/lib.rs", 1, 1).unwrap();
+        assert_eq!(result.returned_lines, 1);
+        assert_eq!(result.start_line, 1);
+        assert_eq!(result.end_line, 1);
+    }
+
+    #[test]
+    fn test_tree_tool() {
+        let dir = setup_test_dir("tree");
+        let tool = CodebaseTreeTool::with_root(dir.clone());
+
+        let result = tool.tree("src", 3).unwrap();
+        assert!(result.total_files >= 3);
+        assert!(result.total_dirs >= 2);
+        assert!(result.entries.iter().any(|e| e.path.contains("lib.rs")));
+        assert!(result.entries.iter().any(|e| e.is_dir && e.path.contains("runtime")));
+    }
+
+    #[tokio::test]
+    async fn test_grep_tool_trait() {
+        let tool = CodebaseGrepTool::new();
+        let def = tool.definition(String::new()).await;
+        assert_eq!(def.name, "codebase_grep");
+        assert!(!def.description.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_tool_trait() {
+        let tool = CodebaseSearchTool::new();
+        let def = tool.definition(String::new()).await;
+        assert_eq!(def.name, "codebase_search");
+    }
+
+    #[tokio::test]
+    async fn test_read_tool_trait() {
+        let tool = CodebaseReadTool::new();
+        let def = tool.definition(String::new()).await;
+        assert_eq!(def.name, "codebase_read");
+    }
+
+    #[tokio::test]
+    async fn test_tree_tool_trait() {
+        let tool = CodebaseTreeTool::new();
+        let def = tool.definition(String::new()).await;
+        assert_eq!(def.name, "codebase_tree");
+    }
+
+    #[tokio::test]
+    async fn test_grep_tool_call() {
+        let dir = setup_test_dir("grep_call");
+        let tool = CodebaseGrepTool::with_root(dir);
+        let args = GrepArgs {
+            pattern: "pub fn".to_string(),
+            file_ext: "rs".to_string(),
+            max_results: 10,
+            context_lines: 0,
+        };
+        let result = tool.call(args).await.unwrap();
+        assert!(result.total_matches >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_read_tool_call() {
+        let dir = setup_test_dir("read_call");
+        let tool = CodebaseReadTool::with_root(dir);
+        let args = ReadFileArgs {
+            path: "src/lib.rs".to_string(),
+            start_line: 1,
+            max_lines: 100,
+        };
+        let result = tool.call(args).await.unwrap();
+        assert!(result.content.contains("pub mod"));
+    }
+}
