@@ -4,7 +4,7 @@ use crate::agent::{Executor, MetaMutator, Mutator};
 use crate::eval::Evaluator;
 use crate::llm::LLMClient;
 
-use super::state::{RuntimeConfig, RuntimePhase, RuntimeState, ThermodynamicSnapshot};
+use super::state::{RuntimePhase, RuntimeState, ThermodynamicSnapshot};
 use super::thermodynamics::{
     compute_fitness, compute_novelty, jaccard_similarity,
     DissipationScale, EnergyState, FitnessLandscape, InfoEnergyCoupling,
@@ -40,21 +40,21 @@ pub struct EvolutionLoop<C: LLMClient> {
 }
 
 impl<C: LLMClient + Clone> EvolutionLoop<C> {
-    pub fn new(client: C, config: RuntimeConfig) -> Self {
+    pub fn new(client: C, state: RuntimeState) -> Self {
         let executor = Executor::new(client.clone());
         let evaluator = Evaluator::new(client.clone());
         let mutator = Mutator::new(client.clone());
         let meta_mutator = MetaMutator::new(client);
 
-        let initial_temperature = config.initial_temperature;
-        let free_energy = (config.max_generations as f32)
-            * (config.num_branches as f32)
+        let initial_temperature = state.config.initial_temperature;
+        let free_energy = (state.config.max_generations as f32)
+            * (state.config.num_branches as f32)
             * 2.0;
 
         let dissipation = DissipationScale::new(
-            config.population_size.max(config.num_branches),
-            config.mutation_rate,
-            config.selection_pressure,
+            state.config.population_size.max(state.config.num_branches),
+            state.config.mutation_rate,
+            state.config.selection_pressure,
         );
 
         Self {
@@ -62,7 +62,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             evaluator,
             mutator,
             meta_mutator,
-            state: RuntimeState::new(config),
+            state,
             energy: EnergyState::new(free_energy, initial_temperature),
             landscape: FitnessLandscape::new(),
             info_coupling: InfoEnergyCoupling::new(initial_temperature),
@@ -470,9 +470,11 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         while !self.state.is_finished() {
             self.state.increment_generation();
             self.branches = self.run_generation(task).await?;
+            self.state.save();
         }
 
         self.state.set_phase(RuntimePhase::Finished);
+        self.state.save();
         Ok(self.state.clone())
     }
 
@@ -486,9 +488,11 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             }
             self.state.increment_generation();
             self.branches = self.run_generation(task).await?;
+            self.state.save();
         }
 
         self.state.set_phase(RuntimePhase::Finished);
+        self.state.save();
         Ok(self.state.clone())
     }
 

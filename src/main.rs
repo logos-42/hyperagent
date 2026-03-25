@@ -16,6 +16,8 @@ async fn main() -> Result<()> {
 
     let client = LLMClientImpl::from_env()?;
     tracing::info!("Using provider: {:?}, model: {}", client.provider(), client.model());
+    let persist_dir = std::path::Path::new(".hyperagent/data");
+
     let runtime_config = RuntimeConfig {
         max_generations: 100,
         population_size: 3,
@@ -31,7 +33,7 @@ async fn main() -> Result<()> {
         diversity_threshold: 0.8,
     };
 
-    let mut evolution_loop = EvolutionLoop::new(client, runtime_config);
+    let mut evolution_loop = EvolutionLoop::new(client, RuntimeState::with_persistence(runtime_config, persist_dir));
 
     let task = "Write a Rust function that calculates the Fibonacci number at position n efficiently";
     

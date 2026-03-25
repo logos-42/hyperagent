@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::Path;
 
 use super::Record;
 use crate::agent::Agent;
@@ -146,6 +147,27 @@ impl Archive {
 
     pub fn clear(&mut self) {
         self.records.clear();
+    }
+
+    /// 持久化到 JSON 文件
+    pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, json)
+    }
+
+    /// 从 JSON 文件加载，失败则返回空 archive
+    pub fn load_from_file(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(json) => serde_json::from_str(&json).unwrap_or_else(|e| {
+                tracing::warn!("Failed to parse archive from {:?}: {}", path, e);
+                Self::new()
+            }),
+            Err(_) => Self::new(), // 文件不存在，返回空
+        }
     }
 }
 

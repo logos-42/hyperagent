@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 use crate::agent::{Agent, MutationStrategy};
 use crate::memory::{Archive, Lineage};
@@ -93,6 +94,8 @@ pub struct RuntimeState {
     pub mutation_strategy: MutationStrategy,
     pub errors: Vec<String>,
     pub thermo: ThermodynamicSnapshot,
+    #[serde(skip)]
+    persist_path: Option<PathBuf>,
 }
 
 impl RuntimeState {
@@ -110,6 +113,55 @@ impl RuntimeState {
             mutation_strategy: MutationStrategy::default(),
             errors: Vec::new(),
             thermo: ThermodynamicSnapshot::default(),
+            persist_path: None,
+        }
+    }
+
+    /// 创建带磁盘持久化的 RuntimeState
+    /// 从 `dir/archive.json` 和 `dir/lineage.json` 加载历史数据
+    pub fn with_persistence(config: RuntimeConfig, dir: &Path) -> Self {
+        let archive_path = dir.join("archive.json");
+        let lineage_path = dir.join("lineage.json");
+
+        let archive = Archive::load_from_file(&archive_path);
+        let lineage = Lineage::load_from_file(&lineage_path);
+
+        tracing::info!(
+            "Loaded archive ({} records) and lineage ({} chains) from {:?}",
+            archive.size(),
+            lineage.total_chains(),
+            dir,
+        );
+
+        Self {
+            phase: RuntimePhase::Initializing,
+            current_generation: 0,
+            current_task: None,
+            best_agent: archive.get_best().map(|r| r.agent.clone()),
+            best_score: archive.get_best().map(|r| r.score.value).unwrap_or(0.0),
+            best_fitness: 0.0, // fitness 需要运行时计算
+            config,
+            archive,
+            lineage,
+            mutation_strategy: MutationStrategy::default(),
+            errors: Vec::new(),
+            thermo: ThermodynamicSnapshot::default(),
+            persist_path: Some(dir.to_path_buf()),
+        }
+    }
+
+    /// 保存 archive 和 lineage 到磁盘
+    pub fn save(&self) {
+        if let Some(dir) = &self.persist_path {
+            let archive_path = dir.join("archive.json");
+            let lineage_path = dir.join("lineage.json");
+
+            if let Err(e) = self.archive.save_to_file(&archive_path) {
+                tracing::warn!("Failed to save archive: {}", e);
+            }
+            if let Err(e) = self.lineage.save_to_file(&lineage_path) {
+                tracing::warn!("Failed to save lineage: {}", e);
+            }
         }
     }
 
