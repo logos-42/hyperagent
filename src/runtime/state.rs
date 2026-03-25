@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use crate::agent::{Agent, MutationStrategy};
 use crate::memory::{Archive, Lineage};
@@ -151,17 +152,33 @@ impl RuntimeState {
     }
 
     /// 保存 archive 和 lineage 到磁盘
+    /// 使用并行写入以减少 I/O 延迟
     pub fn save(&self) {
         if let Some(dir) = &self.persist_path {
             let archive_path = dir.join("archive.json");
             let lineage_path = dir.join("lineage.json");
 
-            if let Err(e) = self.archive.save_to_file(&archive_path) {
-                tracing::warn!("Failed to save archive: {}", e);
-            }
-            if let Err(e) = self.lineage.save_to_file(&lineage_path) {
-                tracing::warn!("Failed to save lineage: {}", e);
-            }
+            // Clone data that needs to be moved into threads
+            let archive = self.archive.clone();
+            let lineage = self.lineage.clone();
+
+            // Use scoped threads to parallelize independent file writes
+            thread::scope(|s| {
+                let archive_handle = s.spawn(move || {
+                    archive.save_to_file(&archive_path)
+                });
+                let lineage_handle = s.spawn(move || {
+                    lineage.save_to_file(&lineage_path)
+                });
+
+                // Join and log any errors
+                if let Ok(Err(e)) = archive_handle.join() {
+                    tracing::warn!("Failed to save archive: {}", e);
+                }
+                if let Ok(Err(e)) = lineage_handle.join() {
+                    tracing::warn!("Failed to save lineage: {}", e);
+                }
+            });
         }
     }
 
