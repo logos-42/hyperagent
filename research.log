@@ -81,3 +81,14 @@ warning: `hyperagent` (lib) generated 1 warning
 [2m2026-03-25T17:00:02.667594Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `glob_match` function uses inefficient recursive matching that creates many intermediate slices and has exponential worst-case complexity for patterns with multiple `*` wildcards — this can be optimized using dynamic programming to achieve O(m*n) time complexity while reducing allocations.
 [2m2026-03-25T17:00:19.229230Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 94/97 tests
 [2m2026-03-25T17:00:22.121126Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-25T17:00:22.195869Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[5]: tools.rs — The `glob_match` function uses inefficient recursive matchin (Improved)
+[2m2026-03-25T17:00:22.195921Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T17:00:26.382786Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 6] Improving src/runtime/thermodynamics.rs
+[2m2026-03-25T17:00:28.632119Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 94/97 tests
+[2m2026-03-25T17:00:35.951010Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust simulated annealing cooling schedule implementation best practices", "Rust generic math library for scientific computing struct design", "Rust float comparison and epsilon handling in optimization algorithms"]
+[2m2026-03-25T17:00:36.845257Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust simulated annealing cooling schedule implementation best practices'
+[2m2026-03-25T17:00:37.112229Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust generic math library for scientific computing struct design'
+[2m2026-03-25T17:00:37.581847Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust float comparison and epsilon handling in optimization algorithms'
+[2m2026-03-25T17:02:23.154923Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `jaccard_similarity` function creates temporary HashSets on every call which causes allocation pressure during evolution; using slice-based iteration with early termination for small inputs and pre-allocated buffers would reduce memory overhead while maintaining correctness.
+[2m2026-03-25T17:02:37.178563Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 96/99 tests
+[2m2026-03-25T17:02:39.529213Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved

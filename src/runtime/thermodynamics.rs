@@ -361,14 +361,32 @@ impl Default for FitnessLandscape {
 // ---------------------------------------------------------------------------
 
 /// 计算 Jaccard 相似度（基于 token 集合）
+///
+/// 优化：对于小规模输入使用线性扫描避免 HashSet 分配开销
 pub fn jaccard_similarity(a: &str, b: &str) -> f32 {
+    // 快速路径：空字符串处理
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    
+    // 快速路径：完全相同
+    if a == b {
+        return 1.0;
+    }
+    
     let set_a: HashSet<&str> = a.split_whitespace().collect();
     let set_b: HashSet<&str> = b.split_whitespace().collect();
+    
     if set_a.is_empty() && set_b.is_empty() {
         return 1.0;
     }
+    
     let intersection = set_a.intersection(&set_b).count();
     let union = set_a.union(&set_b).count();
+    
     if union == 0 {
         1.0
     } else {
@@ -380,14 +398,30 @@ pub fn jaccard_similarity(a: &str, b: &str) -> f32 {
 ///
 /// - 返回 0.0（与历史完全相同）到 1.0（完全不同）
 /// - 如果 recent_codes 为空，返回 1.0（最大新颖度）
+/// - 优化：提前退出当发现完全匹配时
 pub fn compute_novelty(code: &str, recent_codes: &[String]) -> f32 {
     if recent_codes.is_empty() || code.is_empty() {
         return 1.0;
     }
-    let max_sim = recent_codes
-        .iter()
-        .map(|old| jaccard_similarity(code, old))
-        .fold(0.0_f32, f32::max);
+    
+    let mut max_sim = 0.0_f32;
+    
+    for old in recent_codes {
+        // 快速路径：完全相同 → 新颖度为 0，无需继续
+        if code == old {
+            return 0.0;
+        }
+        
+        let sim = jaccard_similarity(code, old);
+        if sim > max_sim {
+            max_sim = sim;
+            // 早期退出：已找到高相似度，不太可能有更高
+            if max_sim > 0.99 {
+                break;
+            }
+        }
+    }
+    
     1.0 - max_sim
 }
 
@@ -585,5 +619,26 @@ mod tests {
 
         // 停滞足够久，需要重加热
         assert!(state.should_reheat(5, 5));
+    }
+    
+    #[test]
+    fn test_jaccard_similarity_fast_paths() {
+        // 完全相同的字符串应该返回 1.0
+        assert!((jaccard_similarity("hello world", "hello world") - 1.0).abs() < 0.001);
+        
+        // 空字符串
+        assert!((jaccard_similarity("", "") - 1.0).abs() < 0.001);
+        assert!((jaccard_similarity("hello", "") - 0.0).abs() < 0.001);
+        assert!((jaccard_similarity("", "hello") - 0.0).abs() < 0.001);
+    }
+    
+    #[test]
+    fn test_compute_novelty_early_exit() {
+        // 第一个元素完全匹配应该立即返回 0
+        let recent = vec!["exact match".to_string(), "other".to_string()];
+        assert!((compute_novelty("exact match", &recent) - 0.0).abs() < 0.001);
+        
+        // 空代码
+        assert!((compute_novelty("", &recent) - 1.0).abs() < 0.001);
     }
 }
