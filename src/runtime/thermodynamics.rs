@@ -70,25 +70,42 @@ impl DissipationScale {
         mutation_rate: f32,
         selection_pressure: f32,
     ) -> Self {
-        // 扩散主导的松弛时间：τ ~ L²/D
+        // 扩散松弛时间：τ_diff ~ L²/D（扩散主导时）
         // L = 种群大小，D = 变异率
-        let relaxation_time = if mutation_rate > 1e-6 {
+        let diffusion_time = if mutation_rate > 1e-6 {
             (population_size as f32).powi(2) / mutation_rate
         } else {
             1000.0
         };
 
-        // 扩散长度：l_D = √(Dt)
+        // 选择松弛时间：τ_sel ~ 1/s（选择主导时）
+        // 选择压力驱动系统向适应度高峰移动
+        let selection_time = if selection_pressure > 1e-6 {
+            1.0 / selection_pressure
+        } else {
+            1000.0
+        };
+
+        // 实际松弛时间由较快的过程主导
+        // τ ≈ (τ_diff × τ_sel) / (τ_diff + τ_sel)
+        let relaxation_time = (diffusion_time * selection_time) / (diffusion_time + selection_time);
+
+        // 扩散长度：l_D = √(D τ)
+        // 表示在松弛时间内变异能传播的距离
         let diffusion_length = (mutation_rate * relaxation_time).sqrt();
 
-        // 边界层：δ ~ 1/√(选择压力)
+        // 边界层：δ ~ D/v（扩散/选择比值）
+        // 类似流体边界层，表示选择影响范围
         let boundary_layer = if selection_pressure > 1e-6 {
-            1.0 / selection_pressure.sqrt()
+            mutation_rate / selection_pressure
         } else {
             10.0
         };
 
         // 德博拉数：De = τ_response / τ_drive
+        // De < 1: 系统快速响应，类流体行为
+        // De > 1: 系统响应慢，类固体行为
+        // De ≈ 1: 临界态，耗散结构形成
         let deborah_number = relaxation_time / 10.0; // 假设驱动周期为 10 代
 
         Self {
@@ -267,6 +284,9 @@ mod tests {
         let scale = DissipationScale::new(100, 0.1, 0.3);
         assert!(scale.relaxation_time > 0.0);
         assert!(scale.diffusion_length > 0.0);
+        // 选择压力高时，松弛时间应减小（系统更快稳定）
+        let scale_high_sel = DissipationScale::new(100, 0.1, 0.9);
+        assert!(scale_high_sel.relaxation_time < scale.relaxation_time);
     }
 
     #[test]
