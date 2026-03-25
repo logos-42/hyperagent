@@ -259,7 +259,9 @@ impl LLMClientImpl {
             LLMProvider::Ollama => {
                 let base_url = config.base_url.as_deref().unwrap_or("http://localhost:11434").to_string();
                 ClientBackend::Ollama(OllamaBackend {
-                    http_client: ReqwestClient::new(),
+                    http_client: ReqwestClient::builder()
+                        .no_proxy()
+                        .build()?,
                     base_url,
                     model: config.model.clone(),
                     semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
@@ -505,13 +507,21 @@ impl OllamaBackend {
             });
         }
 
-        let response = self.http_client
+        let resp = self.http_client
             .post(&format!("{}/api/generate", self.base_url))
             .json(&request_body)
             .send()
-            .await?
-            .json::<serde_json::Value>()
             .await?;
+
+        let status = resp.status();
+        let body_text = resp.text().await?;
+
+        if !status.is_success() {
+            anyhow::bail!("Ollama API error {}: {}", status, body_text);
+        }
+
+        let response: serde_json::Value = serde_json::from_str(&body_text)
+            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {} | body: {}", e, &body_text[..body_text.len().min(200)]))?;
 
         let content = response.get("response")
             .and_then(|v| v.as_str())

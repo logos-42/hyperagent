@@ -251,4 +251,9 @@ cargo run --example self_evolving
 
 ---
 
-祝实验顺利！如有问题，参考 `docs/QUICKSTART.md` 和 `docs/arc2_part2.md`。
+祝实验顺利！如有问题，参考以下文档：
+
+- `docs/QUICKSTART.md` - 快速启动指南
+- `docs/arc2.md` - 理论框架详解
+- `docs/arc2_part2.md` - 相变与诊断
+- `docs/SKILLS.md` - AI Agent 开发技能文档 ⭐

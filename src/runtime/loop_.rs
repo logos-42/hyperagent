@@ -152,6 +152,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             let result = match self.executor.run(&current_agent, task).await {
                 Ok(r) => r,
                 Err(e) => {
+                    tracing::error!("Generation {}: Execution failed: {}", self.state.current_generation, e);
                     self.state.add_error(e.to_string());
                     continue;
                 }
@@ -161,10 +162,13 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             let eval_result = match self.evaluator.score(task, &result).await {
                 Ok(e) => e,
                 Err(e) => {
+                    tracing::error!("Generation {}: Evaluation failed: {}", self.state.current_generation, e);
                     self.state.add_error(e.to_string());
                     continue;
                 }
             };
+
+            tracing::info!("Generation {}: Score = {:.2}", self.state.current_generation, eval_result.score.value);
 
             self.state.archive.store(
                 current_agent.clone(),
@@ -192,6 +196,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             current_agent = match self.mutator.mutate(&current_agent, &failures_vec).await {
                 Ok(agent) => agent,
                 Err(e) => {
+                    tracing::error!("Generation {}: Mutation failed: {}", self.state.current_generation, e);
                     self.state.add_error(e.to_string());
                     continue;
                 }
