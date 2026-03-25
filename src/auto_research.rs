@@ -57,9 +57,36 @@ impl Default for ResearchConfig {
         Self {
             project_root: PathBuf::from("."),
             target_files: vec![
+                // 核心
+                "auto_research.rs".to_string(),
+                "self_evolution.rs".to_string(),
+                "codebase.rs".to_string(),
+                "web.rs".to_string(),
+                "tools.rs".to_string(),
+                // runtime
                 "runtime/thermodynamics.rs".to_string(),
                 "runtime/loop_.rs".to_string(),
-                "auto_research.rs".to_string(),
+                "runtime/selection.rs".to_string(),
+                "runtime/constraints.rs".to_string(),
+                "runtime/population.rs".to_string(),
+                "runtime/environment.rs".to_string(),
+                "runtime/state.rs".to_string(),
+                "runtime/local_runtime.rs".to_string(),
+                "runtime/multi_agent_loop.rs".to_string(),
+                // agent
+                "agent/executor.rs".to_string(),
+                "agent/mutator.rs".to_string(),
+                "agent/meta_mutator.rs".to_string(),
+                "agent/population.rs".to_string(),
+                // eval
+                "eval/evaluator.rs".to_string(),
+                "eval/benchmark.rs".to_string(),
+                // llm
+                "llm/client.rs".to_string(),
+                "llm/prompts.rs".to_string(),
+                // memory
+                "memory/archive.rs".to_string(),
+                "memory/lineage.rs".to_string(),
             ],
             max_iterations: 20,
             auto_push: true,
