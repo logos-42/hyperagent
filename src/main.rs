@@ -17,11 +17,18 @@ async fn main() -> Result<()> {
     let client = LLMClientImpl::from_env()?;
     tracing::info!("Using provider: {:?}, model: {}", client.provider(), client.model());
     let runtime_config = RuntimeConfig {
-        max_generations: 10,
+        max_generations: 100,
         population_size: 3,
         top_k_selection: 2,
         checkpoint_interval: 5,
         meta_mutation_interval: 3,
+        initial_temperature: 1.5,
+        annealing_rate: 0.9,
+        mutation_rate: 0.1,
+        selection_pressure: 0.3,
+        num_branches: 3,
+        novelty_weight: 0.5,
+        diversity_threshold: 0.8,
     };
 
     let mut evolution_loop = EvolutionLoop::new(client, runtime_config);

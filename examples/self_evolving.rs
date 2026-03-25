@@ -54,6 +54,13 @@ impl Default for SelfEvolvingConfig {
                 top_k_selection: 5,
                 checkpoint_interval: 10,
                 meta_mutation_interval: 20,
+                initial_temperature: 1.5,
+                annealing_rate: 0.9,
+                mutation_rate: 0.1,
+                selection_pressure: 0.3,
+                num_branches: 5,
+                novelty_weight: 0.5,
+                diversity_threshold: 0.8,
             },
             llm: LLMConfig::default(),
             

@@ -3,6 +3,21 @@ use serde::{Deserialize, Serialize};
 use crate::agent::{Agent, MutationStrategy};
 use crate::memory::{Archive, Lineage};
 
+/// 热力学状态快照，每代更新
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ThermodynamicSnapshot {
+    pub temperature: f32,
+    pub entropy: f32,
+    pub entropy_production_rate: f32,
+    pub free_energy: f32,
+    pub landscape_gradient: f32,
+    pub landscape_curvature: f32,
+    pub escape_probability: f32,
+    pub info_energy: f32,
+    pub deborah_number: f32,
+    pub metropolis_accept_prob: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum RuntimePhase {
     Initializing,
@@ -29,6 +44,20 @@ pub struct RuntimeConfig {
     pub top_k_selection: usize,
     pub checkpoint_interval: u32,
     pub meta_mutation_interval: u32,
+    /// 初始温度（控制探索/开发平衡），默认 1.5
+    pub initial_temperature: f32,
+    /// 退火速率（每代温度乘以这个系数），默认 0.9
+    pub annealing_rate: f32,
+    /// 变异率（用于耗散尺度计算），默认 0.1
+    pub mutation_rate: f32,
+    /// 选择压力（用于耗散尺度计算），默认 0.3
+    pub selection_pressure: f32,
+    /// 每代并行探索分支数，默认 3
+    pub num_branches: usize,
+    /// 新颖度权重（适应度 = score × (1 + weight × novelty)），默认 0.5
+    pub novelty_weight: f32,
+    /// 分支多样性阈值（Jaccard 相似度低于此值才允许并行），默认 0.8
+    pub diversity_threshold: f32,
 }
 
 impl Default for RuntimeConfig {
@@ -39,6 +68,13 @@ impl Default for RuntimeConfig {
             top_k_selection: 3,
             checkpoint_interval: 10,
             meta_mutation_interval: 20,
+            initial_temperature: 1.5,
+            annealing_rate: 0.9,
+            mutation_rate: 0.1,
+            selection_pressure: 0.3,
+            num_branches: 3,
+            novelty_weight: 0.5,
+            diversity_threshold: 0.8,
         }
     }
 }
@@ -50,11 +86,13 @@ pub struct RuntimeState {
     pub current_task: Option<String>,
     pub best_agent: Option<Agent>,
     pub best_score: f32,
+    pub best_fitness: f32,
     pub config: RuntimeConfig,
     pub archive: Archive,
     pub lineage: Lineage,
     pub mutation_strategy: MutationStrategy,
     pub errors: Vec<String>,
+    pub thermo: ThermodynamicSnapshot,
 }
 
 impl RuntimeState {
@@ -65,11 +103,13 @@ impl RuntimeState {
             current_task: None,
             best_agent: None,
             best_score: 0.0,
+            best_fitness: 0.0,
             config,
             archive: Archive::new(),
             lineage: Lineage::new(),
             mutation_strategy: MutationStrategy::default(),
             errors: Vec::new(),
+            thermo: ThermodynamicSnapshot::default(),
         }
     }
 
@@ -81,9 +121,12 @@ impl RuntimeState {
         self.current_generation += 1;
     }
 
-    pub fn update_best(&mut self, agent: Agent, score: f32) {
+    pub fn update_best(&mut self, agent: Agent, score: f32, fitness: f32) {
         if score > self.best_score {
             self.best_score = score;
+        }
+        if fitness > self.best_fitness {
+            self.best_fitness = fitness;
             self.best_agent = Some(agent);
         }
     }
@@ -108,13 +151,18 @@ impl RuntimeState {
     }
 
     pub fn summary(&self) -> String {
+        let t = &self.thermo;
         format!(
-            "Generation: {}/{}, Best Score: {:.2}, Phase: {:?}, Errors: {}",
+            "Generation: {}/{}, Best Score: {:.2}, Best Fitness: {:.2}, Phase: {:?}, Errors: {}\n  Thermodynamics: T={:.3}, S={:.3}, dS/dt={:.3}, F={:.1}\n  Landscape: ∇={:.2}, κ={:.2}, P_esc={:.2}, E_info={:.3}\n  Dissipation: De={:.1}",
             self.current_generation,
             self.config.max_generations,
             self.best_score,
+            self.best_fitness,
             self.phase,
-            self.errors.len()
+            self.errors.len(),
+            t.temperature, t.entropy, t.entropy_production_rate, t.free_energy,
+            t.landscape_gradient, t.landscape_curvature, t.escape_probability, t.info_energy,
+            t.deborah_number,
         )
     }
 }
@@ -141,9 +189,10 @@ mod tests {
         let mut state = RuntimeState::default();
         let agent = Agent::new("code".to_string(), "prompt".to_string());
 
-        state.update_best(agent.clone(), 8.5);
+        state.update_best(agent.clone(), 8.5, 8.5);
 
         assert_eq!(state.best_score, 8.5);
+        assert_eq!(state.best_fitness, 8.5);
         assert!(state.best_agent.is_some());
     }
 

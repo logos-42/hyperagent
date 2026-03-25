@@ -2,6 +2,7 @@
 /// 基于普利高津耗散结构理论和最大熵产生原理
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// 系统的能量状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,9 +27,12 @@ impl EnergyState {
         }
     }
 
-    /// 计算 Boltzmann 因子：exp(-E/kT)
+    /// 计算 Boltzmann 因子：exp(-ΔE / k_B T)
+    ///
+    /// k_B = 1.0，使温度直接对应分数单位。
+    /// 例如 T=1.0 时，差 1 分的解有 ~37% 接受率，差 2 分有 ~13%。
     pub fn boltzmann_factor(&self, energy_diff: f32) -> f32 {
-        let kt = self.temperature * 0.1; // k_B 归一化
+        let kt = self.temperature; // k_B = 1.0
         if kt > 1e-6 {
             (-energy_diff / kt).exp()
         } else {
@@ -199,6 +203,52 @@ impl Default for FitnessLandscape {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 新颖度与适应度
+// ---------------------------------------------------------------------------
+
+/// 计算 Jaccard 相似度（基于 token 集合）
+pub fn jaccard_similarity(a: &str, b: &str) -> f32 {
+    let set_a: HashSet<&str> = a.split_whitespace().collect();
+    let set_b: HashSet<&str> = b.split_whitespace().collect();
+    if set_a.is_empty() && set_b.is_empty() {
+        return 1.0;
+    }
+    let intersection = set_a.intersection(&set_b).count();
+    let union = set_a.union(&set_b).count();
+    if union == 0 {
+        1.0
+    } else {
+        intersection as f32 / union as f32
+    }
+}
+
+/// 计算代码新颖度：1 - max_jaccard_similarity(recent_codes)
+///
+/// - 返回 0.0（与历史完全相同）到 1.0（完全不同）
+/// - 如果 recent_codes 为空，返回 1.0（最大新颖度）
+pub fn compute_novelty(code: &str, recent_codes: &[String]) -> f32 {
+    if recent_codes.is_empty() || code.is_empty() {
+        return 1.0;
+    }
+    let max_sim = recent_codes
+        .iter()
+        .map(|old| jaccard_similarity(code, old))
+        .fold(0.0_f32, f32::max);
+    1.0 - max_sim
+}
+
+/// 适应度函数：fitness = score × (1 + novelty_weight × novelty)
+///
+/// 新颖度权重使得探索性高的方案获得额外适应度加成。
+/// 例如 novelty_weight=0.5 时：
+///   score=10, novelty=0.0 → fitness=10.0
+///   score=10, novelty=1.0 → fitness=15.0
+///   score=7,  novelty=1.0 → fitness=10.5  (超过无新颖度的满分)
+pub fn compute_fitness(score: f32, novelty: f32, novelty_weight: f32) -> f32 {
+    score * (1.0 + novelty_weight * novelty)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +275,28 @@ mod tests {
         let history = vec![1.0, 2.0, 2.5, 2.6, 2.5];
         landscape.update(&history);
         assert!(landscape.gradient != 0.0 || landscape.curvature != 0.0);
+    }
+
+    #[test]
+    fn test_novelty() {
+        // 完全相同 → novelty=0
+        assert!(
+            (compute_novelty("fn foo() { bar() }", &["fn foo() { bar() }".to_string()]) - 0.0).abs()
+                < 0.01
+        );
+        // 完全不同 → novelty≈1
+        assert!(
+            compute_novelty("aaa bbb ccc", &["xxx yyy zzz".to_string()]) > 0.9
+        );
+        // 空历史 → novelty=1
+        assert_eq!(compute_novelty("anything", &[]), 1.0);
+    }
+
+    #[test]
+    fn test_fitness() {
+        // 高分低新颖 vs 低分高新颖
+        let f_high_score = compute_fitness(10.0, 0.0, 0.5); // 10.0
+        let f_novel = compute_fitness(7.0, 1.0, 0.5);       // 10.5
+        assert!(f_novel > f_high_score);
     }
 }
