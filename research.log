@@ -59,3 +59,14 @@ warning: `hyperagent` (lib) generated 1 warning
 [2m2026-03-25T16:56:30.483099Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `summarize_file` function parses code with simple string matching which fails on multi-line `pub struct` definitions with derives (common in Rust codebases). Improve the parser to handle derives and extract generic parameters from struct/enum definitions, providing richer context to the LLM researcher.
 [2m2026-03-25T16:56:48.295455Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
 [2m2026-03-25T16:56:51.103986Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-25T16:56:51.207058Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[3]: codebase.rs — The `summarize_file` function parses code with simple string (Neutral)
+[2m2026-03-25T16:56:51.207162Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T16:56:56.182623Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 4] Improving src/web.rs
+[2m2026-03-25T16:56:58.677078Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 89/91 tests
+[2m2026-03-25T16:57:01.718561Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["rig-rs Tool trait implementation best practices", "reqwest Rust share client between async tasks", "rust async trait implement tool definition serde"]
+[2m2026-03-25T16:57:02.380882Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait implementation best practices'
+[2m2026-03-25T16:57:02.728633Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'reqwest Rust share client between async tasks'
+[2m2026-03-25T16:57:02.994703Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust async trait implement tool definition serde'
+[2m2026-03-25T16:58:10.657398Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `html_to_text` function has inefficient repeated allocations from `to_lowercase()` on the entire HTML string for every attribute and tag check, and creates multiple intermediate strings for tag detection - these can be eliminated by using case-insensitive matching and checking the tag buffer directly.
+[2m2026-03-25T16:58:26.953384Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 93/95 tests
+[2m2026-03-25T16:58:32.098604Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved

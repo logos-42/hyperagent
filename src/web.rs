@@ -339,6 +339,17 @@ impl Tool for WebFetchTool {
 // HTML parsing (lightweight, no scraper dependency)
 // ---------------------------------------------------------------------------
 
+/// Check if a tag buffer starts with a case-insensitive tag name.
+/// Optimized to avoid allocating a lowercase string.
+#[inline]
+fn tag_starts_with(tag: &str, prefix: &str) -> bool {
+    let tag = tag.trim_start_matches('<');
+    if tag.len() < prefix.len() {
+        return false;
+    }
+    tag[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
 /// Simple HTML tag stripper — removes all tags and extracts text.
 /// Does not need a full HTML parser crate.
 fn html_to_text(html: &str) -> String {
@@ -358,29 +369,29 @@ fn html_to_text(html: &str) -> String {
             '>' if in_tag => {
                 in_tag = false;
                 tag_buf.push(ch);
-                let tag_lower = tag_buf.to_lowercase();
 
-                // Track script/style blocks
-                if tag_lower.starts_with("<script") {
+                // Track script/style blocks using case-insensitive comparison
+                // without allocating a new string
+                if tag_starts_with(&tag_buf, "script") {
                     in_script = true;
-                } else if tag_lower.starts_with("</script") {
+                } else if tag_starts_with(&tag_buf, "/script") {
                     in_script = false;
-                } else if tag_lower.starts_with("<style") {
+                } else if tag_starts_with(&tag_buf, "style") {
                     in_style = true;
-                } else if tag_lower.starts_with("</style") {
+                } else if tag_starts_with(&tag_buf, "/style") {
                     in_style = false;
                 }
 
                 // Add paragraph breaks for block elements
-                if tag_lower.starts_with("<p")
-                    || tag_lower.starts_with("<div")
-                    || tag_lower.starts_with("<h1")
-                    || tag_lower.starts_with("<h2")
-                    || tag_lower.starts_with("<h3")
-                    || tag_lower.starts_with("<h4")
-                    || tag_lower.starts_with("<br")
-                    || tag_lower.starts_with("<li")
-                    || tag_lower.starts_with("<tr")
+                if tag_starts_with(&tag_buf, "p")
+                    || tag_starts_with(&tag_buf, "div")
+                    || tag_starts_with(&tag_buf, "h1")
+                    || tag_starts_with(&tag_buf, "h2")
+                    || tag_starts_with(&tag_buf, "h3")
+                    || tag_starts_with(&tag_buf, "h4")
+                    || tag_starts_with(&tag_buf, "br")
+                    || tag_starts_with(&tag_buf, "li")
+                    || tag_starts_with(&tag_buf, "tr")
                 {
                     result.push('\n');
                 }
@@ -418,13 +429,30 @@ fn html_to_text(html: &str) -> String {
     }
 }
 
-/// Extract <title> from HTML.
+/// Case-insensitive substring search without allocating.
+#[inline]
+fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    haystack
+        .char_indices()
+        .position(|(i, _)| {
+            haystack[i..].chars().zip(needle.chars()).all(|(h, n)| {
+                h.to_ascii_lowercase() == n.to_ascii_lowercase()
+            }) && haystack[i..].len() >= needle.len()
+        })
+}
+
+/// Extract <title> from HTML (case-insensitive).
 fn extract_title(html: &str) -> String {
-    let lower = html.to_lowercase();
-    if let Some(start) = lower.find("<title>") {
-        let start = start + 7;
-        if let Some(end) = lower[start..].find("</title>") {
-            return html[start..start + end].trim().to_string();
+    // Find <title> case-insensitively
+    let title_start = find_case_insensitive(html, "<title>")
+        .map(|i| i + 7);
+    
+    if let Some(start) = title_start {
+        let rest = &html[start..];
+        // Find </title> case-insensitively
+        let end = find_case_insensitive(rest, "</title>");
+        if let Some(end_pos) = end {
+            return html[start..start + end_pos].trim().to_string();
         }
     }
     String::new()
@@ -433,22 +461,24 @@ fn extract_title(html: &str) -> String {
 /// Parse DuckDuckGo HTML search results.
 fn parse_ddg_results(html: &str, max_results: usize) -> Vec<WebSearchResult> {
     let mut results = Vec::new();
-    let lower = html.to_lowercase();
 
     // DuckDuckGo HTML results: each result is in a <a class="result__a"> with href
     // and snippets in <a class="result__snippet">
     let mut pos = 0;
     while results.len() < max_results {
-        // Find next result link
-        let link_start = match lower[pos..].find("class=\"result__a\"") {
-            Some(i) => pos + i,
+        // Find next result link (case-insensitive class attribute)
+        let link_start = match find_attr_class(html, pos, "result__a") {
+            Some(i) => i,
             None => break,
         };
 
         // Find href within this element
-        let href_start = match lower[link_start..].find("href=") {
-            Some(i) => link_start + i + 6,
-            None => break,
+        let href_start = match find_href(html, link_start) {
+            Some(i) => i,
+            None => {
+                pos = link_start + 1;
+                continue;
+            }
         };
 
         // Extract URL (between quotes after href=)
@@ -457,31 +487,33 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<WebSearchResult> {
         let url = resolve_ddg_redirect(&raw_url);
 
         // Find the link text (between > and <)
-        let text_start = match lower[href_start..].find('>') {
+        let text_start = match html[href_start..].find('>') {
             Some(i) => href_start + i + 1,
-            None => break,
+            None => {
+                pos = href_start + 1;
+                continue;
+            }
         };
-        let title_end = match lower[text_start..].find('<') {
+        let title_end = match html[text_start..].find('<') {
             Some(i) => text_start + i,
             None => break,
         };
         let title = html[text_start..title_end].trim().to_string();
 
         // Find snippet (class="result__snippet")
-        let snippet_area = &lower[title_end..];
-        let snippet_start = match snippet_area.find("class=\"result__snippet\"") {
-            Some(i) => title_end + i,
+        let snippet_start = match find_attr_class(html, title_end, "result__snippet") {
+            Some(i) => i,
             None => {
                 pos = title_end;
                 continue;
             }
         };
 
-        let snip_text_start = match lower[snippet_start..].find('>') {
+        let snip_text_start = match html[snippet_start..].find('>') {
             Some(i) => snippet_start + i + 1,
             None => break,
         };
-        let snip_text_end = match lower[snip_text_start..].find('<') {
+        let snip_text_end = match html[snip_text_start..].find('<') {
             Some(i) => snip_text_start + i,
             None => break,
         };
@@ -501,6 +533,24 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<WebSearchResult> {
     }
 
     results
+}
+
+/// Find a tag with a specific class attribute (case-insensitive for class name).
+fn find_attr_class(html: &str, start: usize, class_name: &str) -> Option<usize> {
+    let search_pattern = format!("class=\"{}\"", class_name);
+    let search_pattern_lower = format!("class=\"{}\"", class_name.to_lowercase());
+    
+    // Search for class attribute (handle both cases)
+    let pattern_pos = html[start..].find(&search_pattern)
+        .or_else(|| html[start..].find(&search_pattern_lower));
+    
+    pattern_pos.map(|i| start + i)
+}
+
+/// Find href attribute position after a given position.
+fn find_href(html: &str, start: usize) -> Option<usize> {
+    let rest = &html[start..];
+    rest.find("href=").map(|i| start + i + 5)
 }
 
 /// Extract a quoted string starting from a position (handles both " and ').
@@ -657,8 +707,22 @@ mod tests {
     }
 
     #[test]
+    fn test_html_to_text_case_insensitive_tags() {
+        let html = r#"<HTML><BODY><SCRIPT>alert('xss')</SCRIPT><P>Visible</P></BODY></HTML>"#;
+        let text = html_to_text(html);
+        assert!(text.contains("Visible"));
+        assert!(!text.contains("alert"));
+    }
+
+    #[test]
     fn test_extract_title() {
         let html = r#"<html><head><title>My Title</title></head><body></body></html>"#;
+        assert_eq!(extract_title(html), "My Title");
+    }
+
+    #[test]
+    fn test_extract_title_case_insensitive() {
+        let html = r#"<HTML><HEAD><TITLE>My Title</TITLE></HEAD><BODY></BODY></HTML>"#;
         assert_eq!(extract_title(html), "My Title");
     }
 
@@ -753,6 +817,22 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("test"));
         assert!(json.contains("Test"));
+    }
+
+    #[test]
+    fn test_tag_starts_with() {
+        assert!(tag_starts_with("<script", "script"));
+        assert!(tag_starts_with("<SCRIPT", "script"));
+        assert!(tag_starts_with("<ScRiPt", "script"));
+        assert!(tag_starts_with("</script", "/script"));
+        assert!(!tag_starts_with("<div", "script"));
+    }
+
+    #[test]
+    fn test_find_case_insensitive() {
+        assert_eq!(find_case_insensitive("Hello World", "hello"), Some(0));
+        assert_eq!(find_case_insensitive("Hello World", "WORLD"), Some(6));
+        assert_eq!(find_case_insensitive("Hello World", "xyz"), None);
     }
 
     #[tokio::test]
