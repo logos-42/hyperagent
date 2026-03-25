@@ -15,6 +15,9 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 dirs = "5"
+rand = "0.8"
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+dotenvy = "0.15"
 
 [dev-dependencies]
 mockall = "0.12"

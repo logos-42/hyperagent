@@ -6,6 +6,23 @@ pub mod runtime;
 
 pub use agent::{Agent, Executor, MetaMutator, Mutator};
 pub use eval::{Evaluator, Benchmark, EvaluationResult};
-pub use llm::{LLMClient, PromptTemplate, LLMConfig, RigClient, create_llm_client, DynLLMClient};
+pub use llm::{
+    LLMClient, LLMClientImpl, PromptTemplate, LLMConfig, LLMProvider, LLMResponse,
+    create_llm_client, DynLLMClient,
+};
 pub use memory::{Archive, Lineage, Record};
-pub use runtime::{EvolutionLoop, RuntimeState, RuntimeConfig};
+pub use runtime::{
+    // Evolution runtime
+    EvolutionLoop, RuntimeState, EvolutionRuntimeConfig as RuntimeConfig,
+    EnergyState, DissipationScale, InfoEnergyCoupling, FitnessLandscape,
+    ConstraintSystem, HardConstraints, SoftConstraints, CodeMetrics,
+    EvolutionDirection, TopologicalConstraints,
+    Selector, SelectionType, Individual, PopulationStats,
+    // Environment
+    Environment, EnvironmentConfig, EnvironmentInfo,
+    SessionMeta, SessionStatus,
+    IterationState, IterationStatus, IterationMetrics,
+    // Local runtime
+    LocalRuntime, LocalRuntimeBuilder,
+    LocalRuntimeConfig, ExecutionContext, ExecutionResult, ProviderStats,
+};

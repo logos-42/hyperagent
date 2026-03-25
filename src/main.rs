@@ -1,18 +1,17 @@
 use anyhow::Result;
-use hyperagent::{EvolutionLoop, RuntimeConfig, RuntimeState, LLMConfig, RigClient};
+use hyperagent::{EvolutionLoop, RuntimeConfig, RuntimeState, LLMClientImpl};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
 
     tracing::info!("Starting Hyperagent - Self-Evolving Agent System");
 
-    let llm_config = LLMConfig::default();
-    tracing::info!("Using model: {}", llm_config.model);
-
-    let client = RigClient::new(&llm_config)?;
+    let client = LLMClientImpl::from_env()?;
+    tracing::info!("Using provider: {:?}, model: {}", client.provider(), client.model());
     let runtime_config = RuntimeConfig {
         max_generations: 10,
         population_size: 3,
