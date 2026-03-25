@@ -15,6 +15,14 @@ pub struct EnergyState {
     pub entropy_production_rate: f32,
     /// 温度：探索/开发平衡参数
     pub temperature: f32,
+    /// 初始温度：用于重置和调度
+    pub initial_temperature: f32,
+    /// 冷却速率：温度衰减率 (0 < alpha < 1)
+    pub cooling_rate: f32,
+    /// 最小温度：温度下限
+    pub min_temperature: f32,
+    /// 当前代数
+    pub generation: u32,
 }
 
 impl EnergyState {
@@ -24,6 +32,24 @@ impl EnergyState {
             entropy: 0.0,
             entropy_production_rate: 0.0,
             temperature,
+            initial_temperature: temperature,
+            cooling_rate: 0.95, // 默认冷却率
+            min_temperature: 0.01, // 最小温度，避免除零
+            generation: 0,
+        }
+    }
+
+    /// 创建带有自定义冷却参数的能量状态
+    pub fn with_cooling(free_energy: f32, temperature: f32, cooling_rate: f32, min_temperature: f32) -> Self {
+        Self {
+            free_energy,
+            entropy: 0.0,
+            entropy_production_rate: 0.0,
+            temperature,
+            initial_temperature: temperature,
+            cooling_rate: cooling_rate.clamp(0.8, 0.99),
+            min_temperature: min_temperature.max(0.001),
+            generation: 0,
         }
     }
 
@@ -32,7 +58,7 @@ impl EnergyState {
     /// k_B = 1.0，使温度直接对应分数单位。
     /// 例如 T=1.0 时，差 1 分的解有 ~37% 接受率，差 2 分有 ~13%。
     pub fn boltzmann_factor(&self, energy_diff: f32) -> f32 {
-        let kt = self.temperature; // k_B = 1.0
+        let kt = self.temperature.max(self.min_temperature); // k_B = 1.0
         if kt > 1e-6 {
             (-energy_diff / kt).exp()
         } else {
@@ -48,6 +74,78 @@ impl EnergyState {
         } else {
             self.boltzmann_factor(-delta_e)
         }
+    }
+
+    /// 执行温度冷却
+    ///
+    /// 使用指数衰减：T(t+1) = alpha * T(t)
+    /// 这是模拟退火中常用的冷却策略，保证渐近收敛
+    pub fn cool(&mut self) {
+        self.temperature = (self.temperature * self.cooling_rate).max(self.min_temperature);
+        self.generation += 1;
+    }
+
+    /// 自适应冷却：根据系统进展调整冷却速率
+    ///
+    /// 如果熵产生率高（系统仍在快速探索），减慢冷却
+    /// 如果熵产生率低（系统已稳定），加快冷却
+    pub fn adaptive_cool(&mut self) {
+        let adaptation_factor = if self.entropy_production_rate > 0.1 {
+            // 系统活跃，减慢冷却
+            1.0 / (1.0 + self.entropy_production_rate * 0.1)
+        } else if self.entropy_production_rate < 0.01 {
+            // 系统稳定，加快冷却
+            1.0 + (0.01 - self.entropy_production_rate) * 0.5
+        } else {
+            1.0
+        };
+
+        let effective_cooling = (self.cooling_rate * adaptation_factor).clamp(0.8, 0.999);
+        self.temperature = (self.temperature * effective_cooling).max(self.min_temperature);
+        self.generation += 1;
+    }
+
+    /// 重加热：用于逃离局部最优
+    ///
+    /// 将温度提升到初始温度的一定比例
+    pub fn reheat(&mut self, factor: f32) {
+        self.temperature = (self.initial_temperature * factor.clamp(0.1, 1.0))
+            .max(self.temperature)
+            .min(self.initial_temperature);
+    }
+
+    /// 检查是否需要重加热
+    ///
+    /// 当温度过低且系统陷入停滞时返回 true
+    pub fn should_reheat(&self, stagnation_generations: u32, threshold: u32) -> bool {
+        self.temperature <= self.min_temperature * 1.1 && stagnation_generations >= threshold
+    }
+
+    /// 计算当前的冷却进度 (0 到 1)
+    ///
+    /// 返回 0 表示刚开始，1 表示完全冷却
+    pub fn cooling_progress(&self) -> f32 {
+        if self.initial_temperature <= self.min_temperature {
+            1.0
+        } else {
+            let progress = (self.initial_temperature - self.temperature)
+                / (self.initial_temperature - self.min_temperature);
+            progress.clamp(0.0, 1.0)
+        }
+    }
+
+    /// 更新熵和熵产生率
+    pub fn update_entropy(&mut self, new_entropy: f32) {
+        let old_entropy = self.entropy;
+        self.entropy = new_entropy;
+        // 使用指数移动平均平滑熵产生率
+        let rate = if self.generation > 0 {
+            (self.entropy - old_entropy).abs()
+        } else {
+            0.0
+        };
+        // 指数移动平均，alpha = 0.3
+        self.entropy_production_rate = 0.3 * rate + 0.7 * self.entropy_production_rate;
     }
 }
 
@@ -173,6 +271,8 @@ pub struct FitnessLandscape {
     pub curvature: f32,
     /// 逃逸概率（从局部最优跳出）
     pub escape_probability: f32,
+    /// 停滞代数（用于判断是否需要重加热）
+    pub stagnation_count: u32,
 }
 
 impl FitnessLandscape {
@@ -182,6 +282,7 @@ impl FitnessLandscape {
             gradient: 0.0,
             curvature: 0.0,
             escape_probability: 1.0,
+            stagnation_count: 0,
         }
     }
 
@@ -191,9 +292,19 @@ impl FitnessLandscape {
             return;
         }
 
+        let last_fitness = fitness_history[fitness_history.len() - 1];
+        let prev_fitness = fitness_history[fitness_history.len() - 2];
+
         // 梯度：一阶差分
-        self.gradient = fitness_history[fitness_history.len() - 1]
-            - fitness_history[fitness_history.len() - 2];
+        self.gradient = last_fitness - prev_fitness;
+
+        // 检测停滞
+        if (last_fitness - self.current_fitness).abs() < 0.001 {
+            self.stagnation_count += 1;
+        } else {
+            self.stagnation_count = 0;
+        }
+        self.current_fitness = last_fitness;
 
         // 曲率：二阶差分
         if fitness_history.len() >= 3 {
@@ -318,5 +429,88 @@ mod tests {
         let f_high_score = compute_fitness(10.0, 0.0, 0.5); // 10.0
         let f_novel = compute_fitness(7.0, 1.0, 0.5);       // 10.5
         assert!(f_novel > f_high_score);
+    }
+
+    #[test]
+    fn test_temperature_cooling() {
+        let mut state = EnergyState::new(100.0, 1.0);
+        assert!((state.temperature - 1.0).abs() < 0.01);
+
+        // 冷却后温度应降低
+        state.cool();
+        assert!(state.temperature < 1.0);
+        assert!(state.temperature >= state.min_temperature);
+        assert_eq!(state.generation, 1);
+
+        // 多次冷却
+        for _ in 0..100 {
+            state.cool();
+        }
+        // 温度不应低于最小值
+        assert!(state.temperature >= state.min_temperature);
+    }
+
+    #[test]
+    fn test_adaptive_cooling() {
+        let mut state = EnergyState::new(100.0, 1.0);
+
+        // 高熵产生率时冷却更慢（但不一定慢于基础 cooling_rate，取决于 clamp）
+        state.entropy_production_rate = 0.5;
+        let temp_before = state.temperature;
+        state.adaptive_cool();
+        // 温度应该降低（冷却生效）
+        assert!(state.temperature < temp_before);
+        assert!(state.generation == 1);
+
+        // 低熵产生率时冷却更快
+        state.entropy_production_rate = 0.001;
+        let temp_before = state.temperature;
+        state.adaptive_cool();
+        // 温度应该降低
+        assert!(state.temperature < temp_before);
+    }
+
+    #[test]
+    fn test_reheat() {
+        let mut state = EnergyState::new(100.0, 1.0);
+        // 多次冷却使温度降到很低
+        for _ in 0..20 {
+            state.cool();
+        }
+        let temp_after_cool = state.temperature;
+        assert!(temp_after_cool < 0.5); // 应该已经冷却到 0.5 以下
+
+        state.reheat(0.5);
+        assert!(state.temperature > temp_after_cool);
+        assert!(state.temperature <= state.initial_temperature);
+    }
+
+    #[test]
+    fn test_cooling_progress() {
+        let mut state = EnergyState::new(100.0, 10.0);
+
+        // 初始时进度为 0
+        assert!((state.cooling_progress() - 0.0).abs() < 0.01);
+
+        // 冷却后进度增加
+        state.temperature = 5.0;
+        assert!(state.cooling_progress() > 0.0);
+        assert!(state.cooling_progress() < 1.0);
+
+        // 完全冷却时进度为 1
+        state.temperature = state.min_temperature;
+        assert!((state.cooling_progress() - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_should_reheat() {
+        let mut state = EnergyState::new(100.0, 1.0);
+        state.temperature = state.min_temperature;
+
+        // 刚停滞不久，不需要重加热
+        assert!(!state.should_reheat(2, 5));
+
+        // 停滞足够久，需要重加热
+        assert!(state.should_reheat(5, 5));
     }
 }

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod codebase;
 pub mod eval;
 pub mod llm;
 pub mod memory;
@@ -7,6 +8,7 @@ pub mod self_evolution;
 pub mod auto_research;
 
 pub use agent::{Agent, Executor, MetaMutator, Mutator};
+pub use codebase::CodebaseContext;
 pub use eval::{Evaluator, Benchmark, EvaluationResult};
 pub use llm::{
     LLMClient, LLMClientImpl, PromptTemplate, LLMConfig, LLMProvider, LLMResponse,

@@ -74,7 +74,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         }
     }
 
-    /// 从 archive + 当前分支中选择多样性父代（核心：非只取最优）
+    /// 使用确定性拥挤算法选择多样性父代
     fn select_diverse_parents(&self) -> Vec<crate::agent::Agent> {
         let num_branches = self.state.config.num_branches;
         let threshold = self.state.config.diversity_threshold;
@@ -92,6 +92,10 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             candidates.push((record.agent.clone(), fitness));
         }
 
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
         // 按 fitness 降序排列
         candidates.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
@@ -101,23 +105,72 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         // 去重（同 id 只保留最高 fitness）
         candidates.dedup_by(|a, b| a.0.id == b.0.id);
 
-        // 贪心选择多样性父代
+        // 确定性拥挤选择
         let mut selected: Vec<crate::agent::Agent> = Vec::new();
-        for (agent, _) in &candidates {
+        
+        for (agent, fitness) in &candidates {
             if selected.len() >= num_branches {
                 break;
             }
-            let is_diverse = selected.is_empty()
-                || selected.iter().all(|s| {
-                    jaccard_similarity(&s.code, &agent.code) < threshold
-                });
-            if is_diverse {
+
+            if selected.is_empty() {
+                // 第一个候选直接入选
                 selected.push(agent.clone());
+                continue;
+            }
+
+            // 计算与已选个体的最大相似度
+            let max_similarity = selected
+                .iter()
+                .map(|s| jaccard_similarity(&s.code, &agent.code))
+                .fold(0.0_f32, f32::max);
+
+            // 确定性拥挤接受条件：
+            // 相似度低于阈值（多样性）或者 fitness 高于所有相似度超过阈值的已选个体
+            if max_similarity < threshold {
+                selected.push(agent.clone());
+            } else {
+                // 检查是否比相似度过高的已选个体更强（拥挤替换）
+                let similar_selected: Vec<_> = selected
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| jaccard_similarity(&s.code, &agent.code) >= threshold)
+                    .collect();
+                
+                // 如果存在比当前候选弱且相似的已选个体，考虑替换
+                if let Some((idx, weaker)) = similar_selected
+                    .into_iter()
+                    .find(|(_, s)| {
+                        let s_fitness = self.branches
+                            .iter()
+                            .find(|b| b.agent.id == s.id)
+                            .map(|b| b.fitness)
+                            .unwrap_or(0.0);
+                        s_fitness < *fitness
+                    })
+                {
+                    // 只有当替换能提升整体多样性时才替换
+                    let old_sim_sum: f32 = selected
+                        .iter()
+                        .filter(|s| s.id != selected[idx].id)
+                        .map(|s| jaccard_similarity(&s.code, &selected[idx].code))
+                        .sum();
+                    
+                    let new_sim_sum: f32 = selected
+                        .iter()
+                        .filter(|s| s.id != selected[idx].id)
+                        .map(|s| jaccard_similarity(&s.code, &agent.code))
+                        .sum();
+                    
+                    if new_sim_sum < old_sim_sum {
+                        selected[idx] = agent.clone();
+                    }
+                }
             }
         }
 
-        // 如果多样性过滤太严格导致不足，放宽阈值补齐
-        if selected.len() < num_branches && !candidates.is_empty() {
+        // 如果经过拥挤选择后数量不足，放宽条件补齐
+        if selected.len() < num_branches {
             for (agent, _) in &candidates {
                 if selected.len() >= num_branches {
                     break;
@@ -336,7 +389,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             return Ok(self.branches.clone());
         }
 
-        // 1. 从 archive + 当前分支中选择多样性父代
+        // 1. 从 archive + 当前分支中选择多样性父代（使用确定性拥挤）
         let parents = self.select_diverse_parents();
 
         if parents.is_empty() {

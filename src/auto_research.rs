@@ -22,6 +22,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::codebase::CodebaseContext;
 use crate::llm::LLMClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,19 +84,46 @@ pub enum ExperimentOutcome {
     Failed,     // 编译失败
 }
 
-/// Karpathy 风格的自动研究引擎
+/// Karpathy 风格的自动研究引擎（含全局代码理解）
 pub struct AutoResearch<C: LLMClient> {
     client: C,
     config: ResearchConfig,
     experiments: Vec<Experiment>,
+    codebase: CodebaseContext,
+    context_path: PathBuf,
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
     pub fn new(client: C, config: ResearchConfig) -> Self {
+        let context_path = config.project_root.join(".hyperagent/data/codebase_context.json");
+
+        // 加载已有上下文，或重新扫描
+        let mut codebase = CodebaseContext::load(&context_path);
+        if codebase.total_files == 0 {
+            tracing::info!("Scanning codebase for the first time...");
+            match CodebaseContext::scan(&config.project_root.to_string_lossy()) {
+                Ok(ctx) => {
+                    tracing::info!(
+                        "Codebase: {} files, {} lines",
+                        ctx.total_files, ctx.total_lines
+                    );
+                    codebase = ctx;
+                }
+                Err(e) => tracing::warn!("Codebase scan failed: {}", e),
+            }
+        } else {
+            tracing::info!(
+                "Loaded codebase context: {} files, {} lines, {} iterations",
+                codebase.total_files, codebase.total_lines, codebase.total_iterations
+            );
+        }
+
         Self {
             client,
             config,
             experiments: Vec::new(),
+            codebase,
+            context_path,
         }
     }
 
@@ -232,7 +260,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         raw.trim().to_string()
     }
 
-    /// 构建研究 prompt：Karpathy 风格 — 直接、极简
+    /// 构建研究 prompt：注入全局架构上下文
     fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment]) -> String {
         let recent_history = history.iter().rev().take(5).map(|e| {
             format!(
@@ -241,24 +269,30 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             )
         }).collect::<Vec<_>>().join("\n");
 
+        let codebase_context = self.codebase.build_context_prompt(file);
+
         format!(
             "You are an AI researcher improving your own codebase. This is a self-research loop.\n\n\
-             === FILE: src/{file} ===\n\
+             {codebase_context}\n\n\
+             === CURRENT FILE: src/{file} ===\n\
              {code}\n\n\
              === PAST EXPERIMENTS ===\n\
              {history}\n\n\
              === YOUR TASK ===\n\
-             1. Read the code above carefully.\n\
-             2. Identify ONE specific, concrete improvement.\n\
-             3. Output in this EXACT format:\n\n\
+             1. Understand the architecture above — how this file fits into the system.\n\
+             2. Read the code carefully.\n\
+             3. Identify ONE specific, concrete improvement.\n\
+             4. Consider cross-file dependencies — don't break other modules.\n\
+             5. Output in this EXACT format:\n\n\
              HYPOTHESIS: <one sentence describing what you'll improve and why>\n\n\
              IMPROVED_CODE:\n\
              ```rust\n\
              <complete improved file>\n\
              ```\n\n\
              Rules:\n\
-             - Do NOT change public API signatures\n\
-             - Do NOT add new dependencies\n\
+             - Do NOT change public API signatures (function names, trait methods, struct fields)\n\
+             - Do NOT add new external dependencies\n\
+             - Do NOT break imports used by other files\n\
              - Focus on one improvement per iteration\n\
              - Output the COMPLETE file, not a diff\n",
             file = file,
@@ -461,7 +495,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let experiment = Experiment {
             iteration,
             file: file.to_string(),
-            hypothesis,
+            hypothesis: hypothesis.clone(),
             outcome,
             tests_before,
             tests_after: (tests_after, total_after),
@@ -469,7 +503,14 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             timestamp: chrono::Utc::now().to_rfc3339(),
         };
 
-        // 9. 写入实验日志
+        // 9. 记录改进到全局上下文
+        self.codebase.record_improvement(
+            file,
+            &hypothesis,
+            &format!("{:?}", outcome),
+        );
+
+        // 10. 写入实验日志
         self.append_experiment_log(&experiment)?;
 
         // 10. Git commit + push
@@ -522,6 +563,16 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
             let exp = self.run_iteration(i + 1, &file).await?;
             self.experiments.push(exp.clone());
+
+            // 每 N 轮刷新代码库上下文（源文件可能已改变）
+            if (i + 1) % 5 == 0 {
+                self.codebase.refresh(&self.config.project_root.to_string_lossy());
+            }
+        }
+
+        // 保存全局上下文到磁盘
+        if let Err(e) = self.codebase.save(&self.context_path) {
+            tracing::warn!("Failed to save codebase context: {}", e);
         }
 
         // 最终 push

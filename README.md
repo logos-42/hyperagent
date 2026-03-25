@@ -1,148 +1,213 @@
 # Hyperagent
 
-一个基于 Rust 的**自进化智能体系统**，通过"执行、评估、变异、元变异"的进化循环迭代改进 AI 智能体。利用 LLM（通过 `rig-core`）既执行任务又改进智能体本身——包括改进变异策略（元学习）。
+基于 Rust 的**自进化智能体系统**，通过进化循环迭代改进 AI 智能体。支持两种运行模式：
+
+1. **进化引擎** — 进化"解决任务的代码"（执行→评估→变异→选择）
+2. **自动研究** — Karpathy 风格，进化"系统自身的代码"（假设→实验→反思→提交 GitHub）
 
 ## 架构
 
 ```
-                    +-----------------+
-                    |  EvolutionLoop   |
-                    +--------+--------+
-                             |
-              +--------------+--------------+
-              |              |              |
-        +-----+-----+ +-----+-----+ +------+------+
-        | 执行器     | | 评估器     | | 变异器     |
-        | (LLM 调用) | | (评分 0-10) | | (LLM 调用) |
-        +-----------+ +------------+ +------------+
-                             |
-                    +--------+--------+
-                    |  元变异器       |
-                    | (进化变异       |
-                    |  策略本身)      |
-                    +--------+--------+
-                             |
-                    +--------+--------+
-                    |  记忆层         |
-                    |  存档 +         |
-                    |  血统树         |
-                    +-----------------+
+┌─────────────────────────────────────────────────────────────────┐
+│                     Hyperagent System                           │
+├──────────────────────────┬──────────────────────────────────────┤
+│    Mode 1: 进化引擎       │    Mode 2: 自动研究（Karpathy 风格）  │
+│                          │                                      │
+│  Task → Execute → Eval   │  Read → Hypothesize → Apply          │
+│    → Mutate → Select     │    → cargo test → Reflect             │
+│    → Meta-Mutate → Loop  │    → git commit → git push → Loop     │
+├──────────────────────────┴──────────────────────────────────────┤
+│  Memory Layer: Archive (disk persistence) + Lineage (血统树)     │
+│  Thermodynamics: Energy, Entropy, Dissipation, Phase Transitions│
+├─────────────────────────────────────────────────────────────────┤
+│  LLM Layer: rig-core (OpenAI compatible)                        │
+│  Self-Modification: auto_research.rs can modify its own code    │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-每次进化迭代遵循以下阶段循环：
-
-1. **执行** —— 通过 LLM 使用当前智能体运行任务
-2. **评估** —— 对输出进行评分（正确性、效率、鲁棒性，0-10 分）
-3. **存档** —— 存储结果；记录到血统树中
-4. **变异** —— 利用历史失败作为反馈生成新的智能体变体
-5. **元变异**（定期） —— 进化变异策略本身
-6. **选择** —— 与存档中的最优解比较；保留更优的智能体
 
 ## 项目结构
 
 ```
 src/
-├── lib.rs                  # 库根，重新导出所有公开类型
-├── main.rs                 # 二进制入口
+├── lib.rs                      # 库入口，公开 API 导出
+├── main.rs                     # 进化引擎二进制入口
+├── auto_research.rs            # 统一自动研究循环（Karpathy + 结构化自改进）
+├── self_evolution.rs           # 递归自改进引擎
 ├── agent/
-│   ├── mod.rs              # Agent、MutationStrategy 结构体
-│   ├── executor.rs         # 通过 LLM 执行任务
-│   ├── mutator.rs          # 基于失败记录的智能体变异
-│   └── meta_mutator.rs     # 元学习：进化变异策略
+│   ├── mod.rs                  # Agent、MutationStrategy
+│   ├── executor.rs             # LLM 任务执行
+│   ├── mutator.rs              # 基于失败记录的智能体变异
+│   ├── meta_mutator.rs         # 元学习：进化变异策略
+│   └── population.rs           # 多智能体种群
 ├── eval/
-│   ├── mod.rs              # 重新导出
-│   ├── evaluator.rs        # LLM / 规则 / 集成评估器
-│   └── benchmark.rs        # 基准测试任务套件和报告
+│   ├── evaluator.rs            # LLM / 规则 / 集成评估器
+│   └── benchmark.rs            # 基准测试任务
 ├── llm/
-│   ├── mod.rs              # 重新导出
-│   ├── client.rs           # LLMClient trait + RigClient（OpenAI 兼容）
-│   └── prompts.rs          # 提示词模板（执行/变异/元/评估）
+│   ├── client.rs               # LLMClient trait + 实现
+│   └── prompts.rs              # 提示词模板
 ├── memory/
-│   ├── mod.rs              # 重新导出、Record 结构体
-│   ├── archive.rs          # 有界存档，支持压缩和 top-k
-│   └── lineage.rs          # 进化血统树
-└── runtime/
-    ├── mod.rs              # 重新导出
-    ├── state.rs            # RuntimeState、RuntimeConfig、RuntimePhase
-    └── loop_.rs            # 核心 EvolutionLoop
+│   ├── archive.rs              # 有界存档（磁盘持久化）
+│   └── lineage.rs              # 进化血统树（磁盘持久化）
+├── runtime/
+│   ├── loop_.rs                # 核心进化循环
+│   ├── state.rs                # RuntimeState + 磁盘持久化
+│   ├── thermodynamics.rs       # 热力学框架
+│   ├── selection.rs            # 6 种选择策略
+│   ├── constraints.rs          # 硬/软约束系统
+│   ├── population.rs           # 种群进化
+│   ├── environment.rs          # 环境交互
+│   ├── local_runtime.rs        # 本地运行时
+│   └── multi_agent_loop.rs     # 多智能体循环
+└── bin/
+    ├── research.rs             # 自动研究入口（主入口）
+    └── self_evolve.rs          # 结构化自改进入口
 ```
-
-## 核心特性
-
-- **基于 trait 的抽象** —— `LLMClient` trait 便于 mock 和切换 LLM 提供商
-- **连接池** —— `Arc` 共享 HTTP 客户端，配合 `Semaphore` 并发控制
-- **有界记忆** —— 存档达到容量上限时自动压缩
-- **元学习** —— 变异策略本身会随着代际进化而改进
-- **三种评估策略** —— 基于 LLM、基于规则的启发式、集成评估（多评估器取平均）
-- **完整可观测性** —— 通过 `tracing` 进行结构化日志记录，配合基于阶段的状态机
 
 ## 快速开始
 
 ### 前置条件
 
 - Rust 1.75+
-- OpenAI 兼容的 API Key
+- OpenAI 兼容的 API（支持自定义 base_url）
 
-### 使用方法
+### 配置
 
-```rust
-use hyperagent::{EvolutionLoop, RuntimeConfig, LLMConfig, RigClient};
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // 配置 LLM（默认读取 OPENAI_API_KEY 环境变量）
-    let llm_config = LLMConfig::default();
-
-    // 配置进化参数
-    let runtime_config = RuntimeConfig {
-        max_generations: 100,
-        population_size: 5,
-        top_k_selection: 3,
-        checkpoint_interval: 10,
-        meta_mutation_interval: 20,
-    };
-
-    // 构建并运行
-    let client = RigClient::new(&llm_config)?;
-    let mut loop_ = EvolutionLoop::new(client, runtime_config);
-    let state = loop_.run("编写一个高效解决 X 问题的函数").await?;
-
-    println!("{}", state.summary());
-    Ok(())
-}
-```
-
-### 配置项
-
-| 字段 | 默认值 | 说明 |
-|---|---|---|
-| `LLMConfig.model` | `gpt-4o` | 模型名称 |
-| `LLMConfig.api_key` | `$OPENAI_API_KEY` | API 密钥 |
-| `LLMConfig.base_url` | `None` | 自定义端点（OpenAI 兼容） |
-| `LLMConfig.max_concurrent` | `8` | 最大并发 LLM 请求数 |
-| `RuntimeConfig.max_generations` | `100` | 最大进化代数 |
-| `RuntimeConfig.meta_mutation_interval` | `20` | 每 N 代执行一次元变异 |
-
-### 运行二进制文件
+创建 `.env` 文件：
 
 ```bash
-export OPENAI_API_KEY=sk-...
+# LLM 配置（支持任何 OpenAI 兼容 API）
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=sk-...
+LLM_BASE_URL=https://api.openai.com/v1  # 可选，自定义端点
+```
+
+### 运行模式
+
+#### 模式 1：进化引擎（进化任务代码）
+
+```bash
+# 默认运行 5 代进化
 cargo run
+
+# 运行 N 代
+ITERATIONS=10 cargo run
+```
+
+#### 模式 2：自动研究（自我进化 + GitHub）
+
+```bash
+# 默认：自动改进 + commit + push 到 GitHub
+cargo run --bin research
+
+# 安全观察模式（不提交）
+RESEARCH_DRY_RUN=true cargo run --bin research
+
+# 只 commit 不 push
+RESEARCH_AUTO_PUSH=false cargo run --bin research
+
+# 严格模式（测试 100% 通过才接受）+ 自定义迭代数
+RESEARCH_STRICT=true RESEARCH_ITERATIONS=10 cargo run --bin research
+
+# 后台无限运行（适合过夜）
+nohup bash -c 'RESEARCH_AUTO_PUSH=true RESEARCH_ITERATIONS=1000 cargo run --bin research' > research.log 2>&1 &
+```
+
+#### 模式 3：结构化自改进
+
+```bash
+# 安全模式（默认 dry_run）
+cargo run --bin self_evolve
+
+# 实际提交
+SELF_EVOLVE_DRY_RUN=false cargo run --bin self_evolve
+```
+
+### 查看结果
+
+```bash
+# 实验日志
+cat .hyperagent/experiments/research_log.md
+
+# 进化存档
+cat .hyperagent/data/archive.json
+
+# 血统树
+cat .hyperagent/data/lineage.json
+
+# Git 提交历史
+git log --oneline
+```
+
+## 核心特性
+
+### 进化引擎
+- **多分支进化** — 每代生成多个变体，多样性选择
+- **热力学框架** — Prigogine 耗散结构理论：温度退火、熵产生、Deborah 数
+- **6 种选择策略** — 轮盘赌、锦标赛、截断、Boltzmann、排名、多样性保留
+- **元变异** — 变异策略本身随代际进化
+- **磁盘持久化** — Archive 和 Lineage 自动存档到 `.hyperagent/data/`
+
+### 自动研究（Karpathy 风格）
+- **极简循环** — 提出假设 → cargo check/test → LLM 反思 → git commit/push
+- **自我修改** — 可以修改自己的源代码（包括 `auto_research.rs` 自身）
+- **安全回滚** — 编译失败或测试退化自动 `git checkout`
+- **自动 GitHub 推送** — 每次成功改进自动 commit + push
+- **实验日志** — Markdown 格式记录每次实验的假设、结果、反思
+- **dry_run / strict 模式** — 安全观察或严格验证
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `LLM_PROVIDER` | `openai` | LLM 提供商 |
+| `LLM_MODEL` | `gpt-4o` | 模型名称 |
+| `LLM_API_KEY` | - | API 密钥 |
+| `LLM_BASE_URL` | OpenAI 默认 | 自定义端点 |
+| `RESEARCH_AUTO_PUSH` | `true` | 自动推送到 GitHub |
+| `RESEARCH_DRY_RUN` | `false` | 安全模式 |
+| `RESEARCH_STRICT` | `false` | 严格模式 |
+| `RESEARCH_ITERATIONS` | `5` | 研究迭代数 |
+| `ITERATIONS` | `5` | 进化引擎迭代数 |
+
+## 自动研究循环详解
+
+```
+┌──────────────────────────────────────────────────────┐
+│  while iteration < max_iterations:                    │
+│                                                      │
+│    1. READ      读取目标源文件                         │
+│    2. BASELINE  cargo test 获取基线                    │
+│    3. HYPOTHESIZE LLM 提出改进假设                     │
+│    4. APPLY     写入修改后的代码                       │
+│    5. COMPILE   cargo check                           │
+│       ├── FAIL → git checkout 回滚 → LLM 反思 → LOG   │
+│       └── OK ↓                                       │
+│    6. TEST      cargo test                            │
+│       ├── REGRESS → git checkout 回滚 → LLM 反思 → LOG│
+│       └── OK ↓                                       │
+│    7. REFLECT   LLM 反思实验结果                      │
+│    8. LOG       写入 research_log.md                  │
+│    9. COMMIT    git commit                            │
+│   10. PUSH      git push origin HEAD                  │
+│                                                      │
+│  end while                                            │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## 依赖
 
 | Crate | 用途 |
-|---|---|
-| `rig-core` | LLM 提供商抽象（OpenAI 兼容） |
+|-------|------|
+| `rig-core` | LLM 提供商抽象 |
 | `tokio` | 异步运行时 |
-| `serde` / `serde_json` | 序列化 |
+| `serde` / `serde_json` | 序列化 + 磁盘持久化 |
 | `anyhow` | 错误处理 |
 | `tracing` | 结构化日志 |
 | `chrono` | 时间戳 |
 | `uuid` | 唯一标识 |
-| `async-trait` | 异步 trait 支持 |
+| `dotenvy` | 环境变量 |
 
-## 许可证
+## License
 
 MIT

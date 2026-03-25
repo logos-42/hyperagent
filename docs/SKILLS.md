@@ -1,618 +1,348 @@
 # Hyperagent System Skills
 
+> 给 AI Agent 的完整项目知识，用于理解、维护和复刻此项目。
+
 ## System Identity
 
 **Name**: Hyperagent - Self-Evolving AI Agent System
-
-**GitHub**: https://github.com/logos-42/hyperagent
-
-**Core Capability**: Execute → Evaluate → Mutate → Meta-Mutate → Select (Evolution Loop)
+**Language**: Rust (edition 2021, async/tokio)
+**Core Idea**: 用进化算法改进 AI 智能体，用 Karpathy 风格循环让系统修改自己的代码。
 
 ---
 
-## Knowledge Base
+## Two Running Modes
 
-### Required Documents
+### Mode 1: 进化引擎 (Evolution Engine)
 
-Read in this order:
+进化"解决任务的代码"。循环：Execute → Evaluate → Mutate → Meta-Mutate → Select
 
-1. `README.md` - System architecture and usage
-2. `docs/AR.md` - Original design specification
-3. `docs/arc2.md` - Theoretical framework (thermodynamics mapping)
-4. `docs/arc2_part2.md` - Phase transitions and diagnostics
-5. `docs/QUICKSTART.md` - Practical implementation guide
-6. `docs/SUMMARY.md` - System completion summary
+入口：`cargo run`（src/main.rs）
 
----
-
-## System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    EvolutionLoop                            │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
-│  │ Executor │ → │ Evaluator│ → │ Mutator  │ → │ Selector │ │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘ │
-│       ↑              │                              │       │
-│       │              ↓                              │       │
-│       │        ┌──────────┐                         │       │
-│       │        │ Archive  │ ←────────────────────────┘       │
-│       │        └──────────┘                                 │
-│       │                                                      │
-│       └──────────────────────────────────────────────────────┘
-│                        (feedback loop)
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Core Components
-
-| Component | File | Responsibility |
-|-----------|------|----------------|
-| `EvolutionLoop` | `src/runtime/loop_.rs` | Main evolution cycle |
-| `Executor` | `src/agent/executor.rs` | Task execution via LLM |
-| `Evaluator` | `src/eval/evaluator.rs` | Score calculation (0-10) |
-| `Mutator` | `src/agent/mutator.rs` | Generate agent variants |
-| `MetaMutator` | `src/agent/meta_mutator.rs` | Evolve mutation strategy |
-| `Selector` | `src/runtime/selection.rs` | Selection mechanisms |
-| `Archive` | `src/memory/archive.rs` | Bounded memory storage |
-
----
-
-## Thermodynamic Framework
-
-### Key Concepts (Prigogine's Dissipative Structure Theory)
-
-| Physical Concept | Code Implementation |
-|-----------------|---------------------|
-| Far from equilibrium | `initial_temperature = 0.8` |
-| Energy flow | LLM token consumption |
-| Entropy production | `entropy_production_rate` |
-| Dissipation | `Archive::compress()` |
-| Deborah number | `De = τ_response / τ_drive` |
-| Critical point | `near_critical(0.2)` |
-| Boltzmann selection | `exp(f_i/T) / Σexp(f_j/T)` |
-
-### Core Structures
-
-```rust
-// src/runtime/thermodynamics.rs
-pub struct EnergyState {
-    pub free_energy: f32,
-    pub entropy: f32,
-    pub entropy_production_rate: f32,
-    pub temperature: f32,
-}
-
-pub struct DissipationScale {
-    pub relaxation_time: f32,
-    pub diffusion_length: f32,
-    pub boundary_layer: f32,
-    pub deborah_number: f32,
-}
-
-pub struct FitnessLandscape {
-    pub current_fitness: f32,
-    pub gradient: f32,
-    pub curvature: f32,
-    pub escape_probability: f32,
-}
-```
-
----
-
-## Evolution Loop Algorithm
-
+核心循环在 `src/runtime/loop_.rs`：
 ```
 FOR generation = 1 TO max_generations:
-    1. EXECUTE: result = executor.run(agent, task)
-    2. EVALUATE: score = evaluator.score(task, result)
-    3. ARCHIVE: archive.store(agent, score, task, result)
-    4. MUTATE: new_agent = mutator.mutate(agent, failures)
-    5. META-MUTATE: IF generation % meta_mutation_interval == 0:
-                       strategy = meta_mutator.evolve(history)
-    6. SELECT: agent = selector.select(archive)
-    7. CHECK: IF stagnation_detected:
-                 inject_diversity()
+    1. 从 Archive 选择多样性父代
+    2. LLM 执行任务 → 得到输出
+    3. LLM/规则 评估打分 (0-10)
+    4. LLM 变异生成新 Agent
+    5. 定期元变异（进化变异策略本身）
+    6. 比较 fitness = score × (1 + novelty_weight × novelty)
+    7. 存入 Archive + Lineage
+    8. 磁盘持久化（.hyperagent/data/）
+```
+
+热力学框架 (`src/runtime/thermodynamics.rs`)：
+- 温度退火：T(g) = T₀ × rate^g（T₀=1.5, rate=0.9）
+- Metropolis 接受准则
+- 熵产生率、Deborah 数、适应度景观
+
+### Mode 2: 自动研究 (Auto Research) — Karpathy 风格
+
+进化"系统自身的代码"。循环：假设 → 实验 → 反思 → Git 提交
+
+入口：`cargo run --bin research`（src/bin/research.rs）
+引擎：`src/auto_research.rs`
+
+```
+WHILE iteration < max:
+    1. 读取目标源文件 (src/下)
+    2. cargo test 获取基线测试数
+    3. LLM 读代码 → 提出 ONE 具体改进假设
+    4. 写入修改后的完整文件
+    5. cargo check → 失败则 git checkout 回滚
+    6. cargo test → 测试退化则 git checkout 回滚
+    7. LLM 反思实验结果
+    8. 写入 .hyperagent/experiments/research_log.md
+    9. git commit（成功时）
+   10. git push origin HEAD（auto_push 开启时）
+```
+
+**关键特性**：
+- 可以修改 `auto_research.rs` 自身（递归自我修改）
+- dry_run 模式：编译通过也回滚，只观察
+- strict 模式：测试 100% 通过才接受
+- 每次迭代自动 git commit + push 到 GitHub
+- 默认目标文件轮换：thermodynamics.rs → loop_.rs → auto_research.rs
+
+### Mode 3: 结构化自改进 (Self Evolution)
+
+更严格的自我修改模式。入口：`cargo run --bin self_evolve`（src/bin/self_evolve.rs）
+引擎：`src/self_evolution.rs`
+
+与 Mode 2 的区别：要求全部测试通过才接受，默认 dry_run。
+
+---
+
+## Project Structure
+
+```
+hyperagent/
+├── Cargo.toml                  # rig-core, tokio, serde, anyhow, tracing, chrono, uuid
+├── .env                        # LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+├── .hyperagent/
+│   ├── data/
+│   │   ├── archive.json        # 进化存档（持久化）
+│   │   └── lineage.json        # 血统树（持久化）
+│   ├── experiments/
+│   │   └── research_log.md     # 自动研究实验日志
+│   ├── config/
+│   │   └── environment.json    # 运行环境配置
+│   └── sessions/               # 会话数据
+├── src/
+│   ├── lib.rs                  # 公开 API 导出
+│   ├── main.rs                 # 进化引擎入口
+│   ├── auto_research.rs        # [核心] 统一自动研究循环
+│   ├── self_evolution.rs       # 结构化自改进引擎
+│   ├── agent/
+│   │   ├── mod.rs              # Agent { id, code, prompt, generation, fitness, novelty }
+│   │   ├── executor.rs         # LLM 执行任务
+│   │   ├── mutator.rs          # 基于失败记录变异
+│   │   ├── meta_mutator.rs     # 元学习：进化变异策略
+│   │   └── population.rs       # 多智能体种群
+│   ├── eval/
+│   │   ├── evaluator.rs        # LLM/Rule/Ensemble 评估 (0-10分)
+│   │   └── benchmark.rs        # 基准测试
+│   ├── llm/
+│   │   ├── client.rs           # LLMClient trait + LLMClientImpl (OpenAI 兼容)
+│   │   ├── mod.rs              # 导出
+│   │   └── prompts.rs          # 执行/变异/元/评估提示词
+│   ├── memory/
+│   │   ├── archive.rs          # Archive: 有界存档 + save_to_file/load_from_file
+│   │   ├── lineage.rs          # Lineage: 血统树 + 持久化
+│   │   └── mod.rs              # Record 结构体
+│   ├── runtime/
+│   │   ├── loop_.rs            # EvolutionLoop: 核心进化循环
+│   │   ├── state.rs            # RuntimeState + with_persistence() + save()
+│   │   ├── thermodynamics.rs   # EnergyState, DissipationScale, FitnessLandscape
+│   │   ├── selection.rs        # 6种选择策略
+│   │   ├── constraints.rs      # HardConstraints, SoftConstraints, CodeMetrics
+│   │   ├── population.rs       # PopulationEvolution
+│   │   ├── environment.rs      # Environment, Session
+│   │   ├── local_runtime.rs    # LocalRuntime
+│   │   └── multi_agent_loop.rs # 多智能体循环
+│   └── bin/
+│       ├── research.rs         # [主入口] 自动研究
+│       └── self_evolve.rs      # 结构化自改进
+├── examples/
+│   └── basic.rs                # 基础用法示例
+└── docs/
+    ├── AR.md                   # 原始设计规范
+    ├── arc2.md                 # 热力学理论框架
+    ├── arc2_part2.md           # 相变与诊断
+    ├── QUICKSTART.md           # 快速开始
+    ├── SUMMARY.md              # 系统完成总结
+    └── SKILLS.md               # 本文档
 ```
 
 ---
 
-## Configuration Parameters
+## Key Data Structures
 
-### Recommended Starting Values
-
+### Agent
 ```rust
-SelfEvolvingConfig {
-    // Thermodynamic parameters
-    initial_temperature: 0.8,    // High exploration
-    annealing_rate: 0.95,        // 5% cooling per generation
-    min_temperature: 0.1,        // Minimum exploration
-    
-    // Evolution parameters
-    population_size: 20,
-    elite_ratio: 0.2,            // Keep top 20%
-    mutation_rate: 0.7,          // 70% mutation
-    selection_pressure: 0.3,     // Medium pressure
-    
-    // Dissipation parameters
-    entropy_threshold: 0.5,
-    stagnation_threshold: 5,     // Inject diversity after 5 stagnant generations
-    
-    // Constraints
-    constraints: ConstraintSystem::default(),
+pub struct Agent {
+    pub id: String,
+    pub code: String,        // 可执行代码
+    pub prompt: String,      // 系统提示词
+    pub generation: u32,
+    pub fitness: f32,
+    pub novelty: f32,        // Jaccard 相似度计算
 }
 ```
 
-### Parameter Tuning Guide
-
-| Symptom | Diagnosis | Solution |
-|---------|-----------|----------|
-| `diversity < 0.1` | Low diversity | ↑ temperature, ↑ mutation_rate |
-| `stagnation_counter > 5` | Stagnation | Inject diversity, change direction |
-| `De ≈ 1` | Critical point | Prepare for phase transition |
-| Early convergence | Temperature too low | ↑ initial_temperature |
-| Never converges | Temperature too high | ↓ annealing_rate |
-
----
-
-## Selection Strategies
-
-Implement these 6 selection mechanisms:
-
+### ResearchConfig (Auto Research)
 ```rust
-pub enum SelectionType {
-    /// P(i) = f_i / Σf
-    RouletteWheel,
-    
-    /// Random k, select best
-    Tournament { tournament_size: usize },
-    
-    /// Select top-k
-    Truncation { top_k: usize },
-    
-    /// P(i) = exp(f_i/T) / Σexp(f_j/T)
-    Boltzmann { temperature: f32 },
-    
-    /// Rank-based selection
-    RankBased,
-    
-    /// (1-w)*fitness + w*novelty
-    DiversityPreserving { diversity_weight: f32 },
+pub struct ResearchConfig {
+    pub project_root: PathBuf,
+    pub target_files: Vec<String>,      // 轮换改进的目标文件
+    pub max_iterations: u32,
+    pub auto_push: bool,                // 默认 true
+    pub dry_run: bool,                  // 默认 false
+    pub strict: bool,                   // 默认 false
+    pub push_interval: u32,             // 0 = 每次成功都 push
+    pub experiment_log_dir: PathBuf,    // .hyperagent/experiments
 }
 ```
 
----
-
-## Constraint System
-
-### Hard Constraints (Non-negotiable)
-
+### Experiment
 ```rust
-pub struct HardConstraints {
-    pub max_code_length: usize,           // Default: 10000
-    pub max_cyclomatic_complexity: usize, // Default: 15
-    pub forbidden_patterns: Vec<String>,  // ["eval(", "exec("]
-    pub max_nesting_depth: usize,         // Default: 5
+pub enum ExperimentOutcome { Improved, Neutral, Regressed, Failed }
+
+pub struct Experiment {
+    pub iteration: u32,
+    pub file: String,
+    pub hypothesis: String,
+    pub outcome: ExperimentOutcome,
+    pub tests_before: (u32, u32),
+    pub tests_after: (u32, u32),
+    pub reflection: String,
+    pub timestamp: String,
 }
 ```
 
-### Soft Constraints (Fitness Penalties)
-
-```rust
-pub struct SoftConstraints {
-    pub complexity_penalty: f32,      // Default: 0.1
-    pub redundancy_penalty: f32,      // Default: 0.05
-    pub deviation_penalty: f32,       // Default: 0.2
-    pub direction_weights: Vec<(EvolutionDirection, f32)>,
-}
-```
-
-### Evolution Directions
-
-```rust
-pub enum EvolutionDirection {
-    Efficiency,       // Optimize execution speed
-    Robustness,       // Enhance error handling
-    Generalization,   // Improve generalization
-    Minimalism,       // Reduce code size
-    Exploration,      // Increase diversity
-}
-```
-
----
-
-## Code Metrics
-
-Calculate these metrics for each agent:
-
-```rust
-pub struct CodeMetrics {
-    pub cyclomatic_complexity: usize,  // Decision points
-    pub lines_of_code: usize,
-    pub redundancy_ratio: f32,         // Duplicate code ratio
-    pub code_entropy: f32,             // Information density
-    pub vocabulary_diversity: f32,     // Unique tokens / total tokens
-}
-```
-
----
-
-## Diagnostic Tools
-
-### Population Statistics
-
-```rust
-pub struct PopulationStats {
-    pub size: usize,
-    pub mean_fitness: f32,
-    pub std_fitness: f32,
-    pub max_fitness: f32,
-    pub min_fitness: f32,
-    pub diversity: f32,  // std / mean
-}
-```
-
-### Critical Point Detection
-
-```rust
-impl DissipationScale {
-    pub fn near_critical(&self, threshold: f32) -> bool {
-        (self.deborah_number - 1.0).abs() < threshold
-    }
-}
-```
-
-### Stagnation Detection
-
-```rust
-fn check_stagnation(&self, fitness_history: &[f32]) -> bool {
-    if fitness_history.len() < 10 {
-        return false;
-    }
-    
-    let recent = fitness_history.iter().rev().take(5).sum::<f32>();
-    let previous = fitness_history.iter().rev().skip(5).take(5).sum::<f32>();
-    
-    (recent - previous).abs() < 0.01  // No improvement
-}
-```
-
----
-
-## Implementation Checklist
-
-### Phase 1: Core Infrastructure
-
-- [ ] `Agent` struct with id, code, prompt, generation
-- [ ] `Executor` with LLM integration
-- [ ] `Evaluator` with scoring (0-10)
-- [ ] `Archive` with bounded storage
-
-### Phase 2: Evolution System
-
-- [ ] `Mutator` with strategy-based mutation
-- [ ] `MetaMutator` for strategy evolution
-- [ ] `Selector` with 6 selection types
-- [ ] `EvolutionLoop` main cycle
-
-### Phase 3: Thermodynamic Framework
-
-- [ ] `EnergyState` with Boltzmann factor
-- [ ] `DissipationScale` with critical detection
-- [ ] `FitnessLandscape` with gradient/curvature
-- [ ] `InfoEnergyCoupling` with mutual information
-
-### Phase 4: Constraints
-
-- [ ] `HardConstraints` validation
-- [ ] `SoftConstraints` penalty calculation
-- [ ] `CodeMetrics` computation
-- [ ] `EvolutionDirection` switching
-
----
-
-## Testing Strategy
-
-### Unit Tests
-
-```rust
-#[test]
-fn test_boltzmann_factor() {
-    let state = EnergyState::new(100.0, 0.5);
-    assert!(state.boltzmann_factor(-1.0) > 0.5);
-    assert!(state.boltzmann_factor(1.0) < 0.5);
-}
-
-#[test]
-fn test_tournament_selection() {
-    let selector = Selector::new(SelectionType::Tournament { tournament_size: 2 });
-    let population = create_test_population();
-    let selected = selector.select(&population);
-    assert!(selected.unwrap().fitness >= 3.0);
-}
-```
-
-### Integration Tests
-
-```rust
-#[tokio::test]
-async fn test_evolution_loop() {
-    let config = SelfEvolvingConfig::default();
-    let mut system = SelfEvolvingSystem::new(config);
-    let result = system.run("test task").await;
-    assert!(result.is_ok());
-}
-```
-
----
-
-## Example Usage
-
-### Basic Execution
-
-```rust
-use hyperagent::{EvolutionLoop, RuntimeConfig, LLMConfig, RigClient};
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let llm_config = LLMConfig::default();
-    let runtime_config = RuntimeConfig {
-        max_generations: 100,
-        population_size: 10,
-        top_k_selection: 5,
-        checkpoint_interval: 10,
-        meta_mutation_interval: 20,
-    };
-
-    let client = RigClient::new(&llm_config)?;
-    let mut loop_ = EvolutionLoop::new(client, runtime_config);
-    let state = loop_.run("Write a sorting function").await?;
-
-    println!("{}", state.summary());
-    Ok(())
-}
-```
-
-### Self-Evolving Mode
-
-```rust
-use hyperagent::{SelfEvolvingConfig, SelfEvolvingSystem};
-
-let config = SelfEvolvingConfig::high_exploration();
-let mut system = SelfEvolvingSystem::new(config);
-system.run("Write a function to calculate Fibonacci numbers").await?;
-```
-
----
-
-## File Structure Reference
-
-```
-src/
-├── lib.rs                  # Public API exports
-├── main.rs                 # Binary entry point
-├── agent/
-│   ├── mod.rs              # Agent, MutationStrategy structs
-│   ├── executor.rs         # Task execution
-│   ├── mutator.rs          # Agent mutation
-│   └── meta_mutator.rs     # Strategy evolution
-├── eval/
-│   ├── mod.rs              # Re-exports
-│   ├── evaluator.rs        # LLM/Rule/Ensemble evaluators
-│   └── benchmark.rs        # Benchmark suite
-├── llm/
-│   ├── mod.rs              # Re-exports
-│   ├── client.rs           # LLMClient trait + RigClient
-│   └── prompts.rs          # Prompt templates
-├── memory/
-│   ├── mod.rs              # Re-exports, Record struct
-│   ├── archive.rs          # Bounded archive with compression
-│   └── lineage.rs          # Evolution lineage tree
-└── runtime/
-    ├── mod.rs              # Re-exports
-    ├── state.rs            # RuntimeState, RuntimeConfig
-    ├── loop_.rs            # EvolutionLoop implementation
-    ├── thermodynamics.rs   # Energy, entropy, dissipation
-    ├── constraints.rs      # Hard/soft constraints
-    └── selection.rs        # 6 selection strategies
-
-examples/
-└── self_evolving.rs        # Self-evolving system demo
-
-docs/
-├── AR.md                   # Original design
-├── arc2.md                 # Theoretical framework
-├── arc2_part2.md           # Phase transitions
-├── QUICKSTART.md           # Quick start guide
-├── SUMMARY.md              # Completion summary
-└── SKILLS.md               # This document
-```
-
----
-
-## Key Formulas
-
-### Boltzmann Factor
-```
-P(accept) = exp(-ΔE / kT)
-where k = 0.1 (normalized)
-```
-
-### Mutual Information
-```
-I(X;Y) ≈ 0.5 * log(1 + cov²/(var_x * var_y))
-```
-
-### Deborah Number
-```
-De = τ_response / τ_drive
-where τ_response = L²/D (L=population, D=mutation_rate)
-```
-
-### Annealing Schedule
-```
-T(generation) = T₀ * rate^generation
-```
-
-### Fitness Penalty
-```
-penalized_score = base_score - (complexity * 0.1) - (redundancy * 0.05)
-```
-
----
-
-## Debugging Guide
-
-### Common Issues
-
-**Issue**: Compilation error `unresolved import reqwest`
-**Solution**: Add `reqwest = { version = "0.11", features = ["rustls-tls"] }` to Cargo.toml
-
-**Issue**: Evolution stagnation
-**Solution**: 
-```rust
-config.mutation_rate = 0.8;
-config.initial_temperature = 0.9;
-```
-
-**Issue**: Early convergence
-**Solution**: 
-```rust
-config.selection_pressure = 0.2;
-config.diversity_weight = 0.3;
-```
-
----
-
-## Extension Points
-
-### Add New Selection Strategy
-```rust
-// In src/runtime/selection.rs
-SelectionType::Custom { parameter: f32 }
-
-impl Selector {
-    fn custom_select(&self, population: &[Individual], param: f32) -> Option<&Individual> {
-        // Implementation
-    }
-}
-```
-
-### Add New Evolution Direction
-```rust
-// In src/runtime/constraints.rs
-pub enum EvolutionDirection {
-    // Existing...
-    Creativity,  // New: Optimize for novel solutions
-}
-```
-
-### Add New Constraint
-```rust
-// In src/runtime/constraints.rs
-pub struct HardConstraints {
-    // Existing...
-    pub max_memory_usage: usize,  // New constraint
-}
-```
-
----
-
-## Performance Benchmarks
-
-### Expected Performance
-
-| Metric | Target |
-|--------|--------|
-| Generations/minute | 5-10 (depends on LLM latency) |
-| Population size | 10-50 (configurable) |
-| Archive capacity | 100 (with compression) |
-| Memory usage | < 500MB |
-
-### Optimization Tips
-
-1. **Parallel execution**: Use `tokio::spawn` for concurrent agent evaluation
-2. **Archive compression**: Cluster similar agents, keep only representatives
-3. **LLM batching**: Batch multiple LLM calls when possible
-4. **Caching**: Cache LLM responses for identical prompts
-
----
-
-## API Reference
-
-### EvolutionLoop
-
-```rust
-pub struct EvolutionLoop<C: LLMClient> {
-    executor: Executor<C>,
-    evaluator: Evaluator<C>,
-    mutator: Mutator<C>,
-    meta_mutator: MetaMutator<C>,
-    state: RuntimeState,
-}
-
-impl<C: LLMClient + Clone> EvolutionLoop<C> {
-    pub fn new(client: C, config: RuntimeConfig) -> Self;
-    pub async fn run(&mut self, task: &str) -> Result<RuntimeState>;
-    pub async fn run_with_iterations(&mut self, task: &str, iterations: usize) -> Result<RuntimeState>;
-}
-```
-
-### RuntimeState
-
+### RuntimeState (Evolution Engine)
 ```rust
 pub struct RuntimeState {
     pub config: RuntimeConfig,
-    pub phase: RuntimePhase,
     pub current_generation: u32,
     pub best_score: f32,
     pub best_agent: Option<Agent>,
     pub archive: Archive,
     pub lineage: Lineage,
+    pub persist_path: Option<PathBuf>,  // 磁盘持久化路径
+}
+// with_persistence(config, ".hyperagent/data") 从磁盘加载
+// save() 序列化 archive + lineage 到 JSON
+```
+
+---
+
+## LLM Integration
+
+```rust
+// src/llm/client.rs
+pub trait LLMClient: Send + Sync {
+    async fn complete(&self, prompt: &str) -> Result<LLMResponse>;
+}
+
+pub struct LLMClientImpl { ... }
+impl LLMClientImpl {
+    pub fn from_env() -> Result<Self>;  // 读 .env 配置
+    pub fn provider(&self) -> &str;
+    pub fn model(&self) -> &str;
 }
 ```
 
----
-
-## Version History
-
-- **v0.1.0**: Basic evolution loop
-- **v0.2.0**: Thermodynamic framework added
-- **v0.3.0**: 6 selection strategies, constraint system
-- **Current**: Full self-evolving system with diagnostics
+支持的 provider：任何 OpenAI 兼容 API（通过 `LLM_BASE_URL`）。
 
 ---
 
-## Quick Commands
+## Persistence Layer
+
+Archive 和 Lineage 通过 serde_json 序列化到磁盘：
+
+```rust
+// src/memory/archive.rs
+impl Archive {
+    pub fn save_to_file(&self, path: &Path) -> Result<()>;
+    pub fn load_from_file(path: &Path) -> Result<Self>;
+}
+
+// src/memory/lineage.rs
+impl Lineage {
+    pub fn save_to_file(&self, path: &Path) -> Result<()>;
+    pub fn load_from_file(path: &Path) -> Result<Self>;
+}
+
+// src/runtime/state.rs
+impl RuntimeState {
+    pub fn with_persistence(config: RuntimeConfig, dir: &str) -> Result<Self>;
+    pub fn save(&self) -> Result<()>;
+}
+```
+
+存储位置：`.hyperagent/data/archive.json` + `.hyperagent/data/lineage.json`
+
+---
+
+## Commands Reference
 
 ```bash
-# Build
+# 构建
 cargo build
 
-# Test
+# 测试
 cargo test
 
-# Run basic example
+# 进化引擎（默认 5 代）
 cargo run
 
-# Run self-evolving example
-cargo run --example self_evolving
+# 自动研究（默认 auto_push, 5 轮）
+cargo run --bin research
 
-# Check code
-cargo check
+# 自动研究 - 安全观察
+RESEARCH_DRY_RUN=true cargo run --bin research
 
-# Format code
-cargo fmt
+# 自动研究 - 后台无限运行
+nohup bash -c 'RESEARCH_AUTO_PUSH=true RESEARCH_ITERATIONS=1000 cargo run --bin research' > research.log 2>&1 &
 
-# Lint code
-cargo clippy
+# 结构化自改进
+cargo run --bin self_evolve
+
+# 查看结果
+tail -50 research.log
+cat .hyperagent/experiments/research_log.md
+git log --oneline
 ```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `openai` | LLM provider name |
+| `LLM_MODEL` | `gpt-4o` | Model name |
+| `LLM_API_KEY` | - | API key |
+| `LLM_BASE_URL` | OpenAI default | Custom endpoint |
+| `RESEARCH_AUTO_PUSH` | `true` | Auto git push |
+| `RESEARCH_DRY_RUN` | `false` | Safety mode |
+| `RESEARCH_STRICT` | `false` | Strict test mode |
+| `RESEARCH_ITERATIONS` | `5` | Research loop count |
+| `ITERATIONS` | `5` | Evolution engine generations |
+| `NO_PROXY` | `localhost,127.0.0.1` | Proxy bypass |
+
+---
+
+## Recreating This Project From Scratch
+
+如果要从零复刻此项目，按以下顺序实现：
+
+### Phase 1: 基础设施
+1. `cargo init --name hyperagent`
+2. 添加依赖：`rig-core`, `tokio`, `serde`, `anyhow`, `tracing`, `chrono`, `uuid`, `dotenvy`
+3. `src/llm/client.rs` — `LLMClient` trait + `LLMClientImpl`（OpenAI 兼容）
+4. `src/agent/mod.rs` — `Agent` 结构体
+5. `src/memory/archive.rs` — `Archive`（有界存档 + JSON 持久化）
+6. `src/memory/lineage.rs` — `Lineage`（血统树 + 持久化）
+
+### Phase 2: 进化引擎
+7. `src/agent/executor.rs` — LLM 执行任务
+8. `src/agent/mutator.rs` — 基于失败记录变异
+9. `src/agent/meta_mutator.rs` — 元变异
+10. `src/eval/evaluator.rs` — 评分
+11. `src/runtime/loop_.rs` — 进化循环
+12. `src/runtime/state.rs` — 状态管理 + 持久化
+13. `src/main.rs` — 入口
+
+### Phase 3: 热力学框架
+14. `src/runtime/thermodynamics.rs` — 温度退火、Metropolis、熵
+15. `src/runtime/selection.rs` — 6 种选择策略
+16. `src/runtime/constraints.rs` — 约束系统
+
+### Phase 4: 自我改进
+17. `src/auto_research.rs` — Karpathy 循环（核心）
+18. `src/bin/research.rs` — 入口
+19. `src/self_evolution.rs` — 结构化自改进
+20. `src/bin/self_evolve.rs` — 入口
+
+### 关键设计决策
+- **LLMClient trait**：便于 mock 测试和切换 provider
+- **磁盘持久化**：Archive/Lineage 用 serde_json，进化引擎跨 run 保持记忆
+- **git checkout 回滚**：编译失败或测试退化时自动恢复，保证系统不会损坏
+- **auto_research 可以修改自己**：`auto_research.rs` 本身在 target_files 列表中
+- **Neutral 改进保留**：测试数不变但编译通过 = 保留（宽松模式），有利于渐进式改进
+
+---
+
+## Known Issues & Gotchas
+
+1. **48/49 测试**：当前有 1 个已存在的测试失败，不影响自动研究（宽松模式下只看是否退化）
+2. **Novelty 坍缩**：多代进化后 novelty 从 1.0 降到 0.0，需要重启机制
+3. **LLM 响应解析**：auto_research 依赖 `HYPOTHESIS:` + `IMPROVED_CODE:` 格式，有时解析失败
+4. **编译超时**：单次 cargo check 最长 120s，cargo test 最长 300s
+5. **git push 冲突**：如果本地和远程 diverge，push 会失败（需要手动 git pull）
 
 ---
 
 **End of Skills Document**
-
-For questions, refer to:
-- `docs/arc2.md` - Theoretical foundation
-- `docs/QUICKSTART.md` - Practical guide
-- GitHub Issues - Community support

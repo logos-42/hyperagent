@@ -683,11 +683,13 @@ mod tests {
     #[tokio::test]
     async fn test_session_management() {
         let runtime = LocalRuntime::ollama("llama2").unwrap();
-        
+
+        let count_before = runtime.list_sessions().await.unwrap().len();
+
         let session_id = runtime.create_session("Test").await.unwrap();
         assert!(!session_id.is_empty());
 
         let sessions = runtime.list_sessions().await.unwrap();
-        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions.len(), count_before + 1);
     }
 }
