@@ -131,6 +131,34 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         selected
     }
 
+    /// 计算无偏样本方差（Bessel校正）
+    fn compute_unbiased_variance(&self, values: &[f32]) -> Option<f32> {
+        let n = values.len();
+        if n < 2 {
+            return None;
+        }
+        let mean: f32 = values.iter().sum::<f32>() / n as f32;
+        let sum_sq_diff: f32 = values.iter().map(|x| (x - mean).powi(2)).sum();
+        // Bessel's correction: divide by (n-1) for unbiased estimate
+        Some(sum_sq_diff / (n - 1) as f32)
+    }
+
+    /// 计算熵产生率（考虑自由度）
+    fn compute_entropy_production_rate(&self, fitness_values: &[f32], prev_entropy: f32) -> f32 {
+        if fitness_values.len() < 2 {
+            return 0.0;
+        }
+        if let Some(new_variance) = self.compute_unbiased_variance(fitness_values) {
+            let new_entropy = new_variance.sqrt();
+            // Entropy production rate with damping for stability
+            let delta_s = new_entropy - prev_entropy;
+            // Clamp to prevent runaway entropy production
+            delta_s.clamp(-0.5, 0.5)
+        } else {
+            0.0
+        }
+    }
+
     /// 更新热力学状态
     fn update_thermodynamics(&mut self, results: &[BranchResult]) {
         let config = &self.state.config;
@@ -160,40 +188,55 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             - (config.num_branches as f32) * 2.0)
             .max(0.0);
 
-        // 熵 = 各分支 fitness 的标准差
+        // 熵 = 使用无偏估计的各分支 fitness 标准差
+        let fitness_values: Vec<f32> = results.iter().map(|r| r.fitness).collect();
         if results.len() >= 2 {
-            let mean: f32 = results.iter().map(|r| r.fitness).sum::<f32>() / results.len() as f32;
-            let variance: f32 = results
-                .iter()
-                .map(|r| (r.fitness - mean).powi(2))
-                .sum::<f32>()
-                / results.len() as f32;
-            let new_entropy = variance.sqrt();
-            self.energy.entropy_production_rate = new_entropy - self.energy.entropy;
+            let prev_entropy = self.energy.entropy;
+            let new_entropy = self.compute_unbiased_variance(&fitness_values)
+                .map(|v| v.sqrt())
+                .unwrap_or(0.0);
+            
+            self.energy.entropy_production_rate = 
+                self.compute_entropy_production_rate(&fitness_values, prev_entropy);
             self.energy.entropy = new_entropy;
         }
 
-        // 信息-能量耦合
+        // 信息-能量耦合（使用无偏协方差估计）
         if self.fitness_history.len() >= 3 {
-            let len = self.fitness_history.len() as f32;
-            let mean: f32 = self.fitness_history.iter().sum::<f32>() / len;
-            let fitness_var: f32 = self
-                .fitness_history
-                .iter()
-                .map(|f| (f - mean).powi(2))
-                .sum::<f32>()
-                / len;
+            let n = self.fitness_history.len() as f32;
+            let mean: f32 = self.fitness_history.iter().sum::<f32>() / n;
+            
+            // 无偏方差估计
+            let fitness_var: f32 = if self.fitness_history.len() > 1 {
+                self.compute_unbiased_variance(&self.fitness_history)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
 
             let gen_mean = (self.fitness_history.len() - 1) as f32 / 2.0;
-            let genotype_var: f32 = (0..self.fitness_history.len())
-                .map(|i| ((i as f32) - gen_mean).powi(2))
-                .sum::<f32>()
-                / len;
+            
+            // 无偏基因型方差估计
+            let gen_indices: Vec<f32> = (0..self.fitness_history.len())
+                .map(|i| i as f32)
+                .collect();
+            let genotype_var: f32 = if self.fitness_history.len() > 1 {
+                self.compute_unbiased_variance(&gen_indices)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
 
-            let covariance: f32 = (0..self.fitness_history.len())
-                .map(|i| ((i as f32) - gen_mean) * (self.fitness_history[i] - mean))
-                .sum::<f32>()
-                / len;
+            // 无偏协方差估计
+            let covariance: f32 = if self.fitness_history.len() > 1 {
+                let sum_xy: f32 = (0..self.fitness_history.len())
+                    .map(|i| ((i as f32) - gen_mean) * (self.fitness_history[i] - mean))
+                    .sum();
+                // Bessel's correction for covariance
+                sum_xy / (n - 1.0)
+            } else {
+                0.0
+            };
 
             self.info_coupling
                 .update_mutual_information(fitness_var, genotype_var, covariance);
