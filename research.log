@@ -79,3 +79,36 @@
 [2m2026-03-25T16:25:19.980307Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the deterministic crowding selection to use a two-phase approach that first collects all replacement candidates, then applies replacements after iteration completes, preventing cascading effects and ensuring consistent fitness tracking.
 [2m2026-03-25T16:25:29.606874Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
 [2m2026-03-25T16:25:40.448806Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-25T16:25:40.508161Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[5]: runtime/loop_.rs — Fix the deterministic crowding selection to use a two-phase  (Neutral)
+[2m2026-03-25T16:25:40.508213Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-25T16:25:46.102998Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 6] Improving src/auto_research.rs
+[2m2026-03-25T16:25:48.739402Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 89/91 tests
+[2m2026-03-25T16:25:50.365314Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust idiomatic error handling with anyhow and thiserror best practices", "Rust struct default configuration builder pattern idioms", "Rust async self modifying code patterns safety"]
+[2m2026-03-25T16:25:51.298289Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic error handling with anyhow and thiserror best practices'
+[2m2026-03-25T16:25:51.646387Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct default configuration builder pattern idioms'
+[2m2026-03-25T16:25:51.936185Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async self modifying code patterns safety'
+[2m2026-03-25T16:28:32.825464Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the test result parsing in `run_tests()` to correctly extract passed and failed counts from cargo's actual output format using regex pattern matching, ensuring accurate experiment outcome classification.
+[2m2026-03-25T16:28:33.593226Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
+[2m2026-03-25T16:28:36.077049Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 7] Improving src/runtime/thermodynamics.rs
+[2m2026-03-25T16:28:42.127201Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 89/91 tests
+[2m2026-03-25T16:28:44.239602Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust struct best practices for floating point fields and safety", "Rust implementing simulated annealing cooling schedules", "Rust serde serialization struct with examples"]
+[2m2026-03-25T16:28:45.845542Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct best practices for floating point fields and safety'
+[2m2026-03-25T16:28:46.220299Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust implementing simulated annealing cooling schedules'
+[2m2026-03-25T16:28:46.959414Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust serde serialization struct with examples'
+[2m2026-03-25T16:31:02.833463Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the adaptive cooling logic to correctly invert the adaptation factor computation so that high entropy production results in a factor < 1 (slower cooling) and low entropy production results in a factor > 1 (faster cooling), matching the thermodynamic intuition that active systems need more exploration time.
+[2m2026-03-25T16:31:13.640075Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-25T16:31:13.640219Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests regressed, reverting
+[2m2026-03-25T16:31:28.931980Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
+[2m2026-03-25T16:31:28.939184Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 8] Improving src/runtime/loop_.rs
+[2m2026-03-25T16:31:35.904934Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 89/91 tests
+[2m2026-03-25T16:31:50.841944Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust trait bound `Clone` on generic struct field best practices", "Rust struct initialization pattern with many fields", "Rust error handling best practices in async loops"]
+[2m2026-03-25T16:31:52.702102Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust trait bound `Clone` on generic struct field best practices'
+[2m2026-03-25T16:31:52.955799Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct initialization pattern with many fields'
+[2m2026-03-25T16:31:53.325159Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust error handling best practices in async loops'
+[2m2026-03-25T16:31:53.325404Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
+[2m2026-03-25T16:31:55.053197Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://doc.rust-lang.org/core/clone/trait.Clone.html (8003 chars)
+[2m2026-03-25T16:31:56.338856Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://stackoverflow.com/questions/77302763/implement-the-clone-trait-for-a-struct-that-holds-a-generic-ref-to-a-path-via-as (8003 chars)
+[2m2026-03-25T16:31:56.338952Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 5200 chars of context
+[2m2026-03-25T16:34:38.787857Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Improve numerical stability in entropy production rate computation by using proper time-derivative semantics (entropy change per generation) with better handling of edge cases like near-zero variance and first-generation initialization.
+[2m2026-03-25T16:34:50.160257Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 89/91 tests
+[2m2026-03-25T16:34:57.656035Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral

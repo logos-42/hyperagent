@@ -17,7 +17,6 @@ struct BranchResult {
     score: f32,
     novelty: f32,
     fitness: f32,
-    #[allow(dead_code)]
     output: String,
 }
 
@@ -37,6 +36,8 @@ pub struct EvolutionLoop<C: LLMClient> {
     // 多分支探索
     branches: Vec<BranchResult>,
     recent_codes: Vec<String>,
+    // 前一代的熵值（用于计算熵产生率）
+    prev_entropy: f32,
 }
 
 impl<C: LLMClient + Clone> EvolutionLoop<C> {
@@ -71,6 +72,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
             current_temperature: initial_temperature,
             branches: Vec::new(),
             recent_codes: Vec::new(),
+            prev_entropy: 0.0,
         }
     }
 
@@ -205,25 +207,33 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         Some(sum_sq_diff / (n - 1) as f32)
     }
 
-    /// 计算熵产生率（考虑自由度）
-    fn compute_entropy_production_rate(&self, fitness_values: &[f32], prev_entropy: f32) -> f32 {
-        if fitness_values.len() < 2 {
+    /// 计算熵产生率（改进版本：正确的时间导数 + 数值稳定性）
+    /// 熵产生率 = dS/dt，表示系统熵随时间的变化率
+    fn compute_entropy_production_rate(&self, current_entropy: f32) -> f32 {
+        // 第一代没有前一代数据，熵产生率为0
+        if self.state.current_generation <= 1 {
             return 0.0;
         }
-        if let Some(new_variance) = self.compute_unbiased_variance(fitness_values) {
-            let new_entropy = new_variance.sqrt();
-            // Entropy production rate with damping for stability
-            let delta_s = new_entropy - prev_entropy;
-            // Clamp to prevent runaway entropy production
-            delta_s.clamp(-0.5, 0.5)
-        } else {
-            0.0
-        }
+        
+        // 熵的变化量
+        let delta_s = current_entropy - self.prev_entropy;
+        
+        // 熵产生率 = 熵变化 / 时间步（每代为一个时间单位）
+        // 正值表示熵增（系统变得更无序），负值表示熵减（系统变得更有序）
+        let rate = delta_s; // 因为时间步 = 1 代
+        
+        // 数值稳定性：使用自适应钳位，基于当前熵值缩放
+        // 允许的熵产生率范围应与当前熵值成比例
+        let max_rate = (current_entropy + 0.1).max(0.5);
+        rate.clamp(-max_rate, max_rate)
     }
 
     /// 更新热力学状态
     fn update_thermodynamics(&mut self, results: &[BranchResult]) {
         let config = &self.state.config;
+
+        // 保存当前熵值作为前一代熵值（用于下一次计算熵产生率）
+        self.prev_entropy = self.energy.entropy;
 
         // 追踪最佳 fitness 历史
         if let Some(best) = results.iter().max_by(|a, b| {
@@ -253,13 +263,12 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
         // 熵 = 使用无偏估计的各分支 fitness 标准差
         let fitness_values: Vec<f32> = results.iter().map(|r| r.fitness).collect();
         if results.len() >= 2 {
-            let prev_entropy = self.energy.entropy;
             let new_entropy = self.compute_unbiased_variance(&fitness_values)
                 .map(|v| v.sqrt())
                 .unwrap_or(0.0);
             
-            self.energy.entropy_production_rate = 
-                self.compute_entropy_production_rate(&fitness_values, prev_entropy);
+            // 使用改进的熵产生率计算
+            self.energy.entropy_production_rate = self.compute_entropy_production_rate(new_entropy);
             self.energy.entropy = new_entropy;
         }
 
