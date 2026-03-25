@@ -18,7 +18,7 @@ pub struct FileSummary {
     pub path: String,
     /// 文件行数
     pub lines: usize,
-    /// pub struct 名称
+    /// pub struct 名称（包含泛型参数）
     pub structs: Vec<String>,
     /// pub enum 名称
     pub enums: Vec<String>,
@@ -34,6 +34,8 @@ pub struct FileSummary {
     pub mods: Vec<String>,
     /// 文件头部的文档注释（//! 或 /// 第一段）
     pub doc_summary: String,
+    /// derive 宏属性
+    pub derives: Vec<String>,
 }
 
 /// 代码库全局上下文
@@ -111,60 +113,183 @@ impl CodebaseContext {
         let mut impls = Vec::new();
         let mut uses = Vec::new();
         let mut mods = Vec::new();
+        let mut derives = Vec::new();
 
-        for line in content.lines() {
-            let line = line.trim();
+        // Process content as a single string for multi-line handling
+        let lines: Vec<&str> = content.lines().collect();
+        let mut i = 0;
+        
+        while i < lines.len() {
+            let line = lines[i].trim();
+            let full_line = lines[i];
 
             // 提取文档注释摘要（文件头部的 //!）
             if line.starts_with("//!") {
-                // doc_summary 在下面统一处理
+                i += 1;
                 continue;
             }
 
-            // pub struct
-            if let Some(name) = Self::extract_name(line, "pub struct") {
-                structs.push(name);
+            // Handle derive attributes - collect them for the next item
+            if line.starts_with("#[derive(") {
+                if let Some(inner) = line.strip_prefix("#[derive(").and_then(|s| s.strip_suffix(")]")) {
+                    for derive in inner.split(',') {
+                        derives.push(derive.trim().to_string());
+                    }
+                }
+                i += 1;
+                continue;
             }
+
+            // Handle outer doc comments
+            if line.starts_with("///") {
+                i += 1;
+                continue;
+            }
+
+            // Handle attributes like #[...]
+            if line.starts_with("#[") && !line.starts_with("#[derive(") {
+                i += 1;
+                continue;
+            }
+
+            // pub struct - handle multi-line and generic parameters
+            if let Some(name) = Self::extract_type_name(line, "pub struct") {
+                // Extract generics if present on same line
+                let full_signature = if line.contains('{') || line.contains(';') {
+                    // Single line struct
+                    name
+                } else {
+                    // Multi-line struct - look for name with generics
+                    let next_line = if i + 1 < lines.len() { lines[i + 1].trim() } else { "" };
+                    if next_line.starts_with('<') {
+                        // Collect generic parameters
+                        let mut generic_str = String::new();
+                        let mut j = i;
+                        let mut depth = 0;
+                        let mut started = false;
+                        
+                        // Look backwards and forwards for generic params
+                        for ch in line.chars() {
+                            if ch == '<' {
+                                started = true;
+                                depth += 1;
+                            }
+                            if started {
+                                generic_str.push(ch);
+                            }
+                            if ch == '>' {
+                                depth -= 1;
+                                if depth == 0 && started {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if !generic_str.is_empty() {
+                            format!("{}{}", name, generic_str)
+                        } else {
+                            name
+                        }
+                    } else {
+                        name
+                    }
+                };
+                structs.push(full_signature);
+                i += 1;
+                continue;
+            }
+
             // pub enum
-            else if let Some(name) = Self::extract_name(line, "pub enum") {
+            if let Some(name) = Self::extract_type_name(line, "pub enum") {
                 enums.push(name);
+                i += 1;
+                continue;
             }
+
             // pub trait
-            else if let Some(name) = Self::extract_name(line, "pub trait") {
+            if let Some(name) = Self::extract_type_name(line, "pub trait") {
                 traits.push(name);
+                i += 1;
+                continue;
             }
+
             // pub fn / pub async fn
-            else if let Some(name) = Self::extract_fn_name(line) {
+            if let Some(name) = Self::extract_fn_name(line) {
                 functions.push(name);
+                i += 1;
+                continue;
             }
-            // impl Xxx
-            else if line.starts_with("impl ") {
-                if let Some(name) = line.strip_prefix("impl ").and_then(|s| {
-                    s.split_whitespace().next().map(|n| {
-                        // 去掉泛型参数和 <
-                        n.split('<').next().unwrap_or(n).to_string()
-                    })
-                }) {
+
+            // impl Xxx or impl<T> Xxx
+            if line.starts_with("impl ") || line.starts_with("impl<") {
+                // Handle impl<T> Trait for Type and impl Type
+                let impl_content = if line.starts_with("impl<") {
+                    // impl<T> Something or impl<T> Trait for Type
+                    line.to_string()
+                } else {
+                    line.strip_prefix("impl ").unwrap_or(line).to_string()
+                };
+                
+                // Extract the primary type name
+                let name = if let Some(stripped) = impl_content.strip_prefix("impl<") {
+                    // Generic impl - find the main type after >
+                    if let Some(pos) = stripped.find('>') {
+                        let after_generic = &stripped[pos + 1..].trim();
+                        // Skip "for" if present, get the first type
+                        let type_str = after_generic
+                            .strip_prefix("for ")
+                            .unwrap_or(after_generic)
+                            .trim();
+                        type_str
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or(type_str)
+                            .split('<')
+                            .next()
+                            .unwrap_or(type_str)
+                            .to_string()
+                    } else {
+                        stripped.split_whitespace().next().unwrap_or(stripped).to_string()
+                    }
+                } else {
+                    impl_content
+                        .split_whitespace()
+                        .next()
+                        .map(|s| s.split('<').next().unwrap_or(s).to_string())
+                        .unwrap_or_default()
+                };
+                
+                if !name.is_empty() && !name.starts_with('{') {
                     impls.push(name);
                 }
+                i += 1;
+                continue;
             }
+
             // use xxx::yyy
-            else if line.starts_with("use ") {
+            if line.starts_with("use ") {
                 uses.push(line.to_string());
+                i += 1;
+                continue;
             }
+
             // mod xxx
-            else if line.starts_with("pub mod ") || line.starts_with("mod ") {
+            if line.starts_with("pub mod ") || line.starts_with("mod ") {
                 let prefix = if line.starts_with("pub mod ") { "pub mod " } else { "mod " };
-                if let Some(name) = line.strip_prefix(prefix) {
+                if let Some(rest) = line.strip_prefix(prefix) {
                     mods.push(
-                        name.split(';')
+                        rest.split(';')
                             .next()
-                            .unwrap_or(name)
+                            .unwrap_or(rest)
                             .trim()
                             .to_string(),
                     );
                 }
+                i += 1;
+                continue;
             }
+
+            i += 1;
         }
 
         // 提取文件头部文档注释
@@ -189,24 +314,104 @@ impl CodebaseContext {
             uses,
             mods,
             doc_summary,
+            derives,
         }
     }
 
-    /// 从行中提取 `keyword Name` 形式的名称
-    fn extract_name(line: &str, keyword: &str) -> Option<String> {
-        if !line.starts_with(keyword) {
+    /// 从行中提取 `keyword Name` 形式的名称（支持泛型）
+    fn extract_type_name(line: &str, keyword: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with(keyword) {
             return None;
         }
-        let rest = line.strip_prefix(keyword)?.trim();
-        rest.split(|c: char| c == '<' || c == '(' || c == ' ' || c == ';')
-            .next()
-            .filter(|n| !n.is_empty())
-            .map(|n| n.to_string())
+        
+        let rest = trimmed.strip_prefix(keyword)?.trim();
+        
+        // Skip derive attributes that might be inline like #[derive(Debug)]
+        let rest = if rest.starts_with("#[derive(") {
+            // Find the end of derive
+            if let Some(end) = rest.find(")]") {
+                rest[end + 2..].trim()
+            } else {
+                rest
+            }
+        } else {
+            rest
+        };
+        
+        // Skip other attributes
+        let rest = if rest.starts_with("#[") {
+            if let Some(end) = rest.find(']') {
+                rest[end + 1..].trim()
+            } else {
+                rest
+            }
+        } else {
+            rest
+        };
+        
+        // Skip 'pub' if present (for nested visibility)
+        let rest = rest.strip_prefix("pub ").unwrap_or(rest).trim();
+        
+        // Extract name, stopping at generics, braces, or parens
+        let name: String = rest
+            .chars()
+            .take_while(|&c| c.is_alphanumeric() || c == '_')
+            .collect();
+        
+        if name.is_empty() {
+            return None;
+        }
+        
+        // Check if there are generic parameters on the same line
+        let after_name = rest.strip_prefix(&name)?;
+        let after_name = after_name.trim();
+        
+        if after_name.starts_with('<') {
+            // Extract generic parameters
+            let mut generics = String::new();
+            let mut depth = 0;
+            let mut started = false;
+            
+            for ch in after_name.chars() {
+                if ch == '<' {
+                    depth += 1;
+                    started = true;
+                }
+                if started {
+                    generics.push(ch);
+                }
+                if ch == '>' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+            }
+            
+            if !generics.is_empty() {
+                return Some(format!("{}{}", name, generics));
+            }
+        }
+        
+        Some(name)
     }
 
     /// 提取 pub fn / pub async fn 名称
     fn extract_fn_name(line: &str) -> Option<String> {
         let trimmed = line.trim();
+        
+        // Skip attributes
+        let trimmed = if trimmed.starts_with("#[") {
+            if let Some(pos) = trimmed.find(']') {
+                trimmed[pos + 1..].trim()
+            } else {
+                trimmed
+            }
+        } else {
+            trimmed
+        };
+        
         let rest = if trimmed.starts_with("pub async fn ") {
             Some(trimmed.strip_prefix("pub async fn ").unwrap())
         } else if trimmed.starts_with("pub fn ") {
