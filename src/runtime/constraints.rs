@@ -167,37 +167,96 @@ impl CodeMetrics {
             complexity += code.matches(*keyword).count();
         }
 
-        // 计算词汇多样性
+        // 计算词汇多样性 - 使用排序后计数避免HashSet分配
         let words: Vec<&str> = code
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .collect();
-        let unique_words: std::collections::HashSet<_> = words.iter().collect();
+        
         let vocabulary_diversity = if words.is_empty() {
             0.0
+        } else if words.len() < 64 {
+            // 小输入：使用位图计数（避免分配）
+            let mut seen_small = [false; 64];
+            let mut unique_count = 0usize;
+            for (i, word) in words.iter().enumerate() {
+                if !seen_small[i] {
+                    seen_small[i] = true;
+                    // 检查前面是否已出现
+                    let mut is_dup = false;
+                    for j in 0..i {
+                        if words[j] == *word {
+                            is_dup = true;
+                            break;
+                        }
+                    }
+                    if !is_dup {
+                        unique_count += 1;
+                    }
+                }
+            }
+            unique_count as f32 / words.len() as f32
         } else {
-            unique_words.len() as f32 / words.len() as f32
+            // 大输入：排序后计数唯一元素
+            let mut words_sorted: Vec<&str> = words.clone();
+            words_sorted.sort_unstable();
+            let unique_count = words_sorted.len() - words_sorted
+                .windows(2)
+                .filter(|w| w[0] == w[1])
+                .count();
+            unique_count as f32 / words.len() as f32
         };
 
-        // 简化版熵计算
-        let mut freq = std::collections::HashMap::new();
+        // 熵计算 - 使用固定大小数组避免HashMap（ASCII优化）
+        let mut char_freq = [0u32; 256];
+        let mut total_chars = 0u32;
         for ch in code.chars() {
-            *freq.entry(ch).or_insert(0) += 1;
+            let idx = (ch as usize) & 0xFF; // 低8位索引
+            char_freq[idx] += 1;
+            total_chars += 1;
         }
-        let entropy: f32 = freq
-            .values()
-            .map(|&count| {
-                let p = count as f32 / code.len() as f32;
-                -p * p.ln()
-            })
-            .sum();
+        
+        let entropy: f32 = if total_chars > 0 {
+            char_freq
+                .iter()
+                .filter(|&&count| count > 0)
+                .map(|&count| {
+                    let p = count as f32 / total_chars as f32;
+                    -p * p.ln()
+                })
+                .sum()
+        } else {
+            0.0
+        };
 
-        // 冗余比例（简化：重复行比例）
-        let unique_lines: std::collections::HashSet<_> = lines.iter().collect();
+        // 冗余比例 - 使用排序后计数避免HashSet
         let redundancy = if lines.is_empty() {
             0.0
+        } else if lines.len() < 32 {
+            // 小输入：线性查找
+            let mut unique_count = 0usize;
+            for (i, line) in lines.iter().enumerate() {
+                let mut is_dup = false;
+                for j in 0..i {
+                    if lines[j] == *line {
+                        is_dup = true;
+                        break;
+                    }
+                }
+                if !is_dup {
+                    unique_count += 1;
+                }
+            }
+            1.0 - (unique_count as f32 / lines.len() as f32)
         } else {
-            1.0 - (unique_lines.len() as f32 / lines.len() as f32)
+            // 大输入：排序后计数
+            let mut lines_sorted = lines.clone();
+            lines_sorted.sort_unstable();
+            let dup_count = lines_sorted
+                .windows(2)
+                .filter(|w| w[0] == w[1])
+                .count();
+            dup_count as f32 / lines.len() as f32
         };
 
         Self {
