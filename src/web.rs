@@ -452,7 +452,9 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<WebSearchResult> {
         };
 
         // Extract URL (between quotes after href=)
-        let url = extract_quoted(&html[href_start..]);
+        let raw_url = extract_quoted(&html[href_start..]);
+        // DDG returns redirect URLs like "//duckduckgo.com/l/?uddg=...", extract the real URL
+        let url = resolve_ddg_redirect(&raw_url);
 
         // Find the link text (between > and <)
         let text_start = match lower[href_start..].find('>') {
@@ -517,6 +519,57 @@ fn extract_quoted(s: &str) -> String {
     s.chars()
         .take_while(|c| !c.is_whitespace() && *c != '>')
         .collect()
+}
+
+/// Resolve DuckDuckGo redirect URL to the actual destination URL.
+///
+/// DDG HTML search returns URLs like:
+///   //duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=...
+/// We extract the `uddg` parameter and URL-decode it.
+fn resolve_ddg_redirect(url: &str) -> String {
+    // Check if it's a DDG redirect URL
+    if !url.contains("uddg=") {
+        return url.to_string();
+    }
+
+    // Find uddg= parameter
+    if let Some(uddg_start) = url.find("uddg=") {
+        let rest = &url[uddg_start + 5..];
+        // Take until next & or end
+        let encoded = match rest.find('&') {
+            Some(end) => &rest[..end],
+            None => rest,
+        };
+        // URL-decode percent-encoded characters
+        return url_decode(encoded);
+    }
+
+    url.to_string()
+}
+
+/// Minimal URL percent-decoding (no external crate).
+fn url_decode(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            // Take next 2 hex chars
+            let hex: String = chars.by_ref().take(2).collect();
+            if hex.len() == 2 {
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    out.push(byte as char);
+                    continue;
+                }
+            }
+            out.push('%');
+            out.push_str(&hex);
+        } else if c == '+' {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// URL percent-encoding (minimal, no external crate).
@@ -654,6 +707,27 @@ mod tests {
     #[test]
     fn test_extract_quoted_single() {
         assert_eq!(extract_quoted("'hello' rest"), "hello");
+    }
+
+    #[test]
+    fn test_resolve_ddg_redirect() {
+        // Already a real URL — pass through
+        assert_eq!(
+            resolve_ddg_redirect("https://example.com/path"),
+            "https://example.com/path"
+        );
+        // DDG redirect URL — extract uddg
+        let ddg = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fstela2502.github.io%2Fmdbook_simulted_annealing_in_rust%2F&rut=abc123";
+        assert_eq!(
+            resolve_ddg_redirect(ddg),
+            "https://stela2502.github.io/mdbook_simulted_annealing_in_rust/"
+        );
+    }
+
+    #[test]
+    fn test_url_decode() {
+        assert_eq!(url_decode("hello+world"), "hello world");
+        assert_eq!(url_decode("https%3A%2F%2Fexample.com"), "https://example.com");
     }
 
     #[test]

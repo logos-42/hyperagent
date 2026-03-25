@@ -87,19 +87,33 @@ impl EnergyState {
 
     /// 自适应冷却：根据系统进展调整冷却速率
     ///
-    /// 如果熵产生率高（系统仍在快速探索），减慢冷却
-    /// 如果熵产生率低（系统已稳定），加快冷却
+    /// 策略说明：
+    /// - 高熵产生率（系统活跃探索）：减缓冷却，维持探索能力
+    /// - 低熵产生率（系统已稳定）：加速冷却，收敛到最优解
+    ///
+    /// 数学推导：
+    /// - 有效冷却率 = base_rate * adaptation_factor
+    /// - 冷却率越小 → 温度下降越快（加速冷却）
+    /// - 冷却率越大（接近1.0）→ 温度下降越慢（减缓冷却）
     pub fn adaptive_cool(&mut self) {
+        // 计算自适应因子
+        // 高熵产生 → 因子 > 1 → effective_cooling 更接近 1.0 → 减缓冷却
+        // 低熵产生 → 因子 < 1 → effective_cooling 更小 → 加速冷却
         let adaptation_factor = if self.entropy_production_rate > 0.1 {
-            // 系统活跃，减慢冷却
-            1.0 / (1.0 + self.entropy_production_rate * 0.1)
+            // 系统活跃探索：减缓冷却，让探索继续
+            // entropy_production_rate 越大，因子越大，冷却越慢
+            1.0 + self.entropy_production_rate * 0.5
         } else if self.entropy_production_rate < 0.01 {
-            // 系统稳定，加快冷却
-            1.0 + (0.01 - self.entropy_production_rate) * 0.5
+            // 系统已稳定：加速冷却，快速收敛
+            // entropy_production_rate 越小，因子越小，冷却越快
+            let stability_factor = 1.0 - (self.entropy_production_rate / 0.01).min(1.0);
+            1.0 - stability_factor * 0.3 // 最多减速30%
         } else {
             1.0
         };
 
+        // effective_cooling > cooling_rate 表示减慢冷却
+        // effective_cooling < cooling_rate 表示加速冷却
         let effective_cooling = (self.cooling_rate * adaptation_factor).clamp(0.8, 0.999);
         self.temperature = (self.temperature * effective_cooling).max(self.min_temperature);
         self.generation += 1;
@@ -451,23 +465,71 @@ mod tests {
     }
 
     #[test]
-    fn test_adaptive_cooling() {
+    fn test_adaptive_cooling_high_entropy() {
+        // 高熵产生率时应该减慢冷却（温度下降更慢）
         let mut state = EnergyState::new(100.0, 1.0);
-
-        // 高熵产生率时冷却更慢（但不一定慢于基础 cooling_rate，取决于 clamp）
-        state.entropy_production_rate = 0.5;
+        state.entropy_production_rate = 0.5; // 高熵产生
+        
         let temp_before = state.temperature;
         state.adaptive_cool();
+        
         // 温度应该降低（冷却生效）
         assert!(state.temperature < temp_before);
-        assert!(state.generation == 1);
+        
+        // 与标准冷却比较：高熵时冷却应该更慢
+        let mut state_standard = EnergyState::new(100.0, 1.0);
+        state_standard.cool();
+        
+        // 高熵状态的温度应该高于标准冷却后的温度
+        // 因为 adaptation_factor > 1 使 effective_cooling 更接近 1.0
+        assert!(state.temperature > state_standard.temperature,
+            "High entropy should slow cooling: adaptive_temp={} > standard_temp={}",
+            state.temperature, state_standard.temperature);
+    }
 
-        // 低熵产生率时冷却更快
-        state.entropy_production_rate = 0.001;
+    #[test]
+    fn test_adaptive_cooling_low_entropy() {
+        // 低熵产生率时应该加速冷却（温度下降更快）
+        let mut state = EnergyState::new(100.0, 1.0);
+        state.entropy_production_rate = 0.001; // 低熵产生
+        
         let temp_before = state.temperature;
         state.adaptive_cool();
+        
         // 温度应该降低
         assert!(state.temperature < temp_before);
+        
+        // 与标准冷却比较：低熵时冷却应该更快
+        let mut state_standard = EnergyState::new(100.0, 1.0);
+        state_standard.cool();
+        
+        // 低熵状态的温度应该低于标准冷却后的温度
+        // 因为 adaptation_factor < 1 使 effective_cooling 更小
+        assert!(state.temperature < state_standard.temperature,
+            "Low entropy should accelerate cooling: adaptive_temp={} < standard_temp={}",
+            state.temperature, state_standard.temperature);
+    }
+
+    #[test]
+    fn test_adaptive_cooling_neutral_entropy() {
+        // 中等熵产生率时应该接近标准冷却
+        let mut state = EnergyState::new(100.0, 1.0);
+        state.entropy_production_rate = 0.05; // 中等熵产生（在 0.01 到 0.1 之间）
+        
+        let temp_before = state.temperature;
+        state.adaptive_cool();
+        
+        // 温度应该降低
+        assert!(state.temperature < temp_before);
+        
+        // 应该接近标准冷却
+        let mut state_standard = EnergyState::new(100.0, 1.0);
+        state_standard.cool();
+        
+        // 中等熵时应该接近标准冷却
+        let diff = (state.temperature - state_standard.temperature).abs();
+        assert!(diff < 0.05,
+            "Neutral entropy should be close to standard cooling: diff={}", diff);
     }
 
     #[test]

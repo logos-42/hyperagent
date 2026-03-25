@@ -6,7 +6,7 @@
 //! 3. 持久化到 .hyperagent/codebase_context.json
 //! 4. 每次研究迭代时注入上下文，让 LLM "看见全局"
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

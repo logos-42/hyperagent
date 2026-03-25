@@ -138,7 +138,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                     .collect();
                 
                 // 如果存在比当前候选弱且相似的已选个体，考虑替换
-                if let Some((idx, weaker)) = similar_selected
+                if let Some((idx, _weaker)) = similar_selected
                     .into_iter()
                     .find(|(_, s)| {
                         let s_fitness = self.branches

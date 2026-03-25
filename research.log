@@ -1,0 +1,36 @@
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.0 (/Users/apple/Downloads/hyperagent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.75s
+     Running `target/debug/research`
+[2m2026-03-25T16:10:52.406882Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-25T16:10:52.411358Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Loaded codebase context: 7 files, 3507 lines, 2 iterations
+[2m2026-03-25T16:10:52.419960Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-25T16:10:52.419993Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-25T16:10:52.420011Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-25T16:10:52.420029Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["runtime/thermodynamics.rs", "runtime/loop_.rs", "auto_research.rs"]
+[2m2026-03-25T16:10:52.420046Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-25T16:10:52.420058Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-25T16:10:52.420073Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-25T16:10:52.420085Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-25T16:10:52.420096Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-25T16:10:52.420110Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-25T16:11:14.044663Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 0/0 tests passing
+[2m2026-03-25T16:11:14.069310Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/runtime/thermodynamics.rs
+[2m2026-03-25T16:11:17.319476Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 0/0 tests
+[2m2026-03-25T16:11:25.935377Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust simulated annealing implementation best practices struct", "implementing metropolis criterion and boltzmann factor in Rust", "Rust floating point temperature cooling schedule best practices"]
+[2m2026-03-25T16:11:27.534660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust simulated annealing implementation best practices struct'
+[2m2026-03-25T16:11:27.806054Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'implementing metropolis criterion and boltzmann factor in Rust'
+[2m2026-03-25T16:11:28.113520Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust floating point temperature cooling schedule best practices'
+[2m2026-03-25T16:11:28.113813Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
+[2m2026-03-25T16:11:28.728848Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://stela2502.github.io/mdbook_simulted_annealing_in_rust/ (6159 chars)
+[2m2026-03-25T16:11:29.867826Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://docs.rs/simulated_annealing (2807 chars)
+[2m2026-03-25T16:11:29.867946Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 5019 chars of context
+[2m2026-03-25T16:14:48.684269Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the adaptive cooling logic to correctly slow cooling when entropy production is high (system actively exploring) and speed up cooling when entropy production is low (system has stabilized).
+[2m2026-03-25T16:15:13.011001Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-25T16:15:23.945704Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
