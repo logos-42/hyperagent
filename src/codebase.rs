@@ -568,6 +568,32 @@ impl CodebaseContext {
         self.total_iterations += 1;
     }
 
+    /// Check if a file has been recently modified (within last N entries)
+    pub fn was_recently_modified(&self, file: &str, within_last: usize) -> bool {
+        self.improvement_history
+            .iter()
+            .rev()
+            .take(within_last)
+            .any(|entry| entry.contains(&format!("{} —", file)))
+    }
+
+    /// Get files modified in the last N iterations
+    pub fn recent_modified_files(&self, n: usize) -> Vec<String> {
+        let mut files = Vec::new();
+        for entry in self.improvement_history.iter().rev().take(n) {
+            // Format: "[HH:MM] file — hypothesis (outcome)"
+            if let Some(after_time) = entry.split(']').nth(1) {
+                if let Some(file_part) = after_time.trim().split(" —").next() {
+                    let file = file_part.trim().to_string();
+                    if !files.contains(&file) {
+                        files.push(file);
+                    }
+                }
+            }
+        }
+        files
+    }
+
     /// 生成给 LLM 的全局上下文 prompt
     /// target_file: 当前要改进的文件
     pub fn build_context_prompt(&self, target_file: &str) -> String {
@@ -635,6 +661,13 @@ impl CodebaseContext {
                 prompt.push_str(entry);
                 prompt.push('\n');
             }
+        }
+
+        // 4. Recently modified files hint
+        let recent_files = self.recent_modified_files(5);
+        if !recent_files.is_empty() {
+            prompt.push_str("\n=== RECENTLY MODIFIED FILES ===\n");
+            prompt.push_str(&format!("Consider other files: {}\n", recent_files.join(", ")));
         }
 
         prompt
