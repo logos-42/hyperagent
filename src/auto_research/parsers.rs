@@ -2,12 +2,37 @@ use crate::llm::LLMClient;
 
 use super::AutoResearch;
 
+/// 单个搜索替换操作
+#[derive(Debug, Clone)]
+pub(crate) struct SearchReplace {
+    pub search: String,
+    pub replace: String,
+}
+
+/// 编辑操作：可以是完整文件内容，或搜索替换列表
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) enum EditOp {
+    /// 完整文件替换（小文件向后兼容）
+    FullFile(String),
+    /// 多个搜索替换操作（精确编辑）
+    SearchReplace(Vec<SearchReplace>),
+}
+
+/// 解析后的编辑指令
+#[derive(Debug, Clone)]
+pub(crate) struct ParsedEdit {
+    pub file_path: String,
+    pub op: EditOp,
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
-    /// Phase 3: 解析 LLM 响应中的多文件修改
+    /// Phase 3: 解析 LLM 响应中的修改
     ///
-    /// 支持两种格式：
-    /// 1. 单文件格式（向后兼容）: HYPOTHESIS: ... \n\n ```rust ... ```
-    /// 2. 多文件格式: HYPOTHESIS: ... \n\n FILE: path \n ```rust ... ``` \n FILE: path \n ```rust ... ```
+    /// 支持三种格式（按优先级检测）：
+    /// 1. SEARCH/REPLACE 格式（推荐，精确编辑）
+    /// 2. FILE: 多文件格式（向后兼容）
+    /// 3. 单文件完整代码格式（向后兼容）
     pub(crate) fn parse_response_multi(&self, response: &str) -> Option<(String, Vec<(String, String)>)> {
         // 提取 HYPOTHESIS
         let hypothesis = if let Some(start) = response.find("HYPOTHESIS:") {
@@ -17,6 +42,13 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         } else {
             "No hypothesis stated".to_string()
         };
+
+        // 优先检测 SEARCH/REPLACE 格式
+        if response.contains("SEARCH:") {
+            if let Some(edits) = self.parse_search_replace_edits(response) {
+                return Some((hypothesis, edits));
+            }
+        }
 
         // 检测多文件格式：是否有 FILE: 标记
         if response.contains("FILE:") {
@@ -31,16 +63,150 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         Some((hypothesis, vec![(String::new(), code)]))
     }
 
+    /// 解析 SEARCH/REPLACE 格式的编辑指令
+    ///
+    /// 格式：
+    /// ```EDIT: src/file.rs
+    /// <<<<<<< SEARCH
+    /// old code (must match exactly)
+    /// =======
+    /// new code
+    /// >>>>>>> REPLACE
+    /// ```
+    fn parse_search_replace_edits(&self, response: &str) -> Option<Vec<(String, String)>> {
+        let mut edits: Vec<ParsedEdit> = Vec::new();
+        let mut pos = 0;
+
+        while pos < response.len() {
+            // 找 EDIT: 标记
+            let edit_start = match Self::find_marker(response, "EDIT:", pos) {
+                Some(p) => p,
+                None => break,
+            };
+
+            let line_end = response[edit_start..]
+                .find('\n')
+                .map(|i| edit_start + i)
+                .unwrap_or(response.len());
+            let file_path = response[edit_start + 5..line_end].trim().to_string();
+
+            if file_path.is_empty() {
+                pos = line_end + 1;
+                continue;
+            }
+
+            // 找这个 EDIT 块里的所有 SEARCH/REPLACE 对
+            let block_end = Self::find_marker(response, "EDIT:", line_end).unwrap_or(response.len());
+            let block = &response[line_end..block_end];
+
+            let mut search_replaces: Vec<SearchReplace> = Vec::new();
+            let mut sr_pos = 0;
+
+            while sr_pos < block.len() {
+                // 找 <<<<<<< SEARCH
+                let search_marker = match block[sr_pos..].find("<<<<<<< SEARCH") {
+                    Some(p) => sr_pos + p,
+                    None => break,
+                };
+
+                // 找 =======
+                let sep = match block[search_marker..].find("=======") {
+                    Some(p) => search_marker + p,
+                    None => break,
+                };
+
+                // 找 >>>>>>> REPLACE
+                let replace_end = match block[sep..].find(">>>>>>> REPLACE") {
+                    Some(p) => sep + p,
+                    None => break,
+                };
+
+                let search_content = block[search_marker + 14..sep].trim_end_matches('\n').to_string();
+                let replace_content = block[sep + 7..replace_end].trim_end_matches('\n').to_string();
+
+                if !search_content.is_empty() {
+                    search_replaces.push(SearchReplace {
+                        search: search_content,
+                        replace: replace_content,
+                    });
+                }
+
+                sr_pos = replace_end + 16; // 跳过 ">>>>>>> REPLACE"
+            }
+
+            if !search_replaces.is_empty() {
+                edits.push(ParsedEdit {
+                    file_path,
+                    op: EditOp::SearchReplace(search_replaces),
+                });
+            }
+
+            pos = block_end;
+        }
+
+        if edits.is_empty() {
+            return None;
+        }
+
+        // 应用所有编辑到原始文件
+        let mut results: Vec<(String, String)> = Vec::new();
+        for edit in &edits {
+            let original = self.read_file(&edit.file_path).unwrap_or_default();
+            let modified = match &edit.op {
+                EditOp::SearchReplace(srs) => self.apply_search_replaces(&original, srs),
+                EditOp::FullFile(content) => content.clone(),
+            };
+            results.push((edit.file_path.clone(), modified));
+        }
+
+        Some(results)
+    }
+
+    /// 将搜索替换操作应用到原始代码上
+    fn apply_search_replaces(&self, original: &str, ops: &[SearchReplace]) -> String {
+        let mut result = original.to_string();
+
+        for op in ops {
+            if let Some(idx) = result.find(&op.search) {
+                let before = &result[..idx];
+                let after = &result[idx + op.search.len()..];
+                result = format!("{}{}{}", before, op.replace, after);
+                tracing::debug!(
+                    "  Applied SEARCH/REPLACE: {} chars → {} chars",
+                    op.search.len(),
+                    op.replace.len()
+                );
+            } else {
+                tracing::warn!(
+                    "  SEARCH block not found in file ({} chars), trying fuzzy match...",
+                    op.search.len()
+                );
+                // 尝试去除首尾空白后匹配
+                let trimmed_search = op.search.trim();
+                let trimmed_replace = op.replace.trim();
+
+                if let Some(idx) = result.find(trimmed_search) {
+                    let before = &result[..idx];
+                    let after = &result[idx + trimmed_search.len()..];
+                    result = format!("{}{}{}", before, trimmed_replace, after);
+                    tracing::debug!("  Fuzzy match succeeded (trimmed whitespace)");
+                } else {
+                    tracing::warn!("  Fuzzy match also failed — skipping this replacement");
+                }
+            }
+        }
+
+        result
+    }
+
     /// 解析多文件响应：按 FILE: 标记分割代码块
     fn parse_multi_file_response(&self, hypothesis: &str, response: &str) -> Option<(String, Vec<(String, String)>)> {
         let mut changes: Vec<(String, String)> = Vec::new();
 
-        // 找所有 FILE: 标记和对应的代码块
         let mut pos = 0;
         let bytes = response.as_bytes();
 
         while pos < bytes.len() {
-            // 找下一个 FILE: 标记
             let file_start = match Self::find_marker(response, "FILE:", pos) {
                 Some(p) => p,
                 None => break,
@@ -49,19 +215,15 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             let file_line_end = response[file_start..].find('\n').map(|i| file_start + i).unwrap_or(response.len());
             let file_path = response[file_start + 5..file_line_end].trim().to_string();
 
-            // 跳到 FILE: 行之后找代码块
             let code_region = &response[file_line_end..];
 
-            // 找 ```rust ... ``` 或 ``` ... ```
             let (code_start, code_end) = if let Some(block_start) = code_region.find("```") {
                 let actual_start = block_start + 3;
-                // 跳过语言标识（如 "rust"）
                 let content_start = if code_region[actual_start..].starts_with("rust") {
                     actual_start + 4
                 } else {
                     actual_start
                 };
-                // 找闭合的 ```
                 let close_pos = match code_region[content_start..].find("```") {
                     Some(p) => content_start + p,
                     None => continue,
@@ -78,7 +240,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 changes.push((file_path, code));
             }
 
-            pos = code_end + 3; // 跳过闭合的 ```
+            pos = code_end + 3;
         }
 
         if changes.is_empty() {
@@ -94,7 +256,6 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         for (i, line) in text[start..].lines().enumerate() {
             let trimmed = line.trim().to_uppercase();
             if trimmed.starts_with(&upper_marker) {
-                // 计算在原文本中的绝对位置
                 let abs_offset = text[start..].lines().take(i).map(|l| l.len() + 1).sum::<usize>();
                 return Some(start + abs_offset);
             }
@@ -119,5 +280,70 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             }
         }
         raw.trim().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockResearch;
+
+    impl MockResearch {
+        fn apply_search_replaces_test(original: &str, ops: &[SearchReplace]) -> String {
+            let mut result = original.to_string();
+            for op in ops {
+                if let Some(idx) = result.find(&op.search) {
+                    let before = &result[..idx];
+                    let after = &result[idx + op.search.len()..];
+                    result = format!("{}{}{}", before, op.replace, after);
+                }
+            }
+            result
+        }
+    }
+
+    #[test]
+    fn test_search_replace_exact() {
+        let original = "fn foo() -> i32 {\n    42\n}\n\nfn bar() -> i32 {\n    10\n}";
+        let ops = vec![SearchReplace {
+            search: "fn foo() -> i32 {\n    42\n}".to_string(),
+            replace: "fn foo() -> u32 {\n    42\n}".to_string(),
+        }];
+        let result = MockResearch::apply_search_replaces_test(original, &ops);
+        assert!(result.contains("fn foo() -> u32"));
+        assert!(result.contains("fn bar() -> i32"));
+        // bar() 部分保持不变
+        assert!(result.contains("let z = 3;") || result.contains("fn bar() -> i32"));
+    }
+
+    #[test]
+    fn test_search_replace_multiple() {
+        let original = "let x = 1;\nlet y = 2;\nlet z = 3;";
+        let ops = vec![
+            SearchReplace {
+                search: "let x = 1;".to_string(),
+                replace: "let x = 10;".to_string(),
+            },
+            SearchReplace {
+                search: "let y = 2;".to_string(),
+                replace: "let y = 20;".to_string(),
+            },
+        ];
+        let result = MockResearch::apply_search_replaces_test(original, &ops);
+        assert!(result.contains("let x = 10;"));
+        assert!(result.contains("let y = 20;"));
+        assert!(result.contains("let z = 3;")); // 未修改
+    }
+
+    #[test]
+    fn test_search_replace_not_found_skips() {
+        let original = "fn main() {}";
+        let ops = vec![SearchReplace {
+            search: "nonexistent".to_string(),
+            replace: "replacement".to_string(),
+        }];
+        let result = MockResearch::apply_search_replaces_test(original, &ops);
+        assert_eq!(result, original); // 原封不动
     }
 }

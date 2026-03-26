@@ -25,6 +25,33 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 - Use descriptive test names\n\
                 - If the file already has tests, ADD new ones (don't remove existing)\n";
 
+        // 编辑模式说明：优先使用 SEARCH/REPLACE（精确编辑），小文件可回退到 FILE 格式
+        let edit_mode_instruction = "
+             === EDIT FORMAT (IMPORTANT) ===
+             Use SEARCH/REPLACE blocks for PRECISE editing. This avoids rewriting entire files and losing code.\n\n\
+             For the PRIMARY file:\n\
+             EDIT: {file}\n\
+             <<<<<<< SEARCH\n\
+             <exact existing code to find — must match character-by-character>\n\
+             =======\n\
+             <replacement code>\n\
+             >>>>>>> REPLACE\n\n\
+             You can include MULTIPLE SEARCH/REPLACE blocks in one EDIT section for the same file.\n\
+             For OTHER files that also need changes, add separate EDIT blocks:\n\n\
+             EDIT: <other/file.rs>\n\
+             <<<<<<< SEARCH\n\
+             <exact existing code>\n\
+             =======\n\
+             <replacement code>\n\
+             >>>>>>> REPLACE\n\n\
+             CRITICAL RULES for SEARCH/REPLACE:\n\
+             - The SEARCH block MUST match the original code EXACTLY (same whitespace, same newlines)\n\
+             - Include ENOUGH context (3-5 lines) so the search block is unique in the file\n\
+             - Do NOT try to match the entire file — only include the lines you want to change\n\
+             - You can add code (make REPLACE longer than SEARCH) or remove code (make REPLACE shorter)\n\
+             - If you need to add new functions, put the SEARCH block around the insertion point\n\
+               (e.g., include the closing brace of the previous function)\n";
+
         format!(
             "You are an AI researcher improving your own codebase. This is a self-research loop.\n\n\
              {codebase_context}\n\n\
@@ -41,33 +68,24 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
              4. Consider cross-file dependencies — don't break other modules.\n\
              5. Output in this EXACT format:\n\n\
              HYPOTHESIS: <one sentence describing what you'll improve and why>\n\n\
-             FILE: {file}\n\
-             ```rust\n\
-             <complete improved primary file, including any new #[cfg(test)] tests>\n\
-             ```\n\n\
-             If your improvement requires changes to OTHER files (e.g., updating a trait in another module,\n\
-             or modifying a type used by the primary file), add additional FILE blocks:\n\n\
-             FILE: <other/file.rs>\n\
-             ```rust\n\
-             <complete improved secondary file>\n\
-             ```\n\n\
+             {edit_mode_section}\n\
              {test_gen_section}\n\
              Rules:\n\
              - Do NOT change public API signatures (function names, trait methods, struct fields)\n\
              - Do NOT add new external dependencies\n\
              - Do NOT break imports used by other files\n\
              - Focus on one improvement per iteration (but may span multiple files)\n\
-             - Output COMPLETE files, not diffs\n\
+             - Use SEARCH/REPLACE format — do NOT output complete files\n\
+             - The SEARCH block must match the original code EXACTLY\n\
+             - Include enough surrounding context (3-5 lines) for unique matching\n\
              - Include any new tests in the #[cfg(test)] module\n\
-             - When modifying multiple files, ensure cross-file consistency\n\
-             - Make MINIMAL, INCREMENTAL changes — only modify the functions/types directly relevant to your improvement\n\
-             - Do NOT rewrite or refactor unrelated code — preserve the existing structure of unchanged parts\n\
-             - If the file is large (>200 lines), only touch the specific functions that need changing",
+             - When modifying multiple files, ensure cross-file consistency",
             file = file,
             code = code,
             history = if recent_history.is_empty() { "(no experiments yet)".to_string() } else { recent_history },
             web_section = web_context.map(|ctx| format!("{}\n", ctx)).unwrap_or_default(),
             related_context = related_context,
+            edit_mode_section = edit_mode_instruction,
             test_gen_section = test_gen_instruction,
         )
     }
