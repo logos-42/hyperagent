@@ -90,3 +90,42 @@ error: could not compile `hyperagent` (lib) due to 1 previous error
 [2m2026-03-26T04:34:56.110027Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 130/133 tests
 [2m2026-03-26T04:34:56.685253Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Neutral (130/133), Lines: Regressed (39+), Warnings: Neutral, Complexity: 1, Binary: Neutral (+0KB)
 [2m2026-03-26T04:35:00.154906Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+(eval):1: command not found: setsid
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.89s
+     Running `target/debug/research`
+[2m2026-03-26T04:40:39.371528Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T04:40:39.381346Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Loaded codebase context: 43 files, 13716 lines, 11 iterations
+[2m2026-03-26T04:40:39.381519Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strategy v5: temp=0.55, target=Adaptive
+[2m2026-03-26T04:40:39.393779Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T04:40:39.393818Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T04:40:39.393834Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T04:40:39.393851Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "auto_research/mod.rs", "auto_research/parsers.rs", "auto_research/prompts.rs", "auto_research/git.rs", "auto_research/testing.rs", "auto_research/log.rs", "auto_research/web_search.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T04:40:39.393910Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 999
+[2m2026-03-26T04:40:39.393924Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T04:40:39.393936Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T04:40:39.393951Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T04:40:39.393963Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T04:40:39.393979Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T04:41:00.729750Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 130/133 tests passing
+[2m2026-03-26T04:41:00.729832Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/codebase.rs
+[2m2026-03-26T04:41:00.762090Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T04:41:03.640576Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 130/133 tests
+[2m2026-03-26T04:41:05.718675Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["Rust parsing source code files extract structs functions traits", "Rust idiomatic file system traversal walkdir", "Rust recursive directory scanning best practices"]
+[2m2026-03-26T04:41:06.222898Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust parsing source code files extract structs functions traits'
+[2m2026-03-26T04:41:06.438944Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust idiomatic file system traversal walkdir'
+[2m2026-03-26T04:41:06.631832Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust recursive directory scanning best practices'
+[2m2026-03-26T04:41:28.384730Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   SEARCH block not found in file (78 chars), trying fuzzy match...
+[2m2026-03-26T04:41:28.384870Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   Fuzzy match also failed — skipping this replacement
+[2m2026-03-26T04:41:28.385154Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Converting the improvement_history from unstructured strings to structured records will eliminate fragile string parsing, prevent format-related bugs, and enable efficient querying of improvement data.
+[2m2026-03-26T04:41:58.584499Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 140/143 tests
+[2m2026-03-26T04:41:59.085620Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (140/143), Lines: Regressed (280+), Warnings: Neutral, Complexity: 90, Binary: Neutral (+0KB)
+[2m2026-03-26T04:42:00.430725Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T04:42:00.430813Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 10 new

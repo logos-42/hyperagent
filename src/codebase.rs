@@ -10,6 +10,43 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use chrono::{DateTime, Utc};
+
+/// A single improvement record with structured data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImprovementRecord {
+    /// When the improvement was made
+    pub timestamp: DateTime<Utc>,
+    /// File that was modified
+    pub file: String,
+    /// The hypothesis being tested
+    pub hypothesis: String,
+    /// Outcome: "Improved", "Regressed", "Neutral"
+    pub outcome: String,
+}
+
+impl ImprovementRecord {
+    /// Create a new improvement record
+    pub fn new(file: String, hypothesis: String, outcome: String) -> Self {
+        Self {
+            timestamp: Utc::now(),
+            file,
+            hypothesis,
+            outcome,
+        }
+    }
+
+    /// Format for display in logs and prompts
+    pub fn to_display_string(&self) -> String {
+        format!(
+            "[{}] {} — {} ({})",
+            self.timestamp.format("%H:%M"),
+            self.file,
+            self.hypothesis.chars().take(80).collect::<String>(),
+            self.outcome,
+        )
+    }
+}
 
 /// 单个文件的代码摘要
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,8 +92,8 @@ pub struct CodebaseContext {
     pub last_scanned: String,
     /// 累计迭代次数（跨运行持续增长）
     pub total_iterations: u32,
-    /// 改进历史摘要（最近的 N 次）
-    pub improvement_history: Vec<String>,
+    /// 改进历史记录（结构化存储）
+    pub improvement_history: Vec<ImprovementRecord>,
 }
 
 impl CodebaseContext {
@@ -553,14 +590,12 @@ impl CodebaseContext {
 
     /// 记录一次改进
     pub fn record_improvement(&mut self, file: &str, hypothesis: &str, outcome: &str) {
-        let entry = format!(
-            "[{}] {} — {} ({})",
-            chrono::Utc::now().format("%H:%M"),
-            file,
-            hypothesis.chars().take(80).collect::<String>(),
-            outcome,
+        let record = ImprovementRecord::new(
+            file.to_string(),
+            hypothesis.to_string(),
+            outcome.to_string(),
         );
-        self.improvement_history.push(entry);
+        self.improvement_history.push(record);
         // 只保留最近 50 条
         if self.improvement_history.len() > 50 {
             self.improvement_history = self.improvement_history.split_off(self.improvement_history.len() - 50);
@@ -574,21 +609,15 @@ impl CodebaseContext {
             .iter()
             .rev()
             .take(within_last)
-            .any(|entry| entry.contains(&format!("{} —", file)))
+            .any(|record| record.file == file)
     }
 
     /// Get files modified in the last N iterations
     pub fn recent_modified_files(&self, n: usize) -> Vec<String> {
         let mut files = Vec::new();
-        for entry in self.improvement_history.iter().rev().take(n) {
-            // Format: "[HH:MM] file — hypothesis (outcome)"
-            if let Some(after_time) = entry.split(']').nth(1) {
-                if let Some(file_part) = after_time.trim().split(" —").next() {
-                    let file = file_part.trim().to_string();
-                    if !files.contains(&file) {
-                        files.push(file);
-                    }
-                }
+        for record in self.improvement_history.iter().rev().take(n) {
+            if !files.contains(&record.file) {
+                files.push(record.file.clone());
             }
         }
         files
@@ -656,9 +685,9 @@ impl CodebaseContext {
         // 3. 改进历史
         if !self.improvement_history.is_empty() {
             prompt.push_str("\n=== RECENT IMPROVEMENTS ===\n");
-            let recent: Vec<&String> = self.improvement_history.iter().rev().take(10).collect();
-            for entry in recent.into_iter().rev() {
-                prompt.push_str(entry);
+            let recent: Vec<&ImprovementRecord> = self.improvement_history.iter().rev().take(10).collect();
+            for record in recent.into_iter().rev() {
+                prompt.push_str(&record.to_display_string());
                 prompt.push('\n');
             }
         }
@@ -668,6 +697,46 @@ impl CodebaseContext {
         if !recent_files.is_empty() {
             prompt.push_str("\n=== RECENTLY MODIFIED FILES ===\n");
             prompt.push_str(&format!("Consider other files: {}\n", recent_files.join(", ")));
+        }
+
+        // 5. Related files context (files that use this file's items)
+        if let Some(target_summary) = self.files.get(target_file) {
+            prompt.push_str("\n=== RELATED FILES ===\n");
+            
+            // This file depends on these modules via use statements
+            let target_uses: Vec<String> = target_summary
+                .uses
+                .iter()
+                .filter(|u| u.contains("crate::"))
+                .cloned()
+                .collect();
+            
+            if !target_uses.is_empty() {
+                prompt.push_str(&format!("Depends on: {}\n", target_uses.join(", ")));
+            }
+            
+            // Find files that depend on this file
+            let dependents: Vec<String> = self
+                .files
+                .iter()
+                .filter(|(path, summary)| {
+                    *path != target_file
+                        && summary.uses.iter().any(|u| {
+                            let module_hint = target_file
+                                .strip_suffix(".rs")
+                                .unwrap_or(target_file)
+                                .replace('/', "::")
+                                .replace("mod.rs", "");
+                            u.contains(&module_hint)
+                                || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
+                        })
+                })
+                .map(|(path, _)| path.clone())
+                .collect();
+            
+            if !dependents.is_empty() {
+                prompt.push_str(&format!("Used by: {}\n", dependents.join(", ")));
+            }
         }
 
         prompt
@@ -681,5 +750,216 @@ impl CodebaseContext {
             fresh.improvement_history = self.improvement_history.clone();
             *self = fresh;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_improvement_record_creation() {
+        let record = ImprovementRecord::new(
+            "src/agent/mutator.rs".to_string(),
+            "Add mutation strategy".to_string(),
+            "Improved".to_string(),
+        );
+        
+        assert_eq!(record.file, "src/agent/mutator.rs");
+        assert_eq!(record.hypothesis, "Add mutation strategy");
+        assert_eq!(record.outcome, "Improved");
+    }
+
+    #[test]
+    fn test_improvement_record_display_format() {
+        let record = ImprovementRecord {
+            timestamp: Utc::now(),
+            file: "test.rs".to_string(),
+            hypothesis: "A long hypothesis that should be truncated to 80 characters when displayed in the output".to_string(),
+            outcome: "Improved".to_string(),
+        };
+        
+        let display = record.to_display_string();
+        assert!(display.contains("test.rs"));
+        assert!(display.contains("Improved"));
+        assert!(display.contains("["));
+        // Hypothesis should be truncated
+        let hypothesis_part: String = record.hypothesis.chars().take(80).collect();
+        assert!(display.contains(&hypothesis_part[..20]));
+    }
+
+    #[test]
+    fn test_record_improvement_adds_to_history() {
+        let mut ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.record_improvement("test.rs", "Add feature", "Improved");
+        
+        assert_eq!(ctx.improvement_history.len(), 1);
+        assert_eq!(ctx.total_iterations, 1);
+        assert_eq!(ctx.improvement_history[0].file, "test.rs");
+    }
+
+    #[test]
+    fn test_history_limit_50_entries() {
+        let mut ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        // Add 60 entries
+        for i in 0..60 {
+            ctx.record_improvement(&format!("file{}.rs", i), "test", "Improved");
+        }
+        
+        assert_eq!(ctx.improvement_history.len(), 50);
+        // Should keep the most recent (file10.rs through file59.rs)
+        assert_eq!(ctx.improvement_history[0].file, "file10.rs");
+    }
+
+    #[test]
+    fn test_was_recently_modified() {
+        let mut ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.record_improvement("file_a.rs", "test", "Improved");
+        ctx.record_improvement("file_b.rs", "test", "Improved");
+        ctx.record_improvement("file_a.rs", "test2", "Improved");
+        
+        // file_a.rs was modified in last 3 entries
+        assert!(ctx.was_recently_modified("file_a.rs", 3));
+        // file_a.rs was modified in last 2 entries
+        assert!(ctx.was_recently_modified("file_a.rs", 2));
+        // file_a.rs was NOT modified in last 1 entry (last is file_a.rs again, so true)
+        assert!(ctx.was_recently_modified("file_a.rs", 1));
+    }
+
+    #[test]
+    fn test_recent_modified_files() {
+        let mut ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.record_improvement("file_a.rs", "test", "Improved");
+        ctx.record_improvement("file_b.rs", "test", "Improved");
+        ctx.record_improvement("file_a.rs", "test2", "Improved");
+        ctx.record_improvement("file_c.rs", "test", "Improved");
+        
+        let recent = ctx.recent_modified_files(3);
+        // Last 3 modifications: file_c.rs, file_a.rs, file_b.rs (in reverse order)
+        assert_eq!(recent.len(), 3);
+        assert!(recent.contains(&"file_c.rs".to_string()));
+        assert!(recent.contains(&"file_a.rs".to_string()));
+        assert!(recent.contains(&"file_b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_build_context_prompt_includes_structured_history() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 100,
+            files: HashMap::new(),
+            module_tree: "src/\n  test.rs (100 lines)\n".to_string(),
+            architecture_summary: "Test architecture".to_string(),
+            last_scanned: "2024-01-01T00:00:00Z".to_string(),
+            total_iterations: 1,
+            improvement_history: vec![
+                ImprovementRecord::new("test.rs".to_string(), "Add tests".to_string(), "Improved".to_string()),
+            ],
+        };
+        
+        let prompt = ctx.build_context_prompt("test.rs");
+        
+        assert!(prompt.contains("RECENT IMPROVEMENTS"));
+        assert!(prompt.contains("test.rs"));
+        assert!(prompt.contains("Add tests"));
+        assert!(prompt.contains("Improved"));
+    }
+
+    #[test]
+    fn test_empty_history_returns_empty() {
+        let ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        assert!(!ctx.was_recently_modified("any.rs", 5));
+        assert!(ctx.recent_modified_files(5).is_empty());
+    }
+
+    #[test]
+    fn test_record_serialization() {
+        let record = ImprovementRecord {
+            timestamp: Utc::now(),
+            file: "test.rs".to_string(),
+            hypothesis: "Test hypothesis".to_string(),
+            outcome: "Improved".to_string(),
+        };
+        
+        // Should serialize/deserialize correctly
+        let json = serde_json::to_string(&record).unwrap();
+        let deserialized: ImprovementRecord = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(deserialized.file, "test.rs");
+        assert_eq!(deserialized.hypothesis, "Test hypothesis");
+        assert_eq!(deserialized.outcome, "Improved");
+    }
+
+    #[test]
+    fn test_context_serialization() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 100,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 1,
+            improvement_history: vec![
+                ImprovementRecord::new("test.rs".to_string(), "test".to_string(), "Improved".to_string()),
+            ],
+        };
+        
+        let json = serde_json::to_string(&ctx).unwrap();
+        let deserialized: CodebaseContext = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(deserialized.total_iterations, 1);
+        assert_eq!(deserialized.improvement_history.len(), 1);
+        assert_eq!(deserialized.improvement_history[0].file, "test.rs");
     }
 }
