@@ -65,6 +65,23 @@ async fn main() -> Result<()> {
     let mut engine = AutoResearch::new(client, config);
     let experiments = engine.run().await?;
 
+    // Compute summary statistics
+    let mut improved = 0usize;
+    let mut neutral = 0usize;
+    let mut regressed = 0usize;
+    let mut failed = 0usize;
+    
+    for e in &experiments {
+        match e.outcome {
+            hyperagent::ExperimentOutcome::Improved => improved += 1,
+            hyperagent::ExperimentOutcome::Neutral => neutral += 1,
+            hyperagent::ExperimentOutcome::Regressed => regressed += 1,
+            hyperagent::ExperimentOutcome::Failed => failed += 1,
+        }
+    }
+    
+    let total = experiments.len();
+    
     println!("\n=== Experiment Log ===");
     for e in &experiments {
         let icon = match e.outcome {
@@ -80,6 +97,35 @@ async fn main() -> Result<()> {
             e.tests_before.0, e.tests_before.1,
             e.tests_after.0, e.tests_after.1,
         );
+    }
+
+    println!("\n=== Summary ===");
+    println!("  Total experiments: {}", total);
+    if total > 0 {
+        let improved_pct = (improved as f64 / total as f64) * 100.0;
+        let neutral_pct = (neutral as f64 / total as f64) * 100.0;
+        let regressed_pct = (regressed as f64 / total as f64) * 100.0;
+        let failed_pct = (failed as f64 / total as f64) * 100.0;
+        println!("  Improved:  {} ({:.1}%)", improved, improved_pct);
+        println!("  Neutral:   {} ({:.1}%)", neutral, neutral_pct);
+        println!("  Regressed: {} ({:.1}%)", regressed, regressed_pct);
+        println!("  Failed:    {} ({:.1}%)", failed, failed_pct);
+        
+        // Provide actionable recommendation
+        if improved > 0 {
+            println!("\n✓ Research produced {} improvement(s).", improved);
+        } else if neutral > 0 && failed == 0 {
+            println!("\n○ No improvements found. Consider adjusting search parameters.");
+        } else if failed > (total / 2) {
+            println!("\n✗ High failure rate ({}/{}) suggests issues with build or test environment.", failed, total);
+        } else {
+            println!("\n○ Mixed results. Review experiment logs for patterns.");
+        }
+    }
+
+    // Exit with error if all experiments failed (useful for CI/CD)
+    if total > 0 && failed == total {
+        anyhow::bail!("All {} experiments failed - check build/test configuration", total);
     }
 
     Ok(())
