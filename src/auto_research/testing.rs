@@ -86,7 +86,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let old_test_count = Self::count_test_fns(old_code);
         let new_test_count = Self::count_test_fns(new_code);
         let generated = new_test_count > old_test_count;
-        let added = (new_test_count - old_test_count) as u32;
+        let added = new_test_count.saturating_sub(old_test_count) as u32;
         (generated, added)
     }
 
