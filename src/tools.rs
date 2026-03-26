@@ -540,7 +540,23 @@ impl CodebaseReadTool {
     /// Direct read (without rig Tool machinery).
     pub fn read_file(&self, path: &str, start_line: usize, max_lines: usize) -> Result<ReadFileOutput> {
         let full_path = self.root.path.join(path);
-        let content = std::fs::read_to_string(&full_path)
+        
+        // Canonicalize both paths to resolve symlinks and .. components
+        let canonical_root = self.root.path.canonicalize()
+            .unwrap_or_else(|_| self.root.path.clone());
+        let canonical_full = full_path.canonicalize()
+            .map_err(|e| CodebaseToolError::PathError(
+                format!("Cannot resolve path '{}': {}", path, e)
+            ))?;
+        
+        // Security check: ensure resolved path is within project root
+        if !canonical_full.starts_with(&canonical_root) {
+            return Err(CodebaseToolError::PathError(
+                format!("Path '{}' resolves outside project root", path)
+            ).into());
+        }
+        
+        let content = std::fs::read_to_string(&canonical_full)
             .with_context(|| format!("Cannot read {}", full_path.display()))?;
 
         let all_lines: Vec<&str> = content.lines().collect();
@@ -1100,5 +1116,56 @@ mod tests {
         };
         let result = tool.call(args).await.unwrap();
         assert!(result.content.contains("pub mod"));
+    }
+
+    #[test]
+    fn test_read_file_blocks_traversal_attack() {
+        let dir = setup_test_dir("traversal");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Attempt to read a file outside project root using ../
+        let result = tool.read_file("../../../etc/passwd", 1, 100);
+        assert!(result.is_err(), "Should reject path traversal attempt");
+        
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("outside project root") || err_msg.contains("resolve"), 
+                "Error message should indicate path resolution issue");
+    }
+
+    #[test]
+    fn test_read_file_blocks_absolute_path() {
+        let dir = setup_test_dir("absolute");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Attempt to read an absolute path
+        let result = tool.read_file("/etc/passwd", 1, 100);
+        assert!(result.is_err(), "Should reject absolute path outside project");
+    }
+
+    #[test]
+    fn test_read_file_valid_path() {
+        let dir = setup_test_dir("valid_path");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Valid path within project should work
+        let result = tool.read_file("Cargo.toml", 1, 100);
+        assert!(result.is_ok(), "Should read valid path within project");
+        
+        let content = result.unwrap();
+        assert!(content.content.contains("[package]"));
+    }
+
+    #[test]
+    fn test_read_file_nested_path() {
+        let dir = setup_test_dir("nested");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Nested path within project should work
+        let result = tool.read_file("src/runtime/loop_.rs", 1, 100);
+        assert!(result.is_ok(), "Should read nested path within project");
+        
+        let content = result.unwrap();
+        assert!(content.content.contains("pub fn run"));
     }
 }
