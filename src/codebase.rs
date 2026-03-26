@@ -668,11 +668,30 @@ impl CodebaseContext {
                 .collect();
 
             prompt.push_str(&format!("\n=== TARGET: {} ===\n", target_file));
-            prompt.push_str(&format!("Lines: {}, Structs: {:?}, Functions: {:?}\n",
+            prompt.push_str(&format!(
+                "Lines: {}, Structs: {:?}, Functions: {:?}\n",
                 target_summary.lines,
                 target_summary.structs,
                 target_summary.functions.iter().take(10).collect::<Vec<_>>(),
             ));
+            if !target_summary.enums.is_empty() {
+                prompt.push_str(&format!(
+                    "Enums: {}\n",
+                    target_summary.enums.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !target_summary.traits.is_empty() {
+                prompt.push_str(&format!(
+                    "Traits: {}\n",
+                    target_summary.traits.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !target_summary.impls.is_empty() {
+                prompt.push_str(&format!(
+                    "Impls: {}\n",
+                    target_summary.impls.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
             if !target_uses.is_empty() {
                 prompt.push_str(&format!("Internal deps: {}\n", target_uses.join(", ")));
             }
@@ -1329,5 +1348,83 @@ mod tests {
         
         // Should not include the file itself even though it has a matching use statement
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_build_context_prompt_includes_enums_traits_impls() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 100,
+            files: HashMap::new(),
+            module_tree: "src/\n  types.rs (100 lines)\n".to_string(),
+            architecture_summary: "Test architecture".to_string(),
+            last_scanned: "2024-01-01T00:00:00Z".to_string(),
+            total_iterations: 1,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.files.insert("types.rs".to_string(), FileSummary {
+            path: "types.rs".to_string(),
+            lines: 100,
+            structs: vec!["Config".to_string(), "Settings".to_string()],
+            enums: vec!["Status".to_string(), "Mode".to_string()],
+            functions: vec!["new".to_string(), "validate".to_string()],
+            traits: vec!["Handler".to_string()],
+            impls: vec!["Config".to_string(), "Settings".to_string()],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "Type definitions".to_string(),
+            derives: vec![],
+        });
+        
+        let prompt = ctx.build_context_prompt("types.rs");
+        
+        // Should include enums
+        assert!(prompt.contains("Enums: Status, Mode"));
+        // Should include traits
+        assert!(prompt.contains("Traits: Handler"));
+        // Should include impls
+        assert!(prompt.contains("Impls: Config, Settings"));
+        // Should still have structs and functions
+        assert!(prompt.contains("Structs:"));
+        assert!(prompt.contains("Functions:"));
+    }
+
+    #[test]
+    fn test_build_context_prompt_hides_empty_types() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 50,
+            files: HashMap::new(),
+            module_tree: "src/\n  simple.rs (50 lines)\n".to_string(),
+            architecture_summary: "Simple module".to_string(),
+            last_scanned: "2024-01-01T00:00:00Z".to_string(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.files.insert("simple.rs".to_string(), FileSummary {
+            path: "simple.rs".to_string(),
+            lines: 50,
+            structs: vec!["OnlyStruct".to_string()],
+            enums: vec![],
+            functions: vec!["run".to_string()],
+            traits: vec![],
+            impls: vec![],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "Simple file".to_string(),
+            derives: vec![],
+        });
+        
+        let prompt = ctx.build_context_prompt("simple.rs");
+        
+        // Should not include empty Enums/Traits/Impls lines
+        assert!(!prompt.contains("Enums:"));
+        assert!(!prompt.contains("Traits:"));
+        assert!(!prompt.contains("Impls:"));
+        // Should still have structs and functions
+        assert!(prompt.contains("Structs:"));
+        assert!(prompt.contains("Functions:"));
     }
 }
