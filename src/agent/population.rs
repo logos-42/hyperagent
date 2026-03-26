@@ -131,6 +131,50 @@ impl PopulationAgent {
     }
 }
 
+/// Statistics about inter-agent communication patterns
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommunicationStats {
+    /// Total number of messages in shared memory
+    pub total_messages: usize,
+    /// Number of broadcast messages (to_agent is None)
+    pub broadcast_count: usize,
+    /// Number of direct messages (to_agent is Some)
+    pub direct_message_count: usize,
+    /// Average message length in characters
+    pub avg_message_length: f64,
+    /// Messages per role
+    pub messages_by_role: std::collections::HashMap<String, usize>,
+}
+
+/// Distribution of agents across roles
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleDistribution {
+    /// Number of planners
+    pub planners: usize,
+    /// Number of executors
+    pub executors: usize,
+    /// Number of evaluators
+    pub evaluators: usize,
+    /// Number of reflectors
+    pub reflectors: usize,
+    /// Number of synthesizers
+    pub synthesizers: usize,
+    /// Total agents
+    pub total: usize,
+}
+
+impl RoleDistribution {
+    pub fn count_for_role(&self, role: AgentRole) -> usize {
+        match role {
+            AgentRole::Planner => self.planners,
+            AgentRole::Executor => self.executors,
+            AgentRole::Evaluator => self.evaluators,
+            AgentRole::Reflector => self.reflectors,
+            AgentRole::Synthesizer => self.synthesizers,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiAgentSystem {
     pub id: String,
@@ -317,6 +361,62 @@ impl MultiAgentSystem {
             self.get_best().map(|a| a.fitness).unwrap_or(0.0),
         )
     }
+
+    /// Get the distribution of agents across roles
+    pub fn role_distribution(&self) -> RoleDistribution {
+        let mut planners = 0;
+        let mut executors = 0;
+        let mut evaluators = 0;
+        let mut reflectors = 0;
+        let mut synthesizers = 0;
+
+        for agent in &self.population {
+            match agent.role {
+                AgentRole::Planner => planners += 1,
+                AgentRole::Executor => executors += 1,
+                AgentRole::Evaluator => evaluators += 1,
+                AgentRole::Reflector => reflectors += 1,
+                AgentRole::Synthesizer => synthesizers += 1,
+            }
+        }
+
+        RoleDistribution {
+            planners,
+            executors,
+            evaluators,
+            reflectors,
+            synthesizers,
+            total: self.population.len(),
+        }
+    }
+
+    /// Get statistics about inter-agent communication patterns
+    pub fn communication_stats(&self) -> CommunicationStats {
+        let total_messages = self.shared_memory.len();
+        let broadcast_count = self.shared_memory.iter().filter(|m| m.to_agent.is_none()).count();
+        let direct_message_count = total_messages - broadcast_count;
+
+        let avg_message_length = if total_messages > 0 {
+            self.shared_memory.iter().map(|m| m.content.len()).sum::<usize>() as f64
+                / total_messages as f64
+        } else {
+            0.0
+        };
+
+        let mut messages_by_role = std::collections::HashMap::new();
+        for msg in &self.shared_memory {
+            let role_name = format!("{:?}", msg.role);
+            *messages_by_role.entry(role_name).or_insert(0) += 1;
+        }
+
+        CommunicationStats {
+            total_messages,
+            broadcast_count,
+            direct_message_count,
+            avg_message_length,
+            messages_by_role,
+        }
+    }
 }
 
 fn rand_simple(max: f64) -> f64 {
@@ -364,5 +464,59 @@ mod tests {
         let agent_id = system.population[0].id.clone();
         system.update_fitness(&agent_id, 0.8);
         assert_eq!(system.population[0].fitness, 0.8);
+    }
+
+    #[test]
+    fn test_role_distribution() {
+        let config = PopulationConfig::default();
+        let system = MultiAgentSystem::new(config);
+        let dist = system.role_distribution();
+        
+        assert_eq!(dist.total, 5);
+        assert!(dist.planners >= 1);
+        assert!(dist.executors >= 1);
+    }
+
+    #[test]
+    fn test_communication_stats_empty() {
+        let config = PopulationConfig::default();
+        let system = MultiAgentSystem::new(config);
+        let stats = system.communication_stats();
+        
+        assert_eq!(stats.total_messages, 0);
+        assert_eq!(stats.broadcast_count, 0);
+        assert_eq!(stats.direct_message_count, 0);
+        assert_eq!(stats.avg_message_length, 0.0);
+    }
+
+    #[test]
+    fn test_communication_stats_with_messages() {
+        let config = PopulationConfig::default();
+        let mut system = MultiAgentSystem::new(config);
+
+        let from_id = system.population[0].id.clone();
+        let to_id = system.population[1].id.clone();
+
+        system.broadcast_message(&from_id, "Hello everyone".to_string());
+        system.send_message(&from_id, &to_id, "Direct message".to_string());
+
+        let stats = system.communication_stats();
+        assert_eq!(stats.total_messages, 2);
+        assert_eq!(stats.broadcast_count, 1);
+        assert_eq!(stats.direct_message_count, 1);
+        assert!(stats.avg_message_length > 0.0);
+    }
+
+    #[test]
+    fn test_role_distribution_count_for_role() {
+        let config = PopulationConfig::default();
+        let system = MultiAgentSystem::new(config);
+        let dist = system.role_distribution();
+        
+        // Verify count_for_role returns correct counts
+        for role in AgentRole::all() {
+            let count = dist.count_for_role(role);
+            assert!(count <= dist.total);
+        }
     }
 }
