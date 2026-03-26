@@ -22,12 +22,6 @@ pub struct SelfEvolutionConfig {
     pub target_files: Vec<String>,
     /// 最大自改进迭代次数
     pub max_iterations: u32,
-    /// 编译超时（秒）— 保留兼容，实际由 AutoResearch 管理
-    #[serde(default)]
-    pub compile_timeout_secs: u64,
-    /// 测试超时（秒）— 保留兼容，实际由 AutoResearch 管理
-    #[serde(default)]
-    pub test_timeout_secs: u64,
     /// 只修改，不自动 commit（安全模式）
     pub dry_run: bool,
 }
@@ -36,16 +30,8 @@ impl Default for SelfEvolutionConfig {
     fn default() -> Self {
         Self {
             project_root: PathBuf::from("."),
-            target_files: vec![
-                "runtime/thermodynamics.rs".to_string(),
-                "runtime/loop_.rs".to_string(),
-                "agent/mutator.rs".to_string(),
-                "agent/meta_mutator.rs".to_string(),
-                "eval/evaluator.rs".to_string(),
-            ],
+            target_files: ResearchConfig::default().target_files,
             max_iterations: 10,
-            compile_timeout_secs: 120,
-            test_timeout_secs: 300,
             dry_run: true,
         }
     }

@@ -34,13 +34,19 @@ impl Default for ResearchConfig {
             project_root: PathBuf::from("."),
             target_files: vec![
                 // 顶层核心
-                "auto_research.rs".to_string(),
                 "self_evolution.rs".to_string(),
                 "codebase.rs".to_string(),
                 "web.rs".to_string(),
                 "tools.rs".to_string(),
                 "lib.rs".to_string(),
-                "main.rs".to_string(),
+                // auto_research 模块
+                "auto_research/mod.rs".to_string(),
+                "auto_research/parsers.rs".to_string(),
+                "auto_research/prompts.rs".to_string(),
+                "auto_research/git.rs".to_string(),
+                "auto_research/testing.rs".to_string(),
+                "auto_research/log.rs".to_string(),
+                "auto_research/web_search.rs".to_string(),
                 // bin
                 "bin/research.rs".to_string(),
                 "bin/self_evolve.rs".to_string(),
