@@ -94,3 +94,14 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:10:56.371884Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the `find_case_insensitive` function which currently has a logic bug where it compares characters pairwise without first checking if the haystack substring is long enough to contain the needle, causing potential panic on short inputs.
 [2m2026-03-26T01:11:08.097604Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 96/99 tests
 [2m2026-03-26T01:11:09.874767Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-26T01:11:09.948880Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[4]: web.rs — Fix the `find_case_insensitive` function which currently has (Neutral)
+[2m2026-03-26T01:11:09.948942Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:11:15.015984Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 5] Improving src/tools.rs
+[2m2026-03-26T01:11:17.280690Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
+[2m2026-03-26T01:11:20.121457Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["rig-rs async tool implementation example", "rig-rs Tool trait best practices", "rust async trait methods boxed future"]
+[2m2026-03-26T01:11:20.734120Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs async tool implementation example'
+[2m2026-03-26T01:11:20.984274Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait best practices'
+[2m2026-03-26T01:11:21.235161Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust async trait methods boxed future'
+[2m2026-03-26T01:12:47.159265Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the path calculation bug in `walk_dir_recursive` where relative paths are computed incorrectly at different recursion depths, causing inconsistent file paths in grep results (deeper files would have shorter relative paths than they should).
+[2m2026-03-26T01:13:00.112207Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
+[2m2026-03-26T01:13:01.894200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved

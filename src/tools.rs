@@ -138,10 +138,11 @@ impl CodebaseGrepTool {
             regex::Regex::new(pattern).map_err(|e| CodebaseToolError::RegexError(e.to_string()))?;
 
         let src_dir = self.root.src_dir();
+        let root_path = self.root.path.clone();
         let mut matches = Vec::new();
         let mut files_searched = 0usize;
 
-        Self::walk_files(&src_dir, file_ext, &mut |path, content| {
+        Self::walk_files(&src_dir, &root_path, file_ext, &mut |path, content| {
             files_searched += 1;
             if matches.len() >= max_results {
                 return;
@@ -187,6 +188,7 @@ impl CodebaseGrepTool {
 
     fn walk_files<F>(
         dir: &Path,
+        root: &Path,
         file_ext: &str,
         callback: &mut F,
     ) -> Result<()>
@@ -196,10 +198,10 @@ impl CodebaseGrepTool {
         if !dir.exists() {
             return Ok(());
         }
-        Self::walk_dir_recursive(dir, file_ext, callback)
+        Self::walk_dir_recursive(dir, root, file_ext, callback)
     }
 
-    fn walk_dir_recursive<F>(dir: &Path, file_ext: &str, callback: &mut F) -> Result<()>
+    fn walk_dir_recursive<F>(dir: &Path, root: &Path, file_ext: &str, callback: &mut F) -> Result<()>
     where
         F: FnMut(String, String),
     {
@@ -214,7 +216,7 @@ impl CodebaseGrepTool {
                 if file_name == "target" || file_name.starts_with('.') {
                     continue;
                 }
-                Self::walk_dir_recursive(&path, file_ext, callback)?;
+                Self::walk_dir_recursive(&path, root, file_ext, callback)?;
             } else if path.is_file() {
                 // Check extension
                 if !file_ext.is_empty() {
@@ -227,8 +229,9 @@ impl CodebaseGrepTool {
                     }
                 }
 
+                // Use the original root for consistent relative paths
                 let rel = path
-                    .strip_prefix(dir.parent().unwrap_or(dir))
+                    .strip_prefix(root)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .to_string();
@@ -364,9 +367,10 @@ impl CodebaseSearchTool {
     /// Direct search (without rig Tool machinery).
     pub fn search_files(&self, pattern: &str, max_results: usize) -> Result<SearchFilesOutput> {
         let src_dir = self.root.src_dir();
+        let root_path = self.root.path.clone();
         let mut files = Vec::new();
 
-        Self::find_files_recursive(&src_dir, pattern, &mut files, max_results)?;
+        Self::find_files_recursive(&src_dir, &root_path, pattern, &mut files, max_results)?;
 
         let total_found = files.len();
         Ok(SearchFilesOutput {
@@ -378,6 +382,7 @@ impl CodebaseSearchTool {
 
     fn find_files_recursive(
         dir: &Path,
+        root: &Path,
         pattern: &str,
         files: &mut Vec<FileEntry>,
         max_results: usize,
@@ -399,12 +404,13 @@ impl CodebaseSearchTool {
                 if file_name == "target" || file_name.starts_with('.') {
                     continue;
                 }
-                Self::find_files_recursive(&path, pattern, files, max_results)?;
+                Self::find_files_recursive(&path, root, pattern, files, max_results)?;
             } else if path.is_file() {
                 let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if glob_match(pattern, file_name) {
+                    // Use the original root for consistent relative paths
                     let rel = path
-                        .strip_prefix(dir.parent().unwrap_or(dir))
+                        .strip_prefix(root)
                         .unwrap_or(&path)
                         .to_string_lossy()
                         .to_string();
@@ -964,6 +970,18 @@ mod tests {
     }
 
     #[test]
+    fn test_grep_consistent_paths() {
+        let dir = setup_test_dir("grep_paths");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let result = tool.grep("pub", "rs", 20, 0).unwrap();
+        // All paths should start with "src/" since we strip from the project root
+        for m in &result.matches {
+            assert!(m.file.starts_with("src/"), "Path '{}' should start with 'src/'", m.file);
+        }
+    }
+
+    #[test]
     fn test_search_files_tool() {
         let dir = setup_test_dir("search");
         let tool = CodebaseSearchTool::with_root(dir.clone());
@@ -980,6 +998,18 @@ mod tests {
 
         let result = tool.search_files("*mod*", 30).unwrap();
         assert!(result.files.iter().any(|f| f.path.contains("mod.rs")));
+    }
+
+    #[test]
+    fn test_search_files_consistent_paths() {
+        let dir = setup_test_dir("search_paths");
+        let tool = CodebaseSearchTool::with_root(dir.clone());
+
+        let result = tool.search_files("*.rs", 30).unwrap();
+        // All paths should start with "src/"
+        for f in &result.files {
+            assert!(f.path.starts_with("src/"), "Path '{}' should start with 'src/'", f.path);
+        }
     }
 
     #[test]
