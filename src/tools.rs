@@ -84,6 +84,8 @@ pub struct GrepMatch {
     pub line: String,
     pub context_before: Vec<String>,
     pub context_after: Vec<String>,
+    /// Character ranges where the pattern matched (start, end positions in the line)
+    pub match_ranges: Vec<(usize, usize)>,
 }
 
 /// Output of the codebase_grep tool.
@@ -151,7 +153,13 @@ impl CodebaseGrepTool {
             
             // Use a rolling window for context extraction
             for (idx, line) in lines.iter().enumerate() {
-                if regex.is_match(line) {
+                // Find all match ranges in the line
+                let match_ranges: Vec<(usize, usize)> = regex
+                    .find_iter(line)
+                    .map(|m| (m.start(), m.end()))
+                    .collect();
+                
+                if !match_ranges.is_empty() {
                     // Extract context using slicing (lines are now owned Strings)
                     let before: Vec<String> = lines[idx.saturating_sub(context_lines)..idx]
                         .iter()
@@ -169,6 +177,7 @@ impl CodebaseGrepTool {
                         line: line.clone(),
                         context_before: before,
                         context_after: after,
+                        match_ranges,
                     });
                     if matches.len() >= max_results {
                         return;
@@ -991,6 +1000,54 @@ mod tests {
     }
 
     #[test]
+    fn test_grep_match_ranges_single() {
+        let dir = setup_test_dir("grep_ranges_single");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let result = tool.grep("pub fn run", "rs", 10, 0).unwrap();
+        let m = result.matches.iter().find(|m| m.line.contains("pub fn run")).unwrap();
+        
+        // Should have exactly one match range
+        assert_eq!(m.match_ranges.len(), 1);
+        let (start, end) = m.match_ranges[0];
+        assert_eq!(&m.line[start..end], "pub fn run");
+    }
+
+    #[test]
+    fn test_grep_match_ranges_multiple() {
+        let dir = std::env::temp_dir().join("hyperagent_test_grep_ranges_multi");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src"));
+        
+        // Create a file with multiple matches on the same line
+        let _ = fs::write(dir.join("src/multi.rs"), "let x = foo + foo + foo;\n");
+        
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+        let result = tool.grep("foo", "rs", 10, 0).unwrap();
+        
+        assert_eq!(result.total_matches, 1);
+        let m = &result.matches[0];
+        
+        // Should have three match ranges for "foo" appearing three times
+        assert_eq!(m.match_ranges.len(), 3);
+        
+        // Verify each range points to "foo"
+        for (start, end) in &m.match_ranges {
+            assert_eq!(&m.line[*start..*end], "foo");
+        }
+    }
+
+    #[test]
+    fn test_grep_match_ranges_empty_when_no_match() {
+        let dir = setup_test_dir("grep_ranges_empty");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+
+        let result = tool.grep("nonexistent_pattern_xyz", "rs", 10, 0).unwrap();
+        assert_eq!(result.total_matches, 0);
+        assert!(result.matches.is_empty());
+    }
+
+    #[test]
     fn test_grep_by_ext() {
         let dir = setup_test_dir("grep_ext");
         let tool = CodebaseGrepTool::with_root(dir.clone());
@@ -1269,5 +1326,32 @@ mod tests {
         
         // Should find matches in multiple files (lib.rs, runtime/loop_.rs, agent/mod.rs)
         assert!(result.total_matches >= 3, "Should find at least 3 'pub' occurrences");
+    }
+
+    #[test]
+    fn test_grep_match_ranges_with_regex_pattern() {
+        let dir = std::env::temp_dir().join("hyperagent_test_grep_ranges_regex");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src"));
+        
+        // Create a file with patterns that regex can find
+        let _ = fs::write(dir.join("src/regex.rs"), "fn test_func() {}\nfn other_func() {}\n");
+        
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+        
+        // Use a regex pattern that matches function names
+        let result = tool.grep("fn \\w+\\(\\)", "rs", 10, 0).unwrap();
+        
+        assert!(result.total_matches >= 2);
+        
+        // Each match should have one range
+        for m in &result.matches {
+            assert_eq!(m.match_ranges.len(), 1);
+            // The matched text should be the function definition
+            let (start, end) = m.match_ranges[0];
+            let matched = &m.line[start..end];
+            assert!(matched.starts_with("fn "));
+            assert!(matched.ends_with("()"));
+        }
     }
 }

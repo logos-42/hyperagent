@@ -343,3 +343,17 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T05:08:01.899798Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (158/161), Lines: Regressed (84+), Warnings: Neutral, Complexity: 95, Binary: Neutral (+0KB)
 [2m2026-03-26T05:08:09.615351Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
 [2m2026-03-26T05:08:09.615436Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 6 new
+[2m2026-03-26T05:08:09.709991Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[3]: web.rs — Add a `with_timeout` builder method to `WebSearchTool` and ` (Improved) [+6 tests]
+[2m2026-03-26T05:08:09.710052Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T05:08:13.984182Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 4] Improving src/tools.rs
+[2m2026-03-26T05:08:14.012190Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-4
+[2m2026-03-26T05:08:17.302789Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 158/161 tests
+[2m2026-03-26T05:08:21.282282Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["rig-rs Tool trait implementation example", "rig-rs ToolDefinition best practices", "async rust function reading files trait object safety"]
+[2m2026-03-26T05:08:21.770116Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait implementation example'
+[2m2026-03-26T05:08:21.973831Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rig-rs ToolDefinition best practices'
+[2m2026-03-26T05:08:22.180173Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'async rust function reading files trait object safety'
+[2m2026-03-26T05:08:44.866567Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add match position ranges to `GrepMatch` to highlight exactly where the pattern matched in each line, enabling the agent to quickly locate the relevant portion without re-scanning the entire line.
+[2m2026-03-26T05:09:08.948916Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 162/165 tests
+[2m2026-03-26T05:09:10.131349Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (162/165), Lines: Regressed (84+), Warnings: Neutral, Complexity: 77, Binary: Neutral (+0KB)
+[2m2026-03-26T05:09:11.400662Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T05:09:11.400760Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 4 new
