@@ -232,3 +232,22 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:21:58.474975Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `category` field to `BenchmarkTask` for better task organization and extend `BenchmarkReport` with success rate calculation and category-wise statistics, enabling better analysis of agent performance across different task types.
 [2m2026-03-26T01:22:19.833323Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 110/113 tests
 [2m2026-03-26T01:22:21.738574Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T01:22:21.806485Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[18]: eval/benchmark.rs — Add a `category` field to `BenchmarkTask` for better task or (Improved)
+[2m2026-03-26T01:22:21.806550Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:22:26.156293Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 19] Improving src/llm/mod.rs
+[2m2026-03-26T01:22:28.168254Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 110/113 tests
+[2m2026-03-26T01:22:36.137200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust module file best practices re-exporting with pub use", "Rust library api design idioms module structure", "Rust documentation guidelines for module re-exports"]
+[2m2026-03-26T01:22:36.928530Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust module file best practices re-exporting with pub use'
+[2m2026-03-26T01:22:37.189334Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust library api design idioms module structure'
+[2m2026-03-26T01:22:37.912162Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust documentation guidelines for module re-exports': Search HTTP 403 Forbidden
+[2m2026-03-26T01:22:53.416531Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add comprehensive module-level documentation to `llm/mod.rs` explaining the LLM subsystem's architecture, its core components (client abstraction and prompt management), provider ecosystem, and integration patterns with the evolution loop, improving codebase discoverability and architectural understanding.
+[2m2026-03-26T01:22:55.959158Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
+[2m2026-03-26T01:22:57.960598Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 20] Improving src/llm/client.rs
+[2m2026-03-26T01:23:07.372460Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 110/113 tests
+[2m2026-03-26T01:23:08.910808Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust rig crate usage examples async completion", "Rust async trait implementation for multiple API clients", "Rust semaphore rate limiting best practices concurrent requests"]
+[2m2026-03-26T01:23:13.918178Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust rig crate usage examples async completion': Search request failed
+[2m2026-03-26T01:23:15.004148Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust async trait implementation for multiple API clients': Search HTTP 403 Forbidden
+[2m2026-03-26T01:23:15.717144Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust semaphore rate limiting best practices concurrent requests': Search HTTP 403 Forbidden
+[2m2026-03-26T01:24:35.968649Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `with_temperature` and `with_max_tokens` builder methods to `LLMConfig` for more ergonomic configuration, plus add `TokenUsage` tracking support in `RigBackend` by extracting usage information from rig's completion metadata when available.
+[2m2026-03-26T01:24:56.241660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 114/117 tests
+[2m2026-03-26T01:24:58.121702Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved

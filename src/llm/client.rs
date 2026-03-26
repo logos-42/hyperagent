@@ -125,6 +125,30 @@ impl LLMConfig {
             max_tokens: Some(2000),
         }
     }
+
+    /// Builder method to set temperature
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    /// Builder method to set max_tokens
+    pub fn with_max_tokens(mut self, max_tokens: i32) -> Self {
+        self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Builder method to set base_url
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Builder method to set max_concurrent
+    pub fn with_max_concurrent(mut self, max_concurrent: usize) -> Self {
+        self.max_concurrent = max_concurrent;
+        self
+    }
 }
 
 /// LLM Response structure
@@ -143,6 +167,26 @@ pub struct TokenUsage {
     pub total_tokens: i32,
 }
 
+impl TokenUsage {
+    /// Create a new TokenUsage with the given values
+    pub fn new(prompt_tokens: i32, completion_tokens: i32) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+        }
+    }
+
+    /// Create a TokenUsage from approximate values based on content length
+    /// This is used when actual token counts are not available from the provider
+    pub fn estimated(content: &str, prompt: &str) -> Self {
+        // Rough approximation: ~4 characters per token for English
+        let prompt_tokens = (prompt.len() as i32 / 4).max(1);
+        let completion_tokens = (content.len() as i32 / 4).max(1);
+        Self::new(prompt_tokens, completion_tokens)
+    }
+}
+
 /// LLM Client trait
 #[async_trait]
 pub trait LLMClient: Send + Sync {
@@ -158,12 +202,47 @@ pub struct Message {
     pub content: String,
 }
 
+impl Message {
+    /// Create a new message with the given role and content
+    pub fn new(role: MessageRole, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            content: content.into(),
+        }
+    }
+
+    /// Create a system message
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::new(MessageRole::System, content)
+    }
+
+    /// Create a user message
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::new(MessageRole::User, content)
+    }
+
+    /// Create an assistant message
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::new(MessageRole::Assistant, content)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     System,
     User,
     Assistant,
+}
+
+impl std::fmt::Display for MessageRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageRole::System => write!(f, "system"),
+            MessageRole::User => write!(f, "user"),
+            MessageRole::Assistant => write!(f, "assistant"),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,9 +265,7 @@ struct RigBackend {
     model_name: String,
     provider_name: String,
     semaphore: Arc<Semaphore>,
-    #[allow(dead_code)]
     temperature: Option<f32>,
-    #[allow(dead_code)]
     max_tokens: Option<i32>,
 }
 
@@ -203,7 +280,7 @@ impl RigBackend {
                 client.agent(model.as_str()).build().prompt(prompt).await?
             }
         };
-        Ok(self.make_response(content))
+        Ok(self.make_response_with_usage(content.clone(), prompt))
     }
 
     async fn complete_with_preamble(&self, system: &str, user: &str) -> Result<LLMResponse> {
@@ -224,7 +301,7 @@ impl RigBackend {
                     .await?
             }
         };
-        Ok(self.make_response(content))
+        Ok(self.make_response_with_usage(content.clone(), &format!("{}\n{}", system, user)))
     }
 
     async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
@@ -232,17 +309,21 @@ impl RigBackend {
 
         let mut preamble: Option<String> = None;
         let mut user_content = String::new();
+        let mut total_prompt_len = 0;
 
         for msg in &messages {
             match msg.role {
                 MessageRole::System => {
                     preamble = Some(msg.content.clone());
+                    total_prompt_len += msg.content.len();
                 }
                 MessageRole::User => {
                     user_content.push_str(&msg.content);
+                    total_prompt_len += msg.content.len();
                 }
                 MessageRole::Assistant => {
                     user_content.push_str(&format!("\nAssistant: {}", msg.content));
+                    total_prompt_len += msg.content.len();
                 }
             }
         }
@@ -263,7 +344,7 @@ impl RigBackend {
                 builder.build().prompt(&user_content).await?
             }
         };
-        Ok(self.make_response(content))
+        Ok(self.make_response_with_usage(content.clone(), &format!("total: {} bytes", total_prompt_len)))
     }
 
     fn make_response(&self, content: String) -> LLMResponse {
@@ -272,6 +353,16 @@ impl RigBackend {
             model: self.model_name.clone(),
             provider: self.provider_name.clone(),
             usage: None,
+        }
+    }
+
+    fn make_response_with_usage(&self, content: String, prompt: &str) -> LLMResponse {
+        let usage = TokenUsage::estimated(&content, prompt);
+        LLMResponse {
+            content,
+            model: self.model_name.clone(),
+            provider: self.provider_name.clone(),
+            usage: Some(usage),
         }
     }
 }
@@ -379,6 +470,16 @@ impl LLMClientImpl {
 
     pub fn model(&self) -> &str {
         &self.backend.model_name
+    }
+
+    /// Get the configured temperature
+    pub fn temperature(&self) -> Option<f32> {
+        self.backend.temperature
+    }
+
+    /// Get the configured max_tokens
+    pub fn max_tokens(&self) -> Option<i32> {
+        self.backend.max_tokens
     }
 }
 
@@ -488,5 +589,45 @@ mod tests {
         assert_eq!(LLMProvider::OpenAI.to_string(), "openai");
         assert_eq!(LLMProvider::Ollama.to_string(), "ollama");
         assert_eq!(LLMProvider::Qwen.to_string(), "qwen");
+    }
+
+    #[test]
+    fn test_config_builder_methods() {
+        let config = LLMConfig::openai("gpt-4", "test-key")
+            .with_temperature(0.5)
+            .with_max_tokens(1000)
+            .with_max_concurrent(4);
+
+        assert_eq!(config.temperature, Some(0.5));
+        assert_eq!(config.max_tokens, Some(1000));
+        assert_eq!(config.max_concurrent, 4);
+    }
+
+    #[test]
+    fn test_token_usage_estimated() {
+        let usage = TokenUsage::estimated("Hello world", "Test prompt");
+        assert!(usage.prompt_tokens > 0);
+        assert!(usage.completion_tokens > 0);
+        assert_eq!(usage.total_tokens, usage.prompt_tokens + usage.completion_tokens);
+    }
+
+    #[test]
+    fn test_message_convenience_constructors() {
+        let sys = Message::system("System message");
+        assert_eq!(sys.role, MessageRole::System);
+        assert_eq!(sys.content, "System message");
+
+        let user = Message::user("User message");
+        assert_eq!(user.role, MessageRole::User);
+
+        let asst = Message::assistant("Assistant message");
+        assert_eq!(asst.role, MessageRole::Assistant);
+    }
+
+    #[test]
+    fn test_message_role_display() {
+        assert_eq!(MessageRole::System.to_string(), "system");
+        assert_eq!(MessageRole::User.to_string(), "user");
+        assert_eq!(MessageRole::Assistant.to_string(), "assistant");
     }
 }
