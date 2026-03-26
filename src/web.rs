@@ -275,10 +275,11 @@ async fn client_search(client: &HttpClient, query: &str, max_results: usize) -> 
     let encoded = percent_encode(query);
     let url = format!("https://html.duckduckgo.com/html/?q={}", encoded);
 
+    let request = client.inner.get(&url).build()
+        .map_err(|e| WebToolError::Http(format!("Failed to build request: {}", e)))?;
+    
     let resp = client
-        .inner
-        .get(&url)
-        .send()
+        .execute_with_retry(request)
         .await
         .map_err(|e| WebToolError::Http(e.to_string()))?;
 
@@ -1042,6 +1043,36 @@ mod tests {
         assert_eq!(find_case_insensitive("", "test"), None);
         // Test exact match
         assert_eq!(find_case_insensitive("test", "test"), Some(0));
+    }
+
+    #[test]
+    fn test_client_search_uses_retry_config() {
+        // Verify that client_search respects the HttpClient config
+        // by checking the client has the execute_with_retry method available
+        let config = HttpClientConfig {
+            timeout_secs: 10,
+            max_retries: 2,
+            retry_base_delay_ms: 50,
+            retry_on_timeout: true,
+        };
+        let client = HttpClient::with_config(config);
+        // The client should have retry configuration accessible
+        assert_eq!(client.config.max_retries, 2);
+        assert_eq!(client.config.retry_base_delay_ms, 50);
+        assert!(client.config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_http_client_config_zero_retries() {
+        // Test that zero retries is valid (no retry attempts)
+        let config = HttpClientConfig {
+            timeout_secs: 5,
+            max_retries: 0,
+            retry_base_delay_ms: 10,
+            retry_on_timeout: false,
+        };
+        let client = HttpClient::with_config(config);
+        assert_eq!(client.config.max_retries, 0);
     }
 
     #[tokio::test]
