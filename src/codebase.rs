@@ -66,25 +66,8 @@ impl CodebaseContext {
         let mut files = HashMap::new();
         let mut total_lines = 0usize;
 
-        // 递归扫描所有 .rs 文件
-        if let Ok(entries) = std::fs::read_dir(&src_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().map(|e| e == "rs").unwrap_or(false) {
-                    let rel = path
-                        .strip_prefix(&src_dir)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let summary = Self::summarize_file(&rel, &content);
-                        total_lines += summary.lines;
-                        files.insert(rel.clone(), summary);
-                    }
-                }
-            }
-        }
+        // 递归扫描所有 .rs 文件（包括子目录）
+        Self::scan_dir(&src_dir, &src_dir, &mut files, &mut total_lines);
 
         let total_files = files.len();
         let module_tree = Self::build_module_tree(&files);
@@ -100,6 +83,35 @@ impl CodebaseContext {
             total_iterations: 0,
             improvement_history: Vec::new(),
         })
+    }
+
+    /// 递归扫描目录下所有 .rs 文件
+    fn scan_dir(
+        base: &std::path::Path,
+        dir: &std::path::Path,
+        files: &mut HashMap<String, FileSummary>,
+        total_lines: &mut usize,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    Self::scan_dir(base, &path, files, total_lines);
+                } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                    let rel = path
+                        .strip_prefix(base)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let summary = Self::summarize_file(&rel, &content);
+                        *total_lines += summary.lines;
+                        files.insert(rel.clone(), summary);
+                    }
+                }
+            }
+        }
     }
 
     /// 分析单个文件，提取结构信息
