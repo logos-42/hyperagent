@@ -157,3 +157,17 @@ error: could not compile `hyperagent` (lib) due to 1 previous error
 [2m2026-03-26T04:44:24.507101Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 140/143 tests
 [2m2026-03-26T04:44:24.915370Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Neutral (140/143), Lines: Regressed (92+), Warnings: Regressed, Complexity: 95, Binary: Neutral (+0KB)
 [2m2026-03-26T04:44:26.760282Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-26T04:44:26.828642Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[3]: web.rs — Replacing the string-allocating `find_case_insensitive` with (Neutral)
+[2m2026-03-26T04:44:26.828693Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T04:44:30.873553Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 4] Improving src/tools.rs
+[2m2026-03-26T04:44:30.899060Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-4
+[2m2026-03-26T04:44:33.291812Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 140/143 tests
+[2m2026-03-26T04:44:34.849271Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["rig-rs Tool trait implementation best practices", "Rust library struct visibility and public API design", "Rust path handling best practices for CLI tools"]
+[2m2026-03-26T04:44:35.343236Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait implementation best practices'
+[2m2026-03-26T04:44:35.540923Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust library struct visibility and public API design'
+[2m2026-03-26T04:44:35.746709Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust path handling best practices for CLI tools'
+[2m2026-03-26T04:45:06.210868Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Refactoring the grep implementation to use buffered line-by-line reading with a rolling context window will reduce memory allocation for large files and improve grep performance without changing the public API.
+[2m2026-03-26T04:45:19.684093Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 143/146 tests
+[2m2026-03-26T04:45:20.134582Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (143/146), Lines: Regressed (71+), Warnings: Neutral, Complexity: 74, Binary: Neutral (+0KB)
+[2m2026-03-26T04:45:21.953763Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T04:45:21.953853Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 3 new

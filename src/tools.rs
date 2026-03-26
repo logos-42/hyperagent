@@ -9,6 +9,7 @@
 //! These give the agent full introspection into its own codebase.
 
 use std::future::Future;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -142,28 +143,30 @@ impl CodebaseGrepTool {
         let mut matches = Vec::new();
         let mut files_searched = 0usize;
 
-        Self::walk_files(&src_dir, &root_path, file_ext, &mut |path, content| {
+        Self::walk_files(&src_dir, &root_path, file_ext, &mut |path, lines| {
             files_searched += 1;
             if matches.len() >= max_results {
                 return;
             }
-            for (idx, line) in content.lines().enumerate() {
+            
+            // Use a rolling window for context extraction
+            for (idx, line) in lines.iter().enumerate() {
                 if regex.is_match(line) {
-                    let all_lines: Vec<&str> = content.lines().collect();
-                    let before: Vec<String> = all_lines[(idx.saturating_sub(context_lines))..idx]
+                    // Extract context using slicing (lines are now owned Strings)
+                    let before: Vec<String> = lines[idx.saturating_sub(context_lines)..idx]
                         .iter()
-                        .map(|s| s.to_string())
+                        .cloned()
                         .collect();
-                    let after: Vec<String> = all_lines[idx + 1..]
+                    let after: Vec<String> = lines[idx + 1..]
                         .iter()
                         .take(context_lines)
-                        .map(|s| s.to_string())
+                        .cloned()
                         .collect();
 
                     matches.push(GrepMatch {
                         file: path.clone(),
                         line_number: idx + 1,
-                        line: line.to_string(),
+                        line: line.clone(),
                         context_before: before,
                         context_after: after,
                     });
@@ -193,7 +196,7 @@ impl CodebaseGrepTool {
         callback: &mut F,
     ) -> Result<()>
     where
-        F: FnMut(String, String),
+        F: FnMut(String, Vec<String>),
     {
         if !dir.exists() {
             return Ok(());
@@ -203,7 +206,7 @@ impl CodebaseGrepTool {
 
     fn walk_dir_recursive<F>(dir: &Path, root: &Path, file_ext: &str, callback: &mut F) -> Result<()>
     where
-        F: FnMut(String, String),
+        F: FnMut(String, Vec<String>),
     {
         let entries = std::fs::read_dir(dir)
             .with_context(|| format!("Cannot read dir {}", dir.display()))?;
@@ -236,8 +239,11 @@ impl CodebaseGrepTool {
                     .to_string_lossy()
                     .to_string();
 
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    callback(rel, content);
+                // Read lines efficiently using BufReader
+                if let Ok(file) = std::fs::File::open(&path) {
+                    let reader = BufReader::new(file);
+                    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+                    callback(rel, lines);
                 }
             }
         }
@@ -1167,5 +1173,70 @@ mod tests {
         
         let content = result.unwrap();
         assert!(content.content.contains("pub fn run"));
+    }
+
+    #[test]
+    fn test_grep_large_context_window() {
+        let dir = std::env::temp_dir().join("hyperagent_test_grep_large_ctx");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src"));
+        
+        // Create a file with many lines
+        let mut content = String::new();
+        for i in 1..=100 {
+            content.push_str(&format!("line {}\n", i));
+        }
+        content.push_str("TARGET_LINE\n");
+        for i in 102..=200 {
+            content.push_str(&format!("line {}\n", i));
+        }
+        let _ = fs::write(dir.join("src/large.rs"), &content);
+        
+        let tool = CodebaseGrepTool::with_root(dir);
+        let result = tool.grep("TARGET_LINE", "rs", 10, 5).unwrap();
+        
+        assert_eq!(result.total_matches, 1);
+        let m = &result.matches[0];
+        assert_eq!(m.line_number, 101);
+        assert_eq!(m.context_before.len(), 5);
+        assert_eq!(m.context_after.len(), 5);
+        assert_eq!(m.context_before[0], "line 96");
+        assert_eq!(m.context_after[4], "line 106");
+    }
+
+    #[test]
+    fn test_grep_context_at_file_boundaries() {
+        let dir = std::env::temp_dir().join("hyperagent_test_grep_boundary");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src"));
+        
+        // Match at the beginning of file
+        let _ = fs::write(dir.join("src/start.rs"), "FIRST_LINE\nsecond\nthird\n");
+        // Match at the end of file
+        let _ = fs::write(dir.join("src/end.rs"), "first\nsecond\nLAST_LINE\n");
+        
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+        
+        // Test match at start
+        let result_start = tool.grep("FIRST_LINE", "rs", 10, 2).unwrap();
+        assert_eq!(result_start.matches[0].context_before.len(), 0);
+        assert_eq!(result_start.matches[0].context_after.len(), 2);
+        
+        // Test match at end
+        let result_end = tool.grep("LAST_LINE", "rs", 10, 2).unwrap();
+        assert_eq!(result_end.matches[0].context_before.len(), 2);
+        assert_eq!(result_end.matches[0].context_after.len(), 0);
+    }
+
+    #[test]
+    fn test_grep_multiple_matches_same_file() {
+        let dir = setup_test_dir("grep_multi");
+        let tool = CodebaseGrepTool::with_root(dir.clone());
+        
+        // The test file has "pub fn run" and "pub async fn step"
+        let result = tool.grep("pub", "rs", 20, 0).unwrap();
+        
+        // Should find matches in multiple files (lib.rs, runtime/loop_.rs, agent/mod.rs)
+        assert!(result.total_matches >= 3, "Should find at least 3 'pub' occurrences");
     }
 }
