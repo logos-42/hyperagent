@@ -347,15 +347,6 @@ impl RigBackend {
         Ok(self.make_response_with_usage(content.clone(), &format!("total: {} bytes", total_prompt_len)))
     }
 
-    fn make_response(&self, content: String) -> LLMResponse {
-        LLMResponse {
-            content,
-            model: self.model_name.clone(),
-            provider: self.provider_name.clone(),
-            usage: None,
-        }
-    }
-
     fn make_response_with_usage(&self, content: String, prompt: &str) -> LLMResponse {
         let usage = TokenUsage::estimated(&content, prompt);
         LLMResponse {

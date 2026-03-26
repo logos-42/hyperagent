@@ -677,7 +677,7 @@ mod tests {
         let (mut env, _temp) = create_test_env();
         
         env.create_session("Test", "openai", "gpt-4o").unwrap();
-        let iteration_id = env.start_iteration("Test prompt").unwrap();
+        let _iteration_id = env.start_iteration("Test prompt").unwrap();
         
         let metrics = IterationMetrics {
             tokens_used: 100,

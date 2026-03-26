@@ -67,7 +67,7 @@ impl<C: LLMClient> Executor<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Removed unused import: super::*;
 
     #[tokio::test]
     async fn test_executor_creation() {

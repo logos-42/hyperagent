@@ -136,6 +136,7 @@ impl SelfEvolvingConfig {
 /// 自进化系统运行器
 pub struct SelfEvolvingSystem {
     config: SelfEvolvingConfig,
+    #[allow(dead_code)]
     selector: Selector,
     current_temperature: f32,
     generation: u32,

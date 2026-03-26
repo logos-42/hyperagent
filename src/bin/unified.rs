@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
 
     // === Phase 1: Baseline evolution (改进前的进化表现) ===
     tracing::info!("\n>>> Phase 1: Baseline Evolution (before any improvements)");
-    let mut best_baseline_score = 0.0f32;
+    let mut best_baseline_score;
     {
         let persist_dir = std::path::Path::new(".hyperagent/data");
         let runtime_config = RuntimeConfig {

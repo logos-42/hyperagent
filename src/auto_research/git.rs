@@ -7,7 +7,12 @@ use super::AutoResearch;
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// git checkout 回滚
     pub(crate) fn git_revert(&self, file: &str) -> Result<()> {
-        let path = format!("src/{}", file);
+        // 支持项目根目录下的任意文件（不仅是 src/）
+        let path = if file.starts_with("src/") || file.contains('/') {
+            file.to_string()
+        } else {
+            format!("src/{}", file)
+        };
         std::process::Command::new("git")
             .args(&["checkout", "--", &path])
             .current_dir(&self.config.project_root)

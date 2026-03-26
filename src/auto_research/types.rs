@@ -119,7 +119,7 @@ pub struct Experiment {
     pub new_tests_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExperimentOutcome {
     Improved,   // 测试通过数增加
     Neutral,    // 测试通过数不变

@@ -133,7 +133,7 @@ impl CodebaseContext {
         
         while i < lines.len() {
             let line = lines[i].trim();
-            let full_line = lines[i];
+            let _full_line = lines[i];
 
             // 提取文档注释摘要（文件头部的 //!）
             if line.starts_with("//!") {
@@ -176,7 +176,7 @@ impl CodebaseContext {
                     if next_line.starts_with('<') {
                         // Collect generic parameters
                         let mut generic_str = String::new();
-                        let mut j = i;
+                        let _j = i;
                         let mut depth = 0;
                         let mut started = false;
                         

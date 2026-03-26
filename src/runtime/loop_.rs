@@ -17,7 +17,7 @@ struct BranchResult {
     score: f32,
     novelty: f32,
     fitness: f32,
-    output: String,
+    _output: String,
 }
 
 pub struct EvolutionLoop<C: LLMClient> {
@@ -403,7 +403,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                                     score,
                                     novelty,
                                     fitness,
-                                    output: exec_result.output,
+                                    _output: exec_result.output,
                                 });
 
                                 tracing::info!(
@@ -461,7 +461,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                             score,
                             novelty,
                             fitness,
-                            output: exec_result.output,
+                            _output: exec_result.output,
                         });
                     }
                     Err(e) => tracing::warn!("Fallback eval failed: {}", e),
@@ -553,7 +553,7 @@ impl<C: LLMClient + Clone> EvolutionLoop<C> {
                 score,
                 novelty,
                 fitness,
-                output: exec_result.output,
+                _output: exec_result.output,
             });
 
             // 记录代码用于后续新颖度计算

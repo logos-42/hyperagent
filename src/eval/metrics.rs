@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn test_from_code() {
         let code = "fn test() {\n    if true {\n        println!(\"hello\");\n    }\n}\n";
-        let (lines, complexity, nesting) = IterationMetrics::from_code(code);
+        let (lines, complexity, _nesting) = IterationMetrics::from_code(code);
         assert_eq!(lines, 5);
         assert!(complexity > 1.0);
     }

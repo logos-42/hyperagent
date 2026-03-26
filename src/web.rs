@@ -794,7 +794,7 @@ mod tests {
 
     #[test]
     fn test_search_args_default() {
-        let args = SearchArgs {
+        let _args = SearchArgs {
             query: "test".to_string(),
             max_results: 0,
         };

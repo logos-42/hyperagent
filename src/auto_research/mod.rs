@@ -87,16 +87,24 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
     }
 
-    /// 读取源文件
+    /// 读取源文件（支持项目根目录下任意文件）
     fn read_file(&self, rel: &str) -> Result<String> {
-        let path = self.config.project_root.join("src").join(rel);
+        let path = if rel.starts_with("src/") || rel.contains('/') {
+            self.config.project_root.join(rel)
+        } else {
+            self.config.project_root.join("src").join(rel)
+        };
         std::fs::read_to_string(&path)
             .with_context(|| format!("Cannot read {}", path.display()))
     }
 
-    /// 写入源文件
+    /// 写入源文件（支持项目根目录下任意文件）
     fn write_file(&self, rel: &str, content: &str) -> Result<()> {
-        let path = self.config.project_root.join("src").join(rel);
+        let path = if rel.starts_with("src/") || rel.contains('/') {
+            self.config.project_root.join(rel)
+        } else {
+            self.config.project_root.join("src").join(rel)
+        };
         std::fs::write(&path, content)
             .with_context(|| format!("Cannot write {}", path.display()))
     }
@@ -105,14 +113,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     async fn run_iteration(&mut self, iteration: u32, file: &str) -> Result<Experiment> {
         tracing::info!("[Research {}] Improving src/{}", iteration, file);
 
-        // Phase 5: 核心文件修改前打 checkpoint
-        let is_core_file = file == "auto_research.rs"
-            || file == "self_evolution.rs"
-            || file == "codebase.rs"
-            || file == "lib.rs";
-        if is_core_file {
-            self.git_checkpoint(iteration)?;
-        }
+        // Phase 5: 每次修改前打 checkpoint（git tag 开销极小，安全优先）
+        self.git_checkpoint(iteration)?;
 
         // 1. 读取当前代码
         let code = self.read_file(file)?;
@@ -275,10 +277,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 let _ = self.git_revert(target);
             }
 
-            // Phase 5: 核心文件编译失败回滚到 checkpoint
-            if is_core_file {
-                self.git_rollback(iteration)?;
-            }
+            // Phase 5: 编译失败回滚到 checkpoint
+            self.git_rollback(iteration)?;
 
             let reflection = {
                 let prompt = self.build_reflection_prompt(
@@ -501,13 +501,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 Ok(e) => e,
                 Err(e) => {
                     tracing::error!("[Research {}] FAILED on {}: {} — skipping", i + 1, file, e);
-                    let is_core_file = file == "auto_research.rs"
-                        || file == "self_evolution.rs"
-                        || file == "codebase.rs"
-                        || file == "lib.rs";
-                    if is_core_file {
-                        let _ = self.git_rollback(i + 1);
-                    }
+                    let _ = self.git_rollback(i + 1);
                     continue;
                 }
             };

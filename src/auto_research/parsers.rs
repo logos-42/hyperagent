@@ -3,17 +3,6 @@ use crate::llm::LLMClient;
 use super::AutoResearch;
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
-    /// 解析 LLM 响应中的假设和代码
-    pub(crate) fn parse_response(&self, response: &str) -> Option<(String, String)> {
-        let (hypothesis, file_changes) = self.parse_response_multi(response)?;
-        if file_changes.is_empty() {
-            return None;
-        }
-        // 向后兼容：返回主文件的代码
-        let (_, code) = &file_changes[0];
-        Some((hypothesis, code.clone()))
-    }
-
     /// Phase 3: 解析 LLM 响应中的多文件修改
     ///
     /// 支持两种格式：

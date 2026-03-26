@@ -180,7 +180,7 @@ impl Default for Lineage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::Score;
+    // Removed unused import: crate::eval::Score;
 
     #[test]
     fn test_lineage_add() {

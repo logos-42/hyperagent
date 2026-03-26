@@ -673,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_switch() {
-        let runtime = LocalRuntime::ollama("llama2").unwrap();
+        let _runtime = LocalRuntime::ollama("llama2").unwrap();
         
         // Note: This test would require actual API keys
         // runtime.switch_to_openai("gpt-4o", "test-key").await.unwrap();
