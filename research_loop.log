@@ -129,3 +129,31 @@ error: could not compile `hyperagent` (lib) due to 1 previous error
 [2m2026-03-26T04:41:59.085620Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (140/143), Lines: Regressed (280+), Warnings: Neutral, Complexity: 90, Binary: Neutral (+0KB)
 [2m2026-03-26T04:42:00.430725Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
 [2m2026-03-26T04:42:00.430813Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 10 new
+[2m2026-03-26T04:42:00.503128Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[1]: codebase.rs — Converting the improvement_history from unstructured strings (Improved) [+10 tests]
+[2m2026-03-26T04:42:00.503178Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T04:42:04.587798Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 2] Improving src/self_evolution.rs
+[2m2026-03-26T04:42:04.612274Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-2
+[2m2026-03-26T04:42:07.313504Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 140/143 tests
+[2m2026-03-26T04:42:09.240821Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["Rust struct inheritance best practices newtype pattern", "Rust generic struct with trait bounds implementation pattern", "Rust module structure organizing config and results structs"]
+[2m2026-03-26T04:42:10.085070Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust struct inheritance best practices newtype pattern'
+[2m2026-03-26T04:42:10.280051Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust generic struct with trait bounds implementation pattern'
+[2m2026-03-26T04:42:10.477366Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust module structure organizing config and results structs'
+[2m2026-03-26T04:42:45.387279Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Adding a `summary()` method to `SelfEvolutionResult` will centralize the formatting logic, reduce string duplication in the main loop, and provide a cleaner API for consumers without adding significant overhead.
+[2m2026-03-26T04:43:04.239216Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-26T04:43:04.776973Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Regressed (0/0), Lines: Regressed (90+), Warnings: Neutral, Complexity: 9, Binary: Neutral (+0KB)
+[2m2026-03-26T04:43:04.777038Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Regressed (multi-eval), reverting all changed files
+[2m2026-03-26T04:43:06.477716Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
+[2m2026-03-26T04:43:06.477831Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 6 new
+[2m2026-03-26T04:43:06.478256Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 3] Improving src/web.rs
+[2m2026-03-26T04:43:06.503738Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-3
+[2m2026-03-26T04:43:20.096052Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 140/143 tests
+[2m2026-03-26T04:43:28.699378Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["rust rig crate tool trait implementation best practices", "rust reqwest client sharing best practices", "rust async tool implementation serde serialize"]
+[2m2026-03-26T04:43:29.199442Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rust rig crate tool trait implementation best practices'
+[2m2026-03-26T04:43:29.393710Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rust reqwest client sharing best practices'
+[2m2026-03-26T04:43:29.587705Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rust async tool implementation serde serialize'
+[2m2026-03-26T04:44:03.614115Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   SEARCH block not found in file (461 chars), trying fuzzy match...
+[2m2026-03-26T04:44:03.614234Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   Fuzzy match also failed — skipping this replacement
+[2m2026-03-26T04:44:03.614262Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Replacing the string-allocating `find_case_insensitive` with an in-place case-insensitive search will reduce memory allocations during HTML parsing and improve the efficiency of web content extraction.
+[2m2026-03-26T04:44:24.507101Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 140/143 tests
+[2m2026-03-26T04:44:24.915370Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Neutral (140/143), Lines: Regressed (92+), Warnings: Regressed, Complexity: 95, Binary: Neutral (+0KB)
+[2m2026-03-26T04:44:26.760282Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral

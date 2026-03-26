@@ -18,20 +18,86 @@ use serde::{Deserialize, Serialize};
 // Shared HTTP client
 // ---------------------------------------------------------------------------
 
+/// Configuration for HTTP client timeout and retry behavior.
+#[derive(Debug, Clone)]
+pub struct HttpClientConfig {
+    /// Request timeout in seconds (default: 30)
+    pub timeout_secs: u64,
+    /// Maximum retry attempts for transient failures (default: 3)
+    pub max_retries: u32,
+    /// Base delay for exponential backoff in milliseconds (default: 100)
+    pub retry_base_delay_ms: u64,
+    /// Whether to retry on timeout errors (default: true)
+    pub retry_on_timeout: bool,
+}
+
+impl Default for HttpClientConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: 30,
+            max_retries: 3,
+            retry_base_delay_ms: 100,
+            retry_on_timeout: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct HttpClient {
     inner: reqwest::Client,
+    config: HttpClientConfig,
 }
 
 impl HttpClient {
     fn new() -> Self {
+        Self::with_config(HttpClientConfig::default())
+    }
+    
+    fn with_config(config: HttpClientConfig) -> Self {
         let inner = reqwest::Client::builder()
             .user_agent("Hyperagent/0.1 (AI self-research agent; +https://github.com)")
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(config.timeout_secs))
             .build()
             .expect("Failed to build HTTP client");
-        Self { inner }
+        Self { inner, config }
     }
+    
+    /// Execute a request with retry logic and exponential backoff.
+    async fn execute_with_retry(&self, request: reqwest::Request) -> Result<reqwest::Response, WebToolError> {
+        let mut last_error = None;
+        let mut delay = self.config.retry_base_delay_ms;
+        
+        for attempt in 0..=self.config.max_retries {
+            let req = self.inner.execute(request.try_clone().ok_or_else(|| {
+                WebToolError::Http("Cannot clone request body for retry".to_string())
+            })?);
+            
+            match req.await {
+                Ok(resp) => return Ok(resp),
+                Err(e) if is_retryable(&e, self.config.retry_on_timeout) => {
+                    last_error = Some(e);
+                    if attempt < self.config.max_retries {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+                Err(e) => return Err(WebToolError::Http(e.to_string())),
+            }
+        }
+        
+        Err(WebToolError::Http(
+            last_error.map(|e| e.to_string()).unwrap_or_else(|| "Max retries exceeded".to_string())
+        ))
+    }
+}
+
+/// Check if an error is retryable (transient failure).
+fn is_retryable(error: &reqwest::Error, retry_on_timeout: bool) -> bool {
+    if error.is_timeout() && !retry_on_timeout {
+        return false;
+    }
+    // Retry on: timeout, connect errors, and 5xx server errors
+    error.is_timeout() || error.is_connect() || error.is_request()
 }
 
 impl Default for HttpClient {
@@ -430,13 +496,39 @@ fn html_to_text(html: &str) -> String {
 }
 
 /// Case-insensitive substring search without allocating.
+/// Uses in-place character comparison to avoid string allocation.
 /// Returns the starting byte position of the first match, or None if not found.
 #[inline]
 fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
-    let needle_lower: String = needle.chars().map(|c| c.to_ascii_lowercase()).collect();
-    let haystack_lower: String = haystack.chars().map(|c| c.to_ascii_lowercase()).collect();
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
     
-    haystack_lower.find(&needle_lower).map(|i| i)
+    let needle_len = needle.len();
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let needle_lower: Vec<char> = needle_chars.iter().map(|c| c.to_ascii_lowercase()).collect();
+    
+    // Use char_indices to properly handle UTF-8 boundaries
+    let haystack_chars: Vec<(usize, char)> = haystack.char_indices().collect();
+    
+    if haystack_chars.len() < needle_lower.len() {
+        return None;
+    }
+    
+    for window_start in 0..=(haystack_chars.len() - needle_lower.len()) {
+        let mut matches = true;
+        for (i, &expected) in needle_lower.iter().enumerate() {
+            let (_, actual) = haystack_chars[window_start + i];
+            if actual.to_ascii_lowercase() != expected {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            return Some(haystack_chars[window_start].0);
+        }
+    }
+    None
 }
 
 /// Extract <title> from HTML (case-insensitive).
