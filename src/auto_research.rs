@@ -1010,7 +1010,21 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             let file = &self.config.target_files[(i as usize) % self.config.target_files.len()];
             let file = file.clone();
 
-            let exp = self.run_iteration(i + 1, &file).await?;
+            let exp = match self.run_iteration(i + 1, &file).await {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::error!("[Research {}] FAILED on {}: {} — skipping", i + 1, file, e);
+                    // Phase 5: 核心文件失败时尝试回滚到 checkpoint
+                    let is_core_file = file == "auto_research.rs"
+                        || file == "self_evolution.rs"
+                        || file == "codebase.rs"
+                        || file == "lib.rs";
+                    if is_core_file {
+                        let _ = self.git_rollback(i + 1);
+                    }
+                    continue;
+                }
+            };
             self.experiments.push(exp.clone());
 
             // 每 N 轮刷新代码库上下文（源文件可能已改变）

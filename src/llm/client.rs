@@ -483,18 +483,35 @@ impl LLMClientImpl {
     }
 }
 
+/// LLM request timeout: base 120s + 0.5s per 1KB of prompt, capped at 600s
+fn llm_timeout(prompt_len: usize) -> std::time::Duration {
+    let dynamic = (prompt_len as u64 / 1024) * 500; // 0.5s per KB
+    let total = 120_000 + dynamic;
+    std::time::Duration::from_millis(total.min(600_000))
+}
+
 #[async_trait]
 impl LLMClient for LLMClientImpl {
     async fn complete(&self, prompt: &str) -> Result<LLMResponse> {
-        self.backend.complete_prompt(prompt).await
+        let timeout = llm_timeout(prompt.len());
+        tokio::time::timeout(timeout, self.backend.complete_prompt(prompt))
+            .await
+            .map_err(|_| anyhow::anyhow!("LLM request timed out after {:?}", timeout))?
     }
 
     async fn complete_with_system(&self, system_prompt: &str, user_prompt: &str) -> Result<LLMResponse> {
-        self.backend.complete_with_preamble(system_prompt, user_prompt).await
+        let timeout = llm_timeout(system_prompt.len() + user_prompt.len());
+        tokio::time::timeout(timeout, self.backend.complete_with_preamble(system_prompt, user_prompt))
+            .await
+            .map_err(|_| anyhow::anyhow!("LLM request timed out after {:?}", timeout))?
     }
 
     async fn complete_with_messages(&self, messages: Vec<Message>) -> Result<LLMResponse> {
-        self.backend.complete_with_messages(messages).await
+        let total_len: usize = messages.iter().map(|m| m.content.len()).sum();
+        let timeout = llm_timeout(total_len);
+        tokio::time::timeout(timeout, self.backend.complete_with_messages(messages))
+            .await
+            .map_err(|_| anyhow::anyhow!("LLM request timed out after {:?}", timeout))?
     }
 }
 

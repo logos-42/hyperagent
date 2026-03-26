@@ -1,5 +1,7 @@
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
    Compiling reqwest v0.11.27
-   Compiling hyperagent v0.1.0 (/Users/apple/Downloads/hyperagent)
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
 warning: variable does not need to be mutable
    --> src/codebase.rs:179:29
     |
@@ -24,6 +26,17 @@ warning: unused variable: `j`
 179 |                         let mut j = i;
     |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
 
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
 warning: field `output` is never read
   --> src/runtime/loop_.rs:20:5
    |
@@ -34,231 +47,533 @@ warning: field `output` is never read
    |     ^^^^^^
    |
    = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
-   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.75s
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.86s
      Running `target/debug/research`
-[2m2026-03-26T01:03:09.775211Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
-[2m2026-03-26T01:03:09.779221Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
-[2m2026-03-26T01:03:09.823618Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 34 files, 11516 lines
-[2m2026-03-26T01:03:09.832668Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
-[2m2026-03-26T01:03:09.832718Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
-[2m2026-03-26T01:03:09.832734Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
-[2m2026-03-26T01:03:09.832749Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
-[2m2026-03-26T01:03:09.832817Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
-[2m2026-03-26T01:03:09.832831Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
-[2m2026-03-26T01:03:09.832844Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
-[2m2026-03-26T01:03:09.832856Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
-[2m2026-03-26T01:03:09.832871Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
-[2m2026-03-26T01:03:09.832888Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
-[2m2026-03-26T01:03:35.535015Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 96/99 tests passing
-[2m2026-03-26T01:03:35.536018Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
-[2m2026-03-26T01:03:38.811822Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
-[2m2026-03-26T01:03:55.083569Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for constructing complex CLI applications with subcommands and config files", "Rust error handling idioms for file system operations and external process execution", "Rust design patterns for self-referential or self-modifying systems safety"]
-[2m2026-03-26T01:03:55.691278Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for constructing complex CLI applications with subcommands and config files'
-[2m2026-03-26T01:03:55.949761Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust error handling idioms for file system operations and external process execution'
-[2m2026-03-26T01:03:56.172410Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust design patterns for self-referential or self-modifying systems safety'
-[2m2026-03-26T01:05:29.986281Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Parallelize web search and fetch operations to reduce latency in each research iteration, as sequential network calls waste time in an async context.
-[2m2026-03-26T01:05:39.643748Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:05:41.889314Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 2] Improving src/self_evolution.rs
-[2m2026-03-26T01:05:49.817531Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
-[2m2026-03-26T01:06:02.337123Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust invoke cargo command programmatically best practices", "Rust process::Command timeout implementation example", "Rust safe file write and rollback atomic pattern"]
-[2m2026-03-26T01:06:04.615141Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust invoke cargo command programmatically best practices'
-[2m2026-03-26T01:06:04.883098Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust process::Command timeout implementation example'
-[2m2026-03-26T01:06:05.113816Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust safe file write and rollback atomic pattern'
-[2m2026-03-26T01:06:05.114098Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
-[2m2026-03-26T01:06:05.964422Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://stackoverflow.com/questions/69142099/how-to-use-cargo-commands-programmatically-in-rust (7596 chars)
-[2m2026-03-26T01:06:07.749256Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://github.com/rsaz/cargo-script (8003 chars)
-[2m2026-03-26T01:06:07.749349Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 5184 chars of context
-[2m2026-03-26T01:07:42.327255Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a backup mechanism that saves the original file before overwriting, enabling recovery even if git checkout fails or the project is not in a git repository.
-[2m2026-03-26T01:07:43.384097Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:07:53.875440Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 3] Improving src/codebase.rs
-[2m2026-03-26T01:08:01.642831Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
-[2m2026-03-26T01:08:04.194020Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust parser for extracting function signatures and struct names from source code", "Rust idiomatic file system traversal and caching for code analysis tools", "parsing Rust code without using syn for lightweight extraction"]
-[2m2026-03-26T01:08:05.767607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust parser for extracting function signatures and struct names from source code'
-[2m2026-03-26T01:08:06.066896Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic file system traversal and caching for code analysis tools'
-[2m2026-03-26T01:08:06.383486Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'parsing Rust code without using syn for lightweight extraction'
-[2m2026-03-26T01:08:06.383715Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
-[2m2026-03-26T01:08:08.552226Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://deepwiki.com/qdrant/rust-parser/3.3-entity-extraction-logic (8003 chars)
-[2m2026-03-26T01:08:10.073060Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://github.com/dtolnay/syn (8003 chars)
-[2m2026-03-26T01:08:10.073145Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 5136 chars of context
-[2m2026-03-26T01:09:10.117346Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Replace regex-based parsing with `syn` crate for extracting code structures (structs, enums, functions, traits, impls), which provides proper AST-based parsing that correctly handles edge cases like nested generics, attributes inside generics, and multi-line definitions.
-[2m2026-03-26T01:09:19.188566Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:09:21.132240Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 4] Improving src/web.rs
-[2m2026-03-26T01:09:29.039230Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
-[2m2026-03-26T01:09:31.188025Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust rig crate Tool trait implementation best practices", "Rust reqwest client sharing best practices Arc", "DuckDuckGo web scraping API Rust implementation"]
-[2m2026-03-26T01:09:31.910232Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust rig crate Tool trait implementation best practices'
-[2m2026-03-26T01:09:32.157956Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust reqwest client sharing best practices Arc'
-[2m2026-03-26T01:09:32.409868Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'DuckDuckGo web scraping API Rust implementation'
-[2m2026-03-26T01:10:56.371884Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the `find_case_insensitive` function which currently has a logic bug where it compares characters pairwise without first checking if the haystack substring is long enough to contain the needle, causing potential panic on short inputs.
-[2m2026-03-26T01:11:08.097604Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 96/99 tests
-[2m2026-03-26T01:11:09.874767Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
-[2m2026-03-26T01:11:09.948880Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[4]: web.rs — Fix the `find_case_insensitive` function which currently has (Neutral)
-[2m2026-03-26T01:11:09.948942Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:11:15.015984Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 5] Improving src/tools.rs
-[2m2026-03-26T01:11:17.280690Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 96/99 tests
-[2m2026-03-26T01:11:20.121457Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["rig-rs async tool implementation example", "rig-rs Tool trait best practices", "rust async trait methods boxed future"]
-[2m2026-03-26T01:11:20.734120Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs async tool implementation example'
-[2m2026-03-26T01:11:20.984274Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rig-rs Tool trait best practices'
-[2m2026-03-26T01:11:21.235161Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust async trait methods boxed future'
-[2m2026-03-26T01:12:47.159265Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the path calculation bug in `walk_dir_recursive` where relative paths are computed incorrectly at different recursion depths, causing inconsistent file paths in grep results (deeper files would have shorter relative paths than they should).
-[2m2026-03-26T01:13:00.112207Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
-[2m2026-03-26T01:13:01.894200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:13:01.963740Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[5]: tools.rs — Fix the path calculation bug in `walk_dir_recursive` where r (Improved)
-[2m2026-03-26T01:13:01.963792Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:13:06.774621Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 6] Improving src/lib.rs
-[2m2026-03-26T01:13:09.037301Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:13:11.117405Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for organizing large module hierarchies and re-exports", "Rust library crate structure idioms for AI or agent-based systems", "Rust convention for grouping related types in public API using pub use"]
-[2m2026-03-26T01:13:11.699612Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for organizing large module hierarchies and re-exports'
-[2m2026-03-26T01:13:11.928242Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust library crate structure idioms for AI or agent-based systems'
-[2m2026-03-26T01:13:12.154725Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust convention for grouping related types in public API using pub use'
-[2m2026-03-26T01:13:17.466726Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the incorrect re-export of `LocalRuntimeConfig` (which doesn't exist) to `RuntimeConfig` from the local_runtime module, and add documentation comments to improve API discoverability and separate concerns between runtime types.
-[2m2026-03-26T01:13:25.190300Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:13:26.692802Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 7] Improving src/main.rs
-[2m2026-03-26T01:13:34.502899Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:13:35.736903Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust anyhow best practices error handling main function", "Rust tokio runtime configuration environment variables setup", "Rust struct initialization pattern named arguments"]
-[2m2026-03-26T01:13:36.329815Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust anyhow best practices error handling main function'
-[2m2026-03-26T01:13:36.558583Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tokio runtime configuration environment variables setup'
-[2m2026-03-26T01:13:36.780492Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct initialization pattern named arguments'
-[2m2026-03-26T01:13:49.833414Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add proper error handling for directory creation and use thread-safe environment variable setting with proper fallback, improving robustness of the initialization sequence.
-[2m2026-03-26T01:13:53.488153Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:13:55.139809Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 8] Improving src/bin/research.rs
-[2m2026-03-26T01:13:58.477122Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:14:00.055354Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust idiomatic environment variable parsing configuration struct", "Rust tracing_subscriber best practices initialization", "Rust clap argument parsing vs std::env vars"]
-[2m2026-03-26T01:14:00.633286Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic environment variable parsing configuration struct'
-[2m2026-03-26T01:14:00.879679Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tracing_subscriber best practices initialization'
-[2m2026-03-26T01:14:01.145736Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust clap argument parsing vs std::env vars'
-[2m2026-03-26T01:14:14.290188Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add summary statistics (counts of improved/neutral/regressed/failed experiments), exit with non-zero status when all experiments fail, and improve output formatting with percentages and final recommendations.
-[2m2026-03-26T01:14:18.798629Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
-[2m2026-03-26T01:14:36.053008Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
-[2m2026-03-26T01:14:36.121470Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[8]: bin/research.rs — Add summary statistics (counts of improved/neutral/regressed (Neutral)
-[2m2026-03-26T01:14:36.121522Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:14:40.934440Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 9] Improving src/bin/self_evolve.rs
-[2m2026-03-26T01:14:42.921521Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:14:47.979656Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust parse environment variables with default values best practices", "Rust clap command line argument parsing vs std::env", "Rust tracing_subscriber initialization best practices"]
-[2m2026-03-26T01:14:48.592943Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust parse environment variables with default values best practices'
-[2m2026-03-26T01:14:48.818767Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust clap command line argument parsing vs std::env'
-[2m2026-03-26T01:14:49.062199Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tracing_subscriber initialization best practices'
-[2m2026-03-26T01:14:59.796811Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add summary statistics with counts by status type, duration tracking, and proper exit code handling (non-zero when all iterations fail or are skipped), aligning with the recent improvements made to bin/research.rs for consistency across binary entry points.
-[2m2026-03-26T01:15:03.433846Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
-[2m2026-03-26T01:15:12.973755Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
-[2m2026-03-26T01:15:13.042022Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[9]: bin/self_evolve.rs — Add summary statistics with counts by status type, duration  (Neutral)
-[2m2026-03-26T01:15:13.042074Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:15:17.364791Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 10] Improving src/bin/unified.rs
-[2m2026-03-26T01:15:19.717200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:15:21.202914Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust clap argument parsing vs std::env best practices", "Rust tracing structured logging best practices", "Rust tokio main error handling idioms"]
-[2m2026-03-26T01:15:21.769484Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust clap argument parsing vs std::env best practices'
-[2m2026-03-26T01:15:21.986757Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tracing structured logging best practices'
-[2m2026-03-26T01:15:22.275732Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tokio main error handling idioms'
-[2m2026-03-26T01:15:50.036515Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the duplicate variable declaration bug where `best_baseline_score` is declared twice (once in Phase 1 and once at the start of Phase 2), which causes the Phase 1 baseline score to be discarded and always resets to 0.0 at the start of Phase 2 — this undermines the entire baseline comparison mechanism.
-[2m2026-03-26T01:15:54.305835Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
-[2m2026-03-26T01:15:56.590377Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
-[2m2026-03-26T01:15:56.655279Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[10]: bin/unified.rs — Fix the duplicate variable declaration bug where `best_basel (Neutral)
-[2m2026-03-26T01:15:56.655331Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:16:01.344993Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 11] Improving src/agent/mod.rs
-[2m2026-03-26T01:16:03.263451Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
-[2m2026-03-26T01:16:05.198770Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust module structure best practices re-exporting with pub use", "Rust builder pattern vs functional updates struct initialization", "Rust derive macro best practices for large structs with many fields"]
-[2m2026-03-26T01:16:05.875238Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust module structure best practices re-exporting with pub use'
-[2m2026-03-26T01:16:06.105417Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust builder pattern vs functional updates struct initialization'
-[2m2026-03-26T01:16:06.349915Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust derive macro best practices for large structs with many fields'
-[2m2026-03-26T01:16:16.454413Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `evolve` method to `Agent` struct to enable agent self-modification, and add `with_prompt` builder method for consistency with the builder pattern used elsewhere, completing the API symmetry with `MutationStrategy::evolve`.
-[2m2026-03-26T01:16:27.011607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 100/103 tests
-[2m2026-03-26T01:16:28.947004Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:16:29.010850Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[11]: agent/mod.rs — Add `evolve` method to `Agent` struct to enable agent self-m (Improved)
-[2m2026-03-26T01:16:29.010896Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:16:33.752998Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 12] Improving src/agent/executor.rs
-[2m2026-03-26T01:16:35.642645Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
-[2m2026-03-26T01:16:37.037065Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust async trait best practices for LLMClient trait objects", "Rust string concatenation performance vs format! macro", "Rust mock testing async traits with tokio and anyhow"]
-[2m2026-03-26T01:16:37.600758Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait best practices for LLMClient trait objects'
-[2m2026-03-26T01:16:37.831645Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust string concatenation performance vs format! macro'
-[2m2026-03-26T01:16:38.047291Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust mock testing async traits with tokio and anyhow'
-[2m2026-03-26T01:16:55.447902Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add structured reasoning extraction and token usage tracking to `ExecutionResult` and enhance `Executor` with error handling and metadata capture (model used, latency), enabling better evaluation and lineage tracking downstream in `eval/evaluator.rs` and `memory/lineage.rs`.
-[2m2026-03-26T01:17:00.417014Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:17:07.058078Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 13] Improving src/agent/mutator.rs
-[2m2026-03-26T01:17:13.703191Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
-[2m2026-03-26T01:17:14.980876Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust async trait best practices for generic struct methods", "Rust string template replacement vs templating engine performance", "Rust unit testing async methods with generic traits"]
-[2m2026-03-26T01:17:15.567720Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait best practices for generic struct methods'
-[2m2026-03-26T01:17:15.873999Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust string template replacement vs templating engine performance'
-[2m2026-03-26T01:17:16.151494Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust unit testing async methods with generic traits'
-[2m2026-03-26T01:17:27.132223Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add mutation history tracking to `Mutator` with `get_history()` method and adaptive strategy updates based on success patterns, aligning with the pattern used in `agent/meta_mutator.rs` and enabling downstream modules like `memory/lineage.rs` to track mutation lineage.
-[2m2026-03-26T01:17:33.642491Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
-[2m2026-03-26T01:17:33.642548Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests regressed, reverting
-[2m2026-03-26T01:17:35.508140Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
-[2m2026-03-26T01:17:35.508528Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 14] Improving src/agent/meta_mutator.rs
-[2m2026-03-26T01:17:42.376265Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
-[2m2026-03-26T01:17:43.739691Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust trait bounds generics best practices struct holding generic type", "Rust async trait method object safety", "anyhow crate error handling best practices in Rust async functions"]
-[2m2026-03-26T01:17:44.341031Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust trait bounds generics best practices struct holding generic type'
-[2m2026-03-26T01:17:44.644137Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait method object safety'
-[2m2026-03-26T01:17:45.017621Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'anyhow crate error handling best practices in Rust async functions'
-[2m2026-03-26T01:17:53.736159Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `improvement_rate` calculation to `MetaMutator::evolve` by analyzing the history to determine average improvement rate before recording it in `EvolutionHistory`, fixing the hardcoded `0.0` value and enabling meaningful strategy evolution tracking.
-[2m2026-03-26T01:18:04.864215Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 103/106 tests
-[2m2026-03-26T01:18:20.358660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:18:20.424429Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[14]: agent/meta_mutator.rs — Add `improvement_rate` calculation to `MetaMutator::evolve`  (Improved)
-[2m2026-03-26T01:18:20.424481Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:18:24.816054Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 15] Improving src/agent/population.rs
-[2m2026-03-26T01:18:26.669764Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 103/106 tests
-[2m2026-03-26T01:18:27.914621Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust enum iteration derive macro strum AsRefStr best practices", "Rust chrono timestamp serialization serde best practices", "Rust struct new vs builder pattern best practices"]
-[2m2026-03-26T01:18:28.456964Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust enum iteration derive macro strum AsRefStr best practices'
-[2m2026-03-26T01:18:28.736400Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust chrono timestamp serialization serde best practices'
-[2m2026-03-26T01:18:28.996960Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct new vs builder pattern best practices'
-[2m2026-03-26T01:18:51.302697Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `role_distribution` and `communication_stats` methods to `MultiAgentSystem` to provide useful analytics about role distribution and inter-agent communication patterns, enabling downstream systems like `runtime/multi_agent_loop.rs` to make better orchestration decisions.
-[2m2026-03-26T01:19:13.081614Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 107/110 tests
-[2m2026-03-26T01:19:14.836747Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:19:14.901374Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[15]: agent/population.rs — Add `role_distribution` and `communication_stats` methods to (Improved)
-[2m2026-03-26T01:19:14.901426Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:19:19.789411Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 16] Improving src/eval/mod.rs
-[2m2026-03-26T01:19:22.286188Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 107/110 tests
-[2m2026-03-26T01:19:30.608260Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for re-exporting modules with pub use", "idiomatic rust module structure and visibility patterns", "guidelines for organizing library files in src directory"]
-[2m2026-03-26T01:19:31.178480Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for re-exporting modules with pub use'
-[2m2026-03-26T01:19:31.402547Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'idiomatic rust module structure and visibility patterns'
-[2m2026-03-26T01:19:31.643166Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'guidelines for organizing library files in src directory'
-[2m2026-03-26T01:19:36.167504Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add comprehensive module-level documentation explaining the evaluation subsystem's role, its components (Evaluator and Benchmark), and how they integrate with the evolution loop for fitness assessment, improving codebase discoverability and architectural understanding.
-[2m2026-03-26T01:19:42.106065Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:19:44.942167Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 17] Improving src/eval/evaluator.rs
-[2m2026-03-26T01:19:51.630563Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 107/110 tests
-[2m2026-03-26T01:19:55.991036Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["rust struct field clamping best practices", "rust async function with generic trait parameter best practices", "rust llm prompt engineering structured output parsing"]
-[2m2026-03-26T01:19:56.577091Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust struct field clamping best practices'
-[2m2026-03-26T01:19:56.865584Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust async function with generic trait parameter best practices'
-[2m2026-03-26T01:19:57.091773Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'rust llm prompt engineering structured output parsing'
-[2m2026-03-26T01:20:47.819135Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add comprehensive error type variants and better parsing robustness to `Evaluator::parse_response` with detailed error handling for malformed LLM responses, improving reliability when scoring agents in production.
-[2m2026-03-26T01:20:53.579545Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:20:55.548622Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 18] Improving src/eval/benchmark.rs
-[2m2026-03-26T01:21:02.358314Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 107/110 tests
-[2m2026-03-26T01:21:12.021102Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust builder pattern best practices mutable methods", "Rust criterion benchmarking library usage guide", "Rust serde serialization struct performance optimization"]
-[2m2026-03-26T01:21:12.642910Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust builder pattern best practices mutable methods'
-[2m2026-03-26T01:21:12.862910Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust criterion benchmarking library usage guide'
-[2m2026-03-26T01:21:13.083976Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust serde serialization struct performance optimization'
-[2m2026-03-26T01:21:58.474975Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `category` field to `BenchmarkTask` for better task organization and extend `BenchmarkReport` with success rate calculation and category-wise statistics, enabling better analysis of agent performance across different task types.
-[2m2026-03-26T01:22:19.833323Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 110/113 tests
-[2m2026-03-26T01:22:21.738574Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:22:21.806485Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[18]: eval/benchmark.rs — Add a `category` field to `BenchmarkTask` for better task or (Improved)
-[2m2026-03-26T01:22:21.806550Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:22:26.156293Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 19] Improving src/llm/mod.rs
-[2m2026-03-26T01:22:28.168254Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 110/113 tests
-[2m2026-03-26T01:22:36.137200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust module file best practices re-exporting with pub use", "Rust library api design idioms module structure", "Rust documentation guidelines for module re-exports"]
-[2m2026-03-26T01:22:36.928530Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust module file best practices re-exporting with pub use'
-[2m2026-03-26T01:22:37.189334Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust library api design idioms module structure'
-[2m2026-03-26T01:22:37.912162Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust documentation guidelines for module re-exports': Search HTTP 403 Forbidden
-[2m2026-03-26T01:22:53.416531Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add comprehensive module-level documentation to `llm/mod.rs` explaining the LLM subsystem's architecture, its core components (client abstraction and prompt management), provider ecosystem, and integration patterns with the evolution loop, improving codebase discoverability and architectural understanding.
-[2m2026-03-26T01:22:55.959158Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:22:57.960598Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 20] Improving src/llm/client.rs
-[2m2026-03-26T01:23:07.372460Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 110/113 tests
-[2m2026-03-26T01:23:08.910808Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust rig crate usage examples async completion", "Rust async trait implementation for multiple API clients", "Rust semaphore rate limiting best practices concurrent requests"]
-[2m2026-03-26T01:23:13.918178Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust rig crate usage examples async completion': Search request failed
-[2m2026-03-26T01:23:15.004148Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust async trait implementation for multiple API clients': Search HTTP 403 Forbidden
-[2m2026-03-26T01:23:15.717144Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust semaphore rate limiting best practices concurrent requests': Search HTTP 403 Forbidden
-[2m2026-03-26T01:24:35.968649Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `with_temperature` and `with_max_tokens` builder methods to `LLMConfig` for more ergonomic configuration, plus add `TokenUsage` tracking support in `RigBackend` by extracting usage information from rig's completion metadata when available.
-[2m2026-03-26T01:24:56.241660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 114/117 tests
-[2m2026-03-26T01:24:58.121702Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
-[2m2026-03-26T01:24:58.197524Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[20]: llm/client.rs — Add a `with_temperature` and `with_max_tokens` builder metho (Improved)
-[2m2026-03-26T01:24:58.197619Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
-[2m2026-03-26T01:25:02.322373Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 21] Improving src/llm/prompts.rs
-[2m2026-03-26T01:25:04.408572Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 114/117 tests
-[2m2026-03-26T01:25:07.769268Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust string template best practices handling large multi line strings", "Rust enum derive best practices for API serialization serde", "Rust type state pattern builder vs factory methods for struct initialization"]
-[2m2026-03-26T01:25:09.083615Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust string template best practices handling large multi line strings': Search HTTP 403 Forbidden
-[2m2026-03-26T01:25:09.861912Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust enum derive best practices for API serialization serde': Search HTTP 403 Forbidden
-[2m2026-03-26T01:25:10.615608Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust type state pattern builder vs factory methods for struct initialization': Search HTTP 403 Forbidden
-[2m2026-03-26T01:26:32.297818Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add prompt versioning and metadata tracking to `PromptTemplate` to enable correlation analysis between prompt versions and evolution outcomes, plus enhance template content with iteration context and structured output format requirements for improved LLM response parsing.
-[2m2026-03-26T01:26:33.646431Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
-[2m2026-03-26T01:26:37.617451Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 22] Improving src/memory/mod.rs
+[2m2026-03-26T01:34:27.163021Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:34:27.168556Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:34:27.218032Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12913 lines
+[2m2026-03-26T01:34:27.227613Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:34:27.227669Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:34:27.227692Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:34:27.227943Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:34:27.228027Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:34:27.228046Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:34:27.228068Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:34:27.228085Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:34:27.228131Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:34:27.228153Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:34:48.710972Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:34:48.711877Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:34:48.737570Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:34:50.875480Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:35:11.071199Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust self-modifying code architecture patterns best practices", "Rust dynamic module loading and code evaluation safety", "Rust AI agent workflow state machine design patterns"]
+[2m2026-03-26T01:35:12.582926Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust self-modifying code architecture patterns best practices'
+[2m2026-03-26T01:35:12.826022Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust dynamic module loading and code evaluation safety'
+[2m2026-03-26T01:35:13.039885Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust AI agent workflow state machine design patterns'
+[2m2026-03-26T01:35:13.040162Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
+[2m2026-03-26T01:35:15.105011Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://duckduckgo.com/y.js?ad_domain=udemy.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=09a2qI%2DLkpDzgLgjmC93nRzx_Ty4c5t_uQ7xD70YQa1kRJub7BZ1iKVtdsrBacNAoexvILIpiX%2DQ_1FN7iJA6rOQ7qVZmZ5NtG39Zk1oI8mz37Y7O_1uJMkZP_6lYob1aAVDaHEGemCl4nqxxoEN8NthkKHG5hUGBmkv2c%2Dmoqs.8fpIFVyPYQCxDPHXs6c_6g&rut=ca37e1c094abf5a28f3cbfd3dc77ff587070dbf1c8d42f2b777898ed5e63c245&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8l3r9Lmcn7tqsmboDmUotKTVUCUw_q_35zHKe1Pp81ws5p_cq2AYl0bN0IePB89W1rY6n58mIuhLOW3KLnN8S9rvwoDVjm0Kk%2DE6YP38kOCMLwzMN9j0YDBDfA8IhsnjDqodBfVNrw4oKymqIllYnHsmqAHyZ6ygoQbzJI4wIK666gfzmkeHU1epy8ZHm9MvVHK1PUplT2QeVNiXyk1FWynURcmA%26u%3DaHR0cHMlM2ElMmYlMmZ3d3cudWRlbXkuY29tJTJmY291cnNlJTJmcnVzdC1sYW5nJTJmJTNmdXRtX2NhbXBhaWduJTNkQkctU2VhcmNoX0tleXdvcmRfQmV0YV9Qcm9mX2xhLkVOX2NjLlJPVy1FbmdsaXNoJTI2dXRtX3NvdXJjZSUzZGJpbmclMjZ1dG1fbWVkaXVtJTNkcGFpZC1zZWFyY2glMjZwb3J0Zm9saW8lM2RCaW5nLVJPVy1FbmdsaXNoJTI2dXRtX2F1ZGllbmNlJTNkbXglMjZ1dG1fdGFjdGljJTNkbmIlMjZ1dG1fdGVybSUzZF8uX2FnXzEzMjA1MTU4NTMyMTM3MzVfLl9hZF9fLl9rd19SdXN0JTI1MjBQcm9ncmFtbWluZyUyNTIwTGFuZ3VhZ2UlMjUyMEJlZ2lubmVyJTI2dXRtX2NvbnRlbnQlM2RzJTI2ZnVubmVsJTNkJTI2dGVzdCUzZCUyNnV0bV9jYW1wYWlnbl9pZCUzZDYzODU5NjIzMiUyNm1zY2xraWQlM2Q5YjBiNDJmMDE2OWMxMjA2MTlhNzJiMzQ5YmM5ZjBjNw%26rlid%3D9b0b42f0169c120619a72b349bc9f0c7&vqd=4-331039504683596913962202057471349106133&iurl=%7B1%7DIG%3D56E40C0DC60F49F7A3509240D00E7774%26CID%3D3242D13D26BB6EC91CA9C61527326FB4%26ID%3DDevEx%2C5041.1 (4017 chars)
+[2m2026-03-26T01:35:15.814808Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://www.w3reference.com/rust-tutorial/rust-design-patterns-a-tutorial-on-code-architecture/ (8003 chars)
+[2m2026-03-26T01:35:15.814953Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 7789 chars of context
+[2m2026-03-26T01:36:24.098299Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Extract git operations, test execution, and file I/O into dedicated modules to reduce `auto_research.rs` from 1062 lines to ~600 lines, improving maintainability and separation of concerns.
+
+thread 'main' (745852) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:36:24 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling sct v0.7.1
+   Compiling rustls-webpki v0.101.7
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.42s
+     Running `target/debug/research`
+[2m2026-03-26T01:36:46.738575Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:36:46.743785Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:36:46.776258Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12913 lines
+[2m2026-03-26T01:36:46.786055Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:36:46.786101Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:36:46.786120Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:36:46.786437Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:36:46.786495Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:36:46.786509Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:36:46.786547Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:36:46.786559Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:36:46.786570Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:36:46.786582Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:37:08.241879Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:37:08.242714Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:37:08.273373Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:37:10.988333Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:37:13.674805Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for LLM agent tool calling architecture", "Rust idiomatic error handling patterns for complex multi-step workflows", "Rust file system operations performance best practices async"]
+[2m2026-03-26T01:37:15.232168Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 5 results for 'Rust best practices for LLM agent tool calling architecture'
+[2m2026-03-26T01:37:15.464377Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic error handling patterns for complex multi-step workflows'
+[2m2026-03-26T01:37:15.695015Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust file system operations performance best practices async'
+[2m2026-03-26T01:37:15.695319Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetching 2 pages...
+[2m2026-03-26T01:37:17.020070Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://github.com/jondot/awesome-rust-llm (7350 chars)
+[2m2026-03-26T01:37:17.599183Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: fetched https://markaicode.com/rust-llm-applications/ (8003 chars)
+[2m2026-03-26T01:37:17.599277Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: gathered 5045 chars of context
+[2m2026-03-26T01:39:03.542125Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Implement concurrent file processing in run() method to reduce total research time by processing independent file targets in parallel, with thread-safe experiment collection.
+
+thread 'main' (764782) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:39:03 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.94s
+     Running `target/debug/research`
+[2m2026-03-26T01:39:37.858033Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:39:37.862920Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:39:37.898051Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12913 lines
+[2m2026-03-26T01:39:37.908695Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:39:37.908736Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:39:37.908751Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:39:37.909009Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:39:37.909066Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:39:37.909077Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:39:37.909088Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:39:37.909098Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:39:37.909107Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:39:37.909120Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:40:02.623849Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:40:02.624752Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:40:02.664663Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:40:05.549117Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:40:07.818087Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust file monitoring and hot reloading best practices", "Rust dynamic code evaluation vs AOT compilation limitations", "Rust metaprogramming and self-evolving systems patterns"]
+[2m2026-03-26T01:40:09.665560Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust file monitoring and hot reloading best practices'
+[2m2026-03-26T01:40:09.958865Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust dynamic code evaluation vs AOT compilation limitations'
+[2m2026-03-26T01:40:10.239474Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust metaprogramming and self-evolving systems patterns'
+[2m2026-03-26T01:42:24.158136Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add iteration targeting strategy (sequential, round-robin-bad, worst-first) to focus research on files that need the most improvement instead of cycling through all files uniformly.
+
+thread 'main' (781141) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:42:24 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.39s
+     Running `target/debug/research`
+[2m2026-03-26T01:42:46.760025Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:42:46.805061Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:42:46.845409Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12913 lines
+[2m2026-03-26T01:42:46.856564Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:42:46.856614Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:42:46.856633Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:42:46.856919Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:42:46.856983Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:42:46.856995Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:42:46.857007Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:42:46.857017Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:42:46.857026Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:42:46.857039Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:43:10.371722Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:43:10.372779Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:43:10.398074Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:43:12.641900Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:43:14.929508Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for implementing self-evolving or self-modifying code architectures", "Rust idioms for structuring complex iterative loops with LLM integration", "Rust patterns for managing safe file mutations and automatic git checkpointing"]
+[2m2026-03-26T01:43:15.535317Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for implementing self-evolving or self-modifying code architectures'
+[2m2026-03-26T01:43:15.763044Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idioms for structuring complex iterative loops with LLM integration'
+[2m2026-03-26T01:43:16.023569Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust patterns for managing safe file mutations and automatic git checkpointing'
+[2m2026-03-26T01:45:27.965358Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Refactor git operations into a dedicated module for better separation of concerns and reusability, reducing code duplication across auto_research.rs and future modules.
+
+thread 'main' (795956) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:45:27 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling sct v0.7.1
+   Compiling rustls-webpki v0.101.7
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.33s
+     Running `target/debug/research`
+[2m2026-03-26T01:45:48.508778Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:45:48.512560Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:45:48.543293Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12913 lines
+[2m2026-03-26T01:45:48.556201Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:45:48.556247Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:45:48.556264Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:45:48.556603Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:45:48.556676Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:45:48.556689Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:45:48.556703Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:45:48.556714Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:45:48.556723Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:45:48.556737Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:46:11.620130Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:46:11.621205Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:46:11.647637Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:46:14.599939Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:46:27.776905Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust best practices for LLM integration and prompt engineering", "Rust patterns for self-modifying or self-evolving code systems", "Rust idiom error handling anyhow result in loop iteration"]
+[2m2026-03-26T01:46:28.420540Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for LLM integration and prompt engineering'
+[2m2026-03-26T01:46:28.660756Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust patterns for self-modifying or self-evolving code systems'
+[2m2026-03-26T01:46:28.948911Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiom error handling anyhow result in loop iteration'
+[2m2026-03-26T01:47:29.550808Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add exponential backoff retry logic for LLM calls to make the research loop resilient to transient failures (rate limits, network timeouts), preventing a single API failure from crashing hours of research progress.
+
+thread 'main' (811641) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:47:29 CST 2026 ===
+    Blocking waiting for file lock on artifact directory
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.46s
+     Running `target/debug/research`
+[2m2026-03-26T01:47:48.250050Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:47:48.254072Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:47:48.297352Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12944 lines
+[2m2026-03-26T01:47:48.307614Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:47:48.307664Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:47:48.307683Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:47:48.307697Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:47:48.307751Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:47:48.307763Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:47:48.307776Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:47:48.307788Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:47:48.307798Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:47:48.307812Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:48:15.398618Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:48:15.399235Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:48:15.425958Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:48:53.923782Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:49:01.950178Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust idiomatic error handling patterns using anyhow and thiserror best practices", "Rust struct default initialization and builder pattern best practices", "Rust project architecture for self-modifying or meta-programming systems"]
+[2m2026-03-26T01:49:02.609924Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic error handling patterns using anyhow and thiserror best practices'
+[2m2026-03-26T01:49:02.843655Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust struct default initialization and builder pattern best practices'
+[2m2026-03-26T01:49:03.141118Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust project architecture for self-modifying or meta-programming systems'
+[2m2026-03-26T01:50:49.568645Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add caching for Web search results to avoid redundant API calls and improve iteration speed when researching the same file or topic multiple times.
+
+thread 'main' (827943) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:50:49 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.16s
+     Running `target/debug/research`
+[2m2026-03-26T01:51:13.927680Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:51:13.931694Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:51:13.963668Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12944 lines
+[2m2026-03-26T01:51:13.976897Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:51:13.976944Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:51:13.976962Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:51:13.976976Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:51:13.977025Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:51:13.977037Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:51:13.977051Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:51:13.977087Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:51:13.977098Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:51:13.977111Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:51:37.790047Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:51:37.790985Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:51:37.856054Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:51:40.132433Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:51:44.834399Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust automated code refactoring and self-modification best practices", "Rust best practices for implementing complex state machines and iteration loops", "Rust patterns for safe filesystem operations and sandboxed code execution"]
+[2m2026-03-26T01:51:45.488607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust automated code refactoring and self-modification best practices'
+[2m2026-03-26T01:51:45.792365Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for implementing complex state machines and iteration loops'
+[2m2026-03-26T01:51:46.078890Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust patterns for safe filesystem operations and sandboxed code execution'
