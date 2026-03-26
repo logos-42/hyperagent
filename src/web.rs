@@ -176,6 +176,22 @@ impl WebSearchTool {
         }
     }
 
+    /// Create a new WebSearchTool with custom HTTP client configuration.
+    pub fn with_config(config: HttpClientConfig) -> Self {
+        Self {
+            client: Arc::new(HttpClient::with_config(config)),
+        }
+    }
+
+    /// Create a new WebSearchTool with a custom timeout in seconds.
+    pub fn with_timeout(timeout_secs: u64) -> Self {
+        let config = HttpClientConfig {
+            timeout_secs,
+            ..Default::default()
+        };
+        Self::with_config(config)
+    }
+
     /// Direct search (without rig Tool machinery).
     pub async fn search(&self, query: &str, max_results: usize) -> Result<Vec<WebSearchResult>> {
         let max = max_results.min(10).max(1);
@@ -308,6 +324,22 @@ impl WebFetchTool {
         Self {
             client: Arc::new(HttpClient::new()),
         }
+    }
+
+    /// Create a new WebFetchTool with custom HTTP client configuration.
+    pub fn with_config(config: HttpClientConfig) -> Self {
+        Self {
+            client: Arc::new(HttpClient::with_config(config)),
+        }
+    }
+
+    /// Create a new WebFetchTool with a custom timeout in seconds.
+    pub fn with_timeout(timeout_secs: u64) -> Self {
+        let config = HttpClientConfig {
+            timeout_secs,
+            ..Default::default()
+        };
+        Self::with_config(config)
     }
 
     /// Direct fetch (without rig Tool machinery).
@@ -882,6 +914,58 @@ mod tests {
     fn test_url_decode() {
         assert_eq!(url_decode("hello+world"), "hello world");
         assert_eq!(url_decode("https%3A%2F%2Fexample.com"), "https://example.com");
+    }
+
+    #[test]
+    #[test]
+    fn test_http_client_config_default() {
+        let config = HttpClientConfig::default();
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_base_delay_ms, 100);
+        assert!(config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_search_tool_with_timeout() {
+        let tool = WebSearchTool::with_timeout(60);
+        assert_eq!(tool.client.config.timeout_secs, 60);
+        assert_eq!(tool.client.config.max_retries, 3); // Should preserve other defaults
+    }
+
+    #[test]
+    fn test_web_fetch_tool_with_timeout() {
+        let tool = WebFetchTool::with_timeout(10);
+        assert_eq!(tool.client.config.timeout_secs, 10);
+        assert!(tool.client.config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_search_tool_with_config() {
+        let config = HttpClientConfig {
+            timeout_secs: 45,
+            max_retries: 5,
+            retry_base_delay_ms: 200,
+            retry_on_timeout: false,
+        };
+        let tool = WebSearchTool::with_config(config.clone());
+        assert_eq!(tool.client.config.timeout_secs, 45);
+        assert_eq!(tool.client.config.max_retries, 5);
+        assert_eq!(tool.client.config.retry_base_delay_ms, 200);
+        assert!(!tool.client.config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_fetch_tool_with_config() {
+        let config = HttpClientConfig {
+            timeout_secs: 15,
+            max_retries: 1,
+            retry_base_delay_ms: 50,
+            retry_on_timeout: true,
+        };
+        let tool = WebFetchTool::with_config(config.clone());
+        assert_eq!(tool.client.config.timeout_secs, 15);
+        assert_eq!(tool.client.config.max_retries, 1);
     }
 
     #[test]

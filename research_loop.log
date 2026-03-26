@@ -244,3 +244,102 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T04:53:34.005919Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (146/149), Lines: Regressed (116+), Warnings: Neutral, Complexity: 91, Binary: Neutral (+0KB)
 [2m2026-03-26T04:53:35.432235Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
 [2m2026-03-26T04:53:35.432355Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 3 new
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling sct v0.7.1
+   Compiling rustls-webpki v0.101.7
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: unused variable: `needle_len`
+   --> src/web.rs:507:9
+    |
+507 |     let needle_len = needle.len();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_needle_len`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `config` is never read
+  --> src/web.rs:48:5
+   |
+46 | struct HttpClient {
+   |        ---------- field in this struct
+47 |     inner: reqwest::Client,
+48 |     config: HttpClientConfig,
+   |     ^^^^^^
+   |
+   = note: `HttpClient` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `execute_with_retry` is never used
+  --> src/web.rs:66:14
+   |
+51 | impl HttpClient {
+   | --------------- method in this implementation
+...
+66 |     async fn execute_with_retry(&self, request: reqwest::Request) -> Res...
+   |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `is_retryable` is never used
+  --> src/web.rs:95:4
+   |
+95 | fn is_retryable(error: &reqwest::Error, retry_on_timeout: bool) -> bool {
+   |    ^^^^^^^^^^^^
+
+warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hyperagent` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.77s
+     Running `target/debug/research`
+[2m2026-03-26T05:04:06.051601Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T05:04:06.058759Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Loaded codebase context: 43 files, 14306 lines, 2 iterations
+[2m2026-03-26T05:04:06.059433Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strategy v7: temp=0.40, target=Adaptive
+[2m2026-03-26T05:04:06.071909Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T05:04:06.071959Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T05:04:06.071975Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T05:04:06.071992Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "auto_research/mod.rs", "auto_research/parsers.rs", "auto_research/prompts.rs", "auto_research/git.rs", "auto_research/testing.rs", "auto_research/log.rs", "auto_research/web_search.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T05:04:06.072049Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 999
+[2m2026-03-26T05:04:06.072065Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T05:04:06.072078Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T05:04:06.072113Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T05:04:06.072124Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T05:04:06.072139Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T05:04:38.826691Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 152/155 tests passing
+[2m2026-03-26T05:04:38.826811Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/codebase.rs
+[2m2026-03-26T05:04:38.858245Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T05:04:42.600668Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 152/155 tests
+[2m2026-03-26T05:04:53.726750Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["Rust parsing source code without syn visitor pattern best practices", "Rust project file structure serialization serde json example", "Rust code analysis modules architecture dependencies extraction"]
+[2m2026-03-26T05:04:54.380389Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust parsing source code without syn visitor pattern best practices'
+[2m2026-03-26T05:04:54.591994Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust project file structure serialization serde json example'
+[2m2026-03-26T05:04:54.789850Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust code analysis modules architecture dependencies extraction'
+[2m2026-03-26T05:06:05.581021Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   SEARCH block not found in file (2173 chars), trying fuzzy match...
+[2m2026-03-26T05:06:05.581184Z[0m [33m WARN[0m [2mhyperagent::auto_research::parsers[0m[2m:[0m   Fuzzy match also failed — skipping this replacement
+[2m2026-03-26T05:06:05.581249Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add line number references to the module tree display and architecture summary, making it easier to locate type and function definitions in the codebase without manual searching.
+[2m2026-03-26T05:06:16.563511Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-26T05:06:17.202705Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Regressed (0/0), Lines: Regressed (41+), Warnings: Neutral, Complexity: 97, Binary: Neutral (+0KB)
+[2m2026-03-26T05:06:17.202759Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Regressed (multi-eval), reverting all changed files
+[2m2026-03-26T05:06:19.094698Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
+[2m2026-03-26T05:06:19.101873Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 2] Improving src/self_evolution.rs
+[2m2026-03-26T05:06:19.139305Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-2
+[2m2026-03-26T05:06:31.645615Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 152/155 tests
+[2m2026-03-26T05:06:38.663931Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["Rust iterator methods count occurrences by enum variant", "Rust serde derive macro skip serializing Option fields if None", "Rust mocking file system operations for unit testing"]
+[2m2026-03-26T05:06:39.196321Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust iterator methods count occurrences by enum variant'
+[2m2026-03-26T05:06:39.397434Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust serde derive macro skip serializing Option fields if None'
+[2m2026-03-26T05:06:39.595992Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust mocking file system operations for unit testing'
+[2m2026-03-26T05:06:49.210180Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `successful_hypotheses` method to extract and return the descriptions of accepted experiments, enabling callers to understand what improvements worked without parsing all results.
+[2m2026-03-26T05:07:06.287969Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-26T05:07:06.915788Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Regressed (0/0), Lines: Regressed (100+), Warnings: Neutral, Complexity: 13, Binary: Neutral (+0KB)
+[2m2026-03-26T05:07:06.915843Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Regressed (multi-eval), reverting all changed files
+[2m2026-03-26T05:07:08.461277Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
+[2m2026-03-26T05:07:08.461351Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 2 new
+[2m2026-03-26T05:07:08.462147Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 3] Improving src/web.rs
+[2m2026-03-26T05:07:08.493564Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-3
+[2m2026-03-26T05:07:18.075792Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 152/155 tests
+[2m2026-03-26T05:07:23.206614Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["rig rust crate tool trait implementation example", "rust reqwest retry exponential backoff best practices", "idiomatic rust error handling anyhow context web requests"]
+[2m2026-03-26T05:07:23.877664Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rig rust crate tool trait implementation example'
+[2m2026-03-26T05:07:24.146212Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'rust reqwest retry exponential backoff best practices'
+[2m2026-03-26T05:07:24.424189Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'idiomatic rust error handling anyhow context web requests'
+[2m2026-03-26T05:07:39.475421Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `with_timeout` builder method to `WebSearchTool` and `WebFetchTool` to allow configuring custom timeout values for slow or fast networks, improving flexibility for different usage scenarios.
+[2m2026-03-26T05:07:59.705412Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 158/161 tests
+[2m2026-03-26T05:08:01.899798Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (158/161), Lines: Regressed (84+), Warnings: Neutral, Complexity: 95, Binary: Neutral (+0KB)
+[2m2026-03-26T05:08:09.615351Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T05:08:09.615436Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 6 new
