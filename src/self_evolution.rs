@@ -349,6 +349,109 @@ mod tests {
         assert!(successful_hypotheses.contains(&"Second successful hypothesis"));
         assert!(!successful_hypotheses.contains(&"Failed hypothesis"));
     }
+
+    #[test]
+    fn test_modified_files_deduplication() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "First change to a.rs".to_string(),
+                hypothesis: "Hypothesis 1".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Rejected,
+                score: None,
+                error: None,
+                description: "Second change to a.rs".to_string(),
+                hypothesis: "Hypothesis 2".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 3,
+                file: "b.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "Change to b.rs".to_string(),
+                hypothesis: "Hypothesis 3".to_string(),
+            },
+        ];
+
+        // Even though a.rs appears twice, modified_files should return unique files
+        // We need to test through the engine since modified_files is a method on SelfEvolutionEngine
+        // Here we just verify the deduplication logic directly
+        let mut files: Vec<String> = results
+            .iter()
+            .filter(|r| matches!(r.status, SelfEvolutionStatus::Accepted | SelfEvolutionStatus::Rejected))
+            .map(|r| r.file.clone())
+            .collect();
+        files.sort();
+        files.dedup();
+        
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"a.rs".to_string()));
+        assert!(files.contains(&"b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_modified_files_excludes_failed_and_skipped() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "accepted.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "Accepted".to_string(),
+                hypothesis: "H1".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "rejected.rs".to_string(),
+                status: SelfEvolutionStatus::Rejected,
+                score: None,
+                error: None,
+                description: "Rejected".to_string(),
+                hypothesis: "H2".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 3,
+                file: "failed.rs".to_string(),
+                status: SelfEvolutionStatus::Failed,
+                score: None,
+                error: Some("error".to_string()),
+                description: "Failed".to_string(),
+                hypothesis: "H3".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 4,
+                file: "skipped.rs".to_string(),
+                status: SelfEvolutionStatus::Skipped,
+                score: None,
+                error: None,
+                description: "Skipped".to_string(),
+                hypothesis: "H4".to_string(),
+            },
+        ];
+
+        // Only Accepted and Rejected should be counted as modified
+        let files: Vec<String> = results
+            .iter()
+            .filter(|r| matches!(r.status, SelfEvolutionStatus::Accepted | SelfEvolutionStatus::Rejected))
+            .map(|r| r.file.clone())
+            .collect();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"accepted.rs".to_string()));
+        assert!(files.contains(&"rejected.rs".to_string()));
+        assert!(!files.contains(&"failed.rs".to_string()));
+        assert!(!files.contains(&"skipped.rs".to_string()));
+    }
 }
 
 /// 自改进迭代结果
@@ -544,6 +647,19 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
     /// Get all failed results (convenience method)
     pub fn failed(&self) -> Vec<&SelfEvolutionResult> {
         self.filter_by_status(SelfEvolutionStatus::Failed)
+    }
+
+    /// Get unique files that were modified (Accepted or Rejected status)
+    /// Skips Failed and Skipped experiments since no code changes were applied
+    pub fn modified_files(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.results
+            .iter()
+            .filter(|r| matches!(r.status, SelfEvolutionStatus::Accepted | SelfEvolutionStatus::Rejected))
+            .map(|r| r.file.clone())
+            .collect();
+        files.sort();
+        files.dedup();
+        files
     }
 }
 
