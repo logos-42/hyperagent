@@ -774,6 +774,84 @@ impl CodebaseContext {
     pub fn get_file_summary(&self, path: &str) -> Option<&FileSummary> {
         self.files.get(path)
     }
+
+    /// Get formatted content summaries of files that depend on a target file.
+    /// 
+    /// This is useful for understanding the downstream impact of changes to a file.
+    /// Returns a formatted string with each dependent file's summary, limited to
+    /// the top N dependents by line count (larger files first as heuristic for importance).
+    /// 
+    /// # Arguments
+    /// * `target_file` - The file path to find dependents for
+    /// * `max_files` - Maximum number of dependent files to include
+    /// 
+    /// # Returns
+    /// A formatted string with dependent file summaries, or empty string if none found
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let related = ctx.get_related_files_content("agent/mod.rs", 3);
+    /// // Returns formatted summaries of files that use agent/mod.rs
+    /// ```
+    pub fn get_related_files_content(&self, target_file: &str, max_files: usize) -> String {
+        let dependents: Vec<&FileSummary> = self
+            .files
+            .iter()
+            .filter(|(path, summary)| {
+                *path != target_file
+                    && summary.uses.iter().any(|u| {
+                        let module_hint = target_file
+                            .strip_suffix(".rs")
+                            .unwrap_or(target_file)
+                            .replace('/', "::")
+                            .replace("mod.rs", "");
+                        u.contains(&module_hint)
+                            || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
+                    })
+            })
+            .map(|(_, summary)| summary)
+            .collect();
+
+        if dependents.is_empty() {
+            return String::new();
+        }
+
+        // Sort by line count descending (larger files likely more important)
+        let mut sorted_dependents: Vec<_> = dependents.iter().collect();
+        sorted_dependents.sort_by(|a, b| b.lines.cmp(&a.lines));
+
+        let mut result = String::new();
+        for summary in sorted_dependents.into_iter().take(max_files) {
+            result.push_str(&format!(
+                "\n--- {} ({} lines) ---\n",
+                summary.path, summary.lines
+            ));
+            
+            // Include doc summary if available
+            if !summary.doc_summary.is_empty() {
+                result.push_str(&format!("Doc: {}\n", summary.doc_summary));
+            }
+            
+            // Include key types
+            if !summary.structs.is_empty() {
+                result.push_str(&format!(
+                    "Types: {}\n",
+                    summary.structs.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            
+            // Include key functions
+            if !summary.functions.is_empty() {
+                result.push_str(&format!(
+                    "Functions: {}\n",
+                    summary.functions.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -1077,5 +1155,179 @@ mod tests {
         } else {
             panic!("Expected to find lib.rs");
         }
+    }
+
+    #[test]
+    fn test_get_related_files_content_no_dependents() {
+        let ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        let result = ctx.get_related_files_content("nonexistent.rs", 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_related_files_content_with_dependents() {
+        let mut ctx = CodebaseContext {
+            total_files: 3,
+            total_lines: 300,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        // Target file
+        ctx.files.insert("core/types.rs".to_string(), FileSummary {
+            path: "core/types.rs".to_string(),
+            lines: 100,
+            structs: vec!["Config".to_string()],
+            enums: vec![],
+            functions: vec![],
+            traits: vec![],
+            impls: vec![],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "Core type definitions".to_string(),
+            derives: vec![],
+        });
+        
+        // Dependent file 1 (larger)
+        ctx.files.insert("handler/main.rs".to_string(), FileSummary {
+            path: "handler/main.rs".to_string(),
+            lines: 200,
+            structs: vec!["Handler".to_string()],
+            enums: vec![],
+            functions: vec!["process".to_string(), "validate".to_string()],
+            traits: vec![],
+            impls: vec!["Handler".to_string()],
+            uses: vec!["use crate::core::types;".to_string()],
+            mods: vec![],
+            doc_summary: "Request handler".to_string(),
+            derives: vec![],
+        });
+        
+        // Dependent file 2 (smaller)
+        ctx.files.insert("utils/helper.rs".to_string(), FileSummary {
+            path: "utils/helper.rs".to_string(),
+            lines: 50,
+            structs: vec![],
+            enums: vec![],
+            functions: vec!["format".to_string()],
+            traits: vec![],
+            impls: vec![],
+            uses: vec!["use crate::core::types::Config;".to_string()],
+            mods: vec![],
+            doc_summary: "Helper utilities".to_string(),
+            derives: vec![],
+        });
+        
+        let result = ctx.get_related_files_content("core/types.rs", 5);
+        
+        // Should include both dependents
+        assert!(result.contains("handler/main.rs"));
+        assert!(result.contains("utils/helper.rs"));
+        assert!(result.contains("Request handler"));
+        assert!(result.contains("Helper utilities"));
+        
+        // Larger file should appear first (sorted by line count desc)
+        let handler_pos = result.find("handler/main.rs").unwrap();
+        let helper_pos = result.find("utils/helper.rs").unwrap();
+        assert!(handler_pos < helper_pos, "Larger file should appear first");
+    }
+
+    #[test]
+    fn test_get_related_files_content_respects_limit() {
+        let mut ctx = CodebaseContext {
+            total_files: 4,
+            total_lines: 400,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.files.insert("core/mod.rs".to_string(), FileSummary {
+            path: "core/mod.rs".to_string(),
+            lines: 50,
+            structs: vec![],
+            enums: vec![],
+            functions: vec![],
+            traits: vec![],
+            impls: vec![],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "".to_string(),
+            derives: vec![],
+        });
+        
+        // Add 3 dependents
+        for (name, lines) in [("a.rs", 100), ("b.rs", 200), ("c.rs", 150)] {
+            ctx.files.insert(name.to_string(), FileSummary {
+                path: name.to_string(),
+                lines,
+                structs: vec![],
+                enums: vec![],
+                functions: vec![],
+                traits: vec![],
+                impls: vec![],
+                uses: vec!["use crate::core;".to_string()],
+                mods: vec![],
+                doc_summary: format!("File {}", name),
+                derives: vec![],
+            });
+        }
+        
+        let result = ctx.get_related_files_content("core/mod.rs", 2);
+        
+        // Should only include 2 files (largest ones: b.rs and c.rs)
+        assert!(result.contains("b.rs"));
+        assert!(result.contains("c.rs"));
+        assert!(!result.contains("a.rs"));
+    }
+
+    #[test]
+    fn test_get_related_files_content_excludes_self() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 100,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.files.insert("self_ref.rs".to_string(), FileSummary {
+            path: "self_ref.rs".to_string(),
+            lines: 100,
+            structs: vec![],
+            enums: vec![],
+            functions: vec![],
+            traits: vec![],
+            impls: vec![],
+            uses: vec!["use crate::self_ref;".to_string()],
+            mods: vec![],
+            doc_summary: "Self referencing".to_string(),
+            derives: vec![],
+        });
+        
+        let result = ctx.get_related_files_content("self_ref.rs", 5);
+        
+        // Should not include the file itself even though it has a matching use statement
+        assert!(result.is_empty());
     }
 }
