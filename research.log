@@ -251,3 +251,14 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:24:35.968649Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `with_temperature` and `with_max_tokens` builder methods to `LLMConfig` for more ergonomic configuration, plus add `TokenUsage` tracking support in `RigBackend` by extracting usage information from rig's completion metadata when available.
 [2m2026-03-26T01:24:56.241660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 114/117 tests
 [2m2026-03-26T01:24:58.121702Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T01:24:58.197524Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[20]: llm/client.rs — Add a `with_temperature` and `with_max_tokens` builder metho (Improved)
+[2m2026-03-26T01:24:58.197619Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:25:02.322373Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 21] Improving src/llm/prompts.rs
+[2m2026-03-26T01:25:04.408572Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 114/117 tests
+[2m2026-03-26T01:25:07.769268Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust string template best practices handling large multi line strings", "Rust enum derive best practices for API serialization serde", "Rust type state pattern builder vs factory methods for struct initialization"]
+[2m2026-03-26T01:25:09.083615Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust string template best practices handling large multi line strings': Search HTTP 403 Forbidden
+[2m2026-03-26T01:25:09.861912Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust enum derive best practices for API serialization serde': Search HTTP 403 Forbidden
+[2m2026-03-26T01:25:10.615608Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: search failed for 'Rust type state pattern builder vs factory methods for struct initialization': Search HTTP 403 Forbidden
+[2m2026-03-26T01:26:32.297818Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add prompt versioning and metadata tracking to `PromptTemplate` to enable correlation analysis between prompt versions and evolution outcomes, plus enhance template content with iteration context and structured output format requirements for improved LLM response parsing.
+[2m2026-03-26T01:26:33.646431Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
+[2m2026-03-26T01:26:37.617451Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 22] Improving src/memory/mod.rs

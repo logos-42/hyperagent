@@ -37,6 +37,7 @@ pub use runtime::{
 };
 pub use self_evolution::{SelfEvolutionEngine, SelfEvolutionConfig, SelfEvolutionStatus};
 pub use auto_research::{AutoResearch, ResearchConfig, Experiment, ExperimentOutcome};
+pub use eval::metrics::{MultiEvalResult, MetricDirection};
 pub use web::{WebSearchTool, WebFetchTool, WebSearchResult, FetchOutput, SearchOutput, build_web_context_prompt};
 pub use tools::{
     CodebaseGrepTool, CodebaseSearchTool, CodebaseReadTool, CodebaseTreeTool,
