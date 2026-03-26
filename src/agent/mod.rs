@@ -35,8 +35,19 @@ impl Agent {
         self
     }
 
+    pub fn with_prompt(mut self, prompt: String) -> Self {
+        self.prompt = prompt;
+        self
+    }
+
     pub fn from_prompt(prompt: String) -> Self {
         Self::new(String::new(), prompt)
+    }
+
+    pub fn evolve(&mut self, new_code: String) -> &mut Self {
+        self.code = new_code;
+        self.generation += 1;
+        self
     }
 }
 
@@ -107,5 +118,24 @@ mod tests {
         let strategy = MutationStrategy::default();
         assert!(!strategy.prompt.is_empty());
         assert_eq!(strategy.version, 1);
+    }
+
+    #[test]
+    fn test_agent_with_prompt() {
+        let agent = Agent::new("code".to_string(), "old".to_string())
+            .with_prompt("new prompt".to_string());
+        assert_eq!(agent.prompt, "new prompt");
+    }
+
+    #[test]
+    fn test_agent_evolve() {
+        let mut agent = Agent::new("old code".to_string(), "prompt".to_string());
+        agent.evolve("new code".to_string());
+        assert_eq!(agent.code, "new code");
+        assert_eq!(agent.generation, 1);
+        
+        agent.evolve("even newer code".to_string());
+        assert_eq!(agent.code, "even newer code");
+        assert_eq!(agent.generation, 2);
     }
 }

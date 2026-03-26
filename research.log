@@ -154,3 +154,14 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:15:50.036515Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the duplicate variable declaration bug where `best_baseline_score` is declared twice (once in Phase 1 and once at the start of Phase 2), which causes the Phase 1 baseline score to be discarded and always resets to 0.0 at the start of Phase 2 — this undermines the entire baseline comparison mechanism.
 [2m2026-03-26T01:15:54.305835Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
 [2m2026-03-26T01:15:56.590377Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-26T01:15:56.655279Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[10]: bin/unified.rs — Fix the duplicate variable declaration bug where `best_basel (Neutral)
+[2m2026-03-26T01:15:56.655331Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:16:01.344993Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 11] Improving src/agent/mod.rs
+[2m2026-03-26T01:16:03.263451Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
+[2m2026-03-26T01:16:05.198770Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust module structure best practices re-exporting with pub use", "Rust builder pattern vs functional updates struct initialization", "Rust derive macro best practices for large structs with many fields"]
+[2m2026-03-26T01:16:05.875238Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust module structure best practices re-exporting with pub use'
+[2m2026-03-26T01:16:06.105417Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust builder pattern vs functional updates struct initialization'
+[2m2026-03-26T01:16:06.349915Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust derive macro best practices for large structs with many fields'
+[2m2026-03-26T01:16:16.454413Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `evolve` method to `Agent` struct to enable agent self-modification, and add `with_prompt` builder method for consistency with the builder pattern used elsewhere, completing the API symmetry with `MutationStrategy::evolve`.
+[2m2026-03-26T01:16:27.011607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 100/103 tests
+[2m2026-03-26T01:16:28.947004Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
