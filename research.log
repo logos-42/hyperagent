@@ -165,3 +165,32 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:16:16.454413Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `evolve` method to `Agent` struct to enable agent self-modification, and add `with_prompt` builder method for consistency with the builder pattern used elsewhere, completing the API symmetry with `MutationStrategy::evolve`.
 [2m2026-03-26T01:16:27.011607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 100/103 tests
 [2m2026-03-26T01:16:28.947004Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T01:16:29.010850Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[11]: agent/mod.rs — Add `evolve` method to `Agent` struct to enable agent self-m (Improved)
+[2m2026-03-26T01:16:29.010896Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:16:33.752998Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 12] Improving src/agent/executor.rs
+[2m2026-03-26T01:16:35.642645Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
+[2m2026-03-26T01:16:37.037065Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust async trait best practices for LLMClient trait objects", "Rust string concatenation performance vs format! macro", "Rust mock testing async traits with tokio and anyhow"]
+[2m2026-03-26T01:16:37.600758Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait best practices for LLMClient trait objects'
+[2m2026-03-26T01:16:37.831645Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust string concatenation performance vs format! macro'
+[2m2026-03-26T01:16:38.047291Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust mock testing async traits with tokio and anyhow'
+[2m2026-03-26T01:16:55.447902Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add structured reasoning extraction and token usage tracking to `ExecutionResult` and enhance `Executor` with error handling and metadata capture (model used, latency), enabling better evaluation and lineage tracking downstream in `eval/evaluator.rs` and `memory/lineage.rs`.
+[2m2026-03-26T01:17:00.417014Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Compilation failed, reverting
+[2m2026-03-26T01:17:07.058078Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 13] Improving src/agent/mutator.rs
+[2m2026-03-26T01:17:13.703191Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
+[2m2026-03-26T01:17:14.980876Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust async trait best practices for generic struct methods", "Rust string template replacement vs templating engine performance", "Rust unit testing async methods with generic traits"]
+[2m2026-03-26T01:17:15.567720Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait best practices for generic struct methods'
+[2m2026-03-26T01:17:15.873999Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust string template replacement vs templating engine performance'
+[2m2026-03-26T01:17:16.151494Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust unit testing async methods with generic traits'
+[2m2026-03-26T01:17:27.132223Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add mutation history tracking to `Mutator` with `get_history()` method and adaptive strategy updates based on success patterns, aligning with the pattern used in `agent/meta_mutator.rs` and enabling downstream modules like `memory/lineage.rs` to track mutation lineage.
+[2m2026-03-26T01:17:33.642491Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 0/0 tests
+[2m2026-03-26T01:17:33.642548Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests regressed, reverting
+[2m2026-03-26T01:17:35.508140Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Regressed
+[2m2026-03-26T01:17:35.508528Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 14] Improving src/agent/meta_mutator.rs
+[2m2026-03-26T01:17:42.376265Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 100/103 tests
+[2m2026-03-26T01:17:43.739691Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust trait bounds generics best practices struct holding generic type", "Rust async trait method object safety", "anyhow crate error handling best practices in Rust async functions"]
+[2m2026-03-26T01:17:44.341031Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust trait bounds generics best practices struct holding generic type'
+[2m2026-03-26T01:17:44.644137Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust async trait method object safety'
+[2m2026-03-26T01:17:45.017621Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'anyhow crate error handling best practices in Rust async functions'
+[2m2026-03-26T01:17:53.736159Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add `improvement_rate` calculation to `MetaMutator::evolve` by analyzing the history to determine average improvement rate before recording it in `EvolutionHistory`, fixing the hardcoded `0.0` value and enabling meaningful strategy evolution tracking.
+[2m2026-03-26T01:18:04.864215Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 103/106 tests
+[2m2026-03-26T01:18:20.358660Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
