@@ -43,8 +43,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             "No hypothesis stated".to_string()
         };
 
-        // 优先检测 SEARCH/REPLACE 格式
-        if response.contains("SEARCH:") {
+        // 优先检测 SEARCH/REPLACE 格式（用完整标记避免误匹配假设文本）
+        if response.contains("<<<<<<< SEARCH") {
             if let Some(edits) = self.parse_search_replace_edits(response) {
                 return Some((hypothesis, edits));
             }
@@ -121,8 +121,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                     None => break,
                 };
 
-                let search_content = block[search_marker + 14..sep].trim_end_matches('\n').to_string();
-                let replace_content = block[sep + 7..replace_end].trim_end_matches('\n').to_string();
+                let search_content = block[search_marker + 14..sep].trim_matches('\n').to_string();
+                let replace_content = block[sep + 7..replace_end].trim_matches('\n').to_string();
 
                 if !search_content.is_empty() {
                     search_replaces.push(SearchReplace {

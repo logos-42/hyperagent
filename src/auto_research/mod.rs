@@ -271,7 +271,17 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         // 6. 编译检查
         let (compile_ok, compile_output) = self.compile_check().await?;
         if !compile_ok {
+            // 摘要编译错误（最多 5 行）
+            let error_summary: String = compile_output
+                .lines()
+                .filter(|l| l.contains("error") || l.starts_with("  --> "))
+                .take(10)
+                .collect::<Vec<_>>()
+                .join("\n");
             tracing::warn!("  Compilation failed, reverting all changed files");
+            if !error_summary.is_empty() {
+                tracing::warn!("  Errors:\n{}", error_summary);
+            }
             // Phase 3: 回滚所有修改的文件
             for (target, _) in &resolved_changes {
                 let _ = self.git_revert(target);
