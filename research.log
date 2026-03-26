@@ -143,3 +143,14 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:14:59.796811Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add summary statistics with counts by status type, duration tracking, and proper exit code handling (non-zero when all iterations fail or are skipped), aligning with the recent improvements made to bin/research.rs for consistency across binary entry points.
 [2m2026-03-26T01:15:03.433846Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
 [2m2026-03-26T01:15:12.973755Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-26T01:15:13.042022Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[9]: bin/self_evolve.rs — Add summary statistics with counts by status type, duration  (Neutral)
+[2m2026-03-26T01:15:13.042074Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:15:17.364791Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 10] Improving src/bin/unified.rs
+[2m2026-03-26T01:15:19.717200Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
+[2m2026-03-26T01:15:21.202914Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust clap argument parsing vs std::env best practices", "Rust tracing structured logging best practices", "Rust tokio main error handling idioms"]
+[2m2026-03-26T01:15:21.769484Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust clap argument parsing vs std::env best practices'
+[2m2026-03-26T01:15:21.986757Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tracing structured logging best practices'
+[2m2026-03-26T01:15:22.275732Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tokio main error handling idioms'
+[2m2026-03-26T01:15:50.036515Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Fix the duplicate variable declaration bug where `best_baseline_score` is declared twice (once in Phase 1 and once at the start of Phase 2), which causes the Phase 1 baseline score to be discarded and always resets to 0.0 at the start of Phase 2 — this undermines the entire baseline comparison mechanism.
+[2m2026-03-26T01:15:54.305835Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
+[2m2026-03-26T01:15:56.590377Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral

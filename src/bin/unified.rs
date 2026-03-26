@@ -85,7 +85,6 @@ async fn main() -> Result<()> {
     tracing::info!("\n>>> Phase 2: Research + Evolving Loop");
 
     let target_files = ResearchConfig::default().target_files;
-    let mut best_baseline_score = 0.0f32;
 
     for round in 1..=research_iters {
         tracing::info!("\n═════════════════════════════════════════");
