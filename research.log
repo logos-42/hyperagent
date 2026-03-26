@@ -132,3 +132,14 @@ warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:14:14.290188Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add summary statistics (counts of improved/neutral/regressed/failed experiments), exit with non-zero status when all experiments fail, and improve output formatting with percentages and final recommendations.
 [2m2026-03-26T01:14:18.798629Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
 [2m2026-03-26T01:14:36.053008Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
+[2m2026-03-26T01:14:36.121470Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Committed: research[8]: bin/research.rs — Add summary statistics (counts of improved/neutral/regressed (Neutral)
+[2m2026-03-26T01:14:36.121522Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Pushing to GitHub...
+[2m2026-03-26T01:14:40.934440Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 9] Improving src/bin/self_evolve.rs
+[2m2026-03-26T01:14:42.921521Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 98/101 tests
+[2m2026-03-26T01:14:47.979656Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust parse environment variables with default values best practices", "Rust clap command line argument parsing vs std::env", "Rust tracing_subscriber initialization best practices"]
+[2m2026-03-26T01:14:48.592943Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust parse environment variables with default values best practices'
+[2m2026-03-26T01:14:48.818767Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust clap command line argument parsing vs std::env'
+[2m2026-03-26T01:14:49.062199Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust tracing_subscriber initialization best practices'
+[2m2026-03-26T01:14:59.796811Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add summary statistics with counts by status type, duration tracking, and proper exit code handling (non-zero when all iterations fail or are skipped), aligning with the recent improvements made to bin/research.rs for consistency across binary entry points.
+[2m2026-03-26T01:15:03.433846Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 98/101 tests
+[2m2026-03-26T01:15:12.973755Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Neutral
