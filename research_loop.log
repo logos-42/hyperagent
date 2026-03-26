@@ -171,3 +171,76 @@ error: could not compile `hyperagent` (lib) due to 1 previous error
 [2m2026-03-26T04:45:20.134582Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (143/146), Lines: Regressed (71+), Warnings: Neutral, Complexity: 74, Binary: Neutral (+0KB)
 [2m2026-03-26T04:45:21.953763Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
 [2m2026-03-26T04:45:21.953853Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 3 new
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling sct v0.7.1
+   Compiling rustls-webpki v0.101.7
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: unused variable: `needle_len`
+   --> src/web.rs:507:9
+    |
+507 |     let needle_len = needle.len();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_needle_len`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `config` is never read
+  --> src/web.rs:48:5
+   |
+46 | struct HttpClient {
+   |        ---------- field in this struct
+47 |     inner: reqwest::Client,
+48 |     config: HttpClientConfig,
+   |     ^^^^^^
+   |
+   = note: `HttpClient` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `execute_with_retry` is never used
+  --> src/web.rs:66:14
+   |
+51 | impl HttpClient {
+   | --------------- method in this implementation
+...
+66 |     async fn execute_with_retry(&self, request: reqwest::Request) -> Res...
+   |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `is_retryable` is never used
+  --> src/web.rs:95:4
+   |
+95 | fn is_retryable(error: &reqwest::Error, retry_on_timeout: bool) -> bool {
+   |    ^^^^^^^^^^^^
+
+warning: `hyperagent` (lib) generated 4 warnings (run `cargo fix --lib -p hyperagent` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.17s
+     Running `target/debug/research`
+[2m2026-03-26T04:52:35.226013Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T04:52:35.233455Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T04:52:35.266774Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 43 files, 14159 lines
+[2m2026-03-26T04:52:35.267791Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strategy v6: temp=0.55, target=Adaptive
+[2m2026-03-26T04:52:35.288494Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T04:52:35.288589Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T04:52:35.288620Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T04:52:35.288677Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "auto_research/mod.rs", "auto_research/parsers.rs", "auto_research/prompts.rs", "auto_research/git.rs", "auto_research/testing.rs", "auto_research/log.rs", "auto_research/web_search.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T04:52:35.288785Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 999
+[2m2026-03-26T04:52:35.288809Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T04:52:35.288828Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T04:52:35.288845Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T04:52:35.288862Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T04:52:35.288890Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T04:52:56.112830Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 143/146 tests passing
+[2m2026-03-26T04:52:56.113276Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/codebase.rs
+[2m2026-03-26T04:52:56.142868Z[0m [32m INFO[0m [2mhyperagent::auto_research::git[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T04:52:59.200264Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 143/146 tests
+[2m2026-03-26T04:53:05.020524Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: searching for: ["Rust crate structure best practices for managing file summaries and dependency graphs", "parsing Rust source code to extract structs functions and traits without macro expansion", "serializing complex Rust data structures with serde and chrono timestamps"]
+[2m2026-03-26T04:53:05.544981Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'Rust crate structure best practices for managing file summaries and dependency graphs'
+[2m2026-03-26T04:53:05.803620Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'parsing Rust source code to extract structs functions and traits without macro expansion'
+[2m2026-03-26T04:53:06.142831Z[0m [32m INFO[0m [2mhyperagent::auto_research::web_search[0m[2m:[0m   Web: 0 results for 'serializing complex Rust data structures with serde and chrono timestamps'
+[2m2026-03-26T04:53:20.021233Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Add a `get_file_summary` method to `CodebaseContext` that returns a reference to the `FileSummary` for a given file path, making it easier for callers to query individual file metadata without cloning or creating new data structures.
+[2m2026-03-26T04:53:33.353539Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   After: 146/149 tests
+[2m2026-03-26T04:53:34.005919Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Multi-eval: Tests: Improved (146/149), Lines: Regressed (116+), Warnings: Neutral, Complexity: 91, Binary: Neutral (+0KB)
+[2m2026-03-26T04:53:35.432235Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Outcome: Improved
+[2m2026-03-26T04:53:35.432355Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Tests generated: 3 new

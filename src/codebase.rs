@@ -751,6 +751,29 @@ impl CodebaseContext {
             *self = fresh;
         }
     }
+
+    /// Get a reference to the file summary for a given path, if it exists.
+    /// 
+    /// This provides convenient access to individual file metadata without
+    /// requiring callers to handle Option<&String> key lookups.
+    /// 
+    /// # Arguments
+    /// * `path` - The file path relative to src/ (e.g., "agent/mutator.rs")
+    /// 
+    /// # Returns
+    /// * `Some(&FileSummary)` if the file exists in the context
+    /// * `None` if the file is not found
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// if let Some(summary) = ctx.get_file_summary("agent/mutator.rs") {
+    ///     println!("File has {} lines and {} functions", summary.lines, summary.functions.len());
+    /// }
+    /// ```
+    pub fn get_file_summary(&self, path: &str) -> Option<&FileSummary> {
+        self.files.get(path)
+    }
 }
 
 #[cfg(test)]
@@ -961,5 +984,98 @@ mod tests {
         assert_eq!(deserialized.total_iterations, 1);
         assert_eq!(deserialized.improvement_history.len(), 1);
         assert_eq!(deserialized.improvement_history[0].file, "test.rs");
+    }
+
+    #[test]
+    fn test_get_file_summary_existing_file() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 100,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        let summary = FileSummary {
+            path: "test/module.rs".to_string(),
+            lines: 150,
+            structs: vec!["MyStruct".to_string()],
+            enums: vec![],
+            functions: vec!["new".to_string(), "run".to_string()],
+            traits: vec![],
+            impls: vec!["MyStruct".to_string()],
+            uses: vec!["use crate::other;".to_string()],
+            mods: vec![],
+            doc_summary: "Test module".to_string(),
+            derives: vec!["Debug".to_string()],
+        };
+        
+        ctx.files.insert("test/module.rs".to_string(), summary);
+        
+        let result = ctx.get_file_summary("test/module.rs");
+        assert!(result.is_some());
+        let found = result.unwrap();
+        assert_eq!(found.lines, 150);
+        assert_eq!(found.structs, vec!["MyStruct"]);
+        assert_eq!(found.functions.len(), 2);
+    }
+
+    #[test]
+    fn test_get_file_summary_nonexistent_file() {
+        let ctx = CodebaseContext {
+            total_files: 0,
+            total_lines: 0,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        let result = ctx.get_file_summary("nonexistent.rs");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_file_summary_returns_reference() {
+        let mut ctx = CodebaseContext {
+            total_files: 1,
+            total_lines: 50,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        let summary = FileSummary {
+            path: "lib.rs".to_string(),
+            lines: 50,
+            structs: vec![],
+            enums: vec![],
+            functions: vec!["main".to_string()],
+            traits: vec![],
+            impls: vec![],
+            uses: vec![],
+            mods: vec!["mod test".to_string()],
+            doc_summary: "Main entry".to_string(),
+            derives: vec![],
+        };
+        
+        ctx.files.insert("lib.rs".to_string(), summary);
+        
+        // Verify we can use the reference without cloning
+        if let Some(s) = ctx.get_file_summary("lib.rs") {
+            assert_eq!(s.doc_summary, "Main entry");
+            // Reference should point to the stored data
+            assert!(std::ptr::eq(s, ctx.files.get("lib.rs").unwrap()));
+        } else {
+            panic!("Expected to find lib.rs");
+        }
     }
 }
