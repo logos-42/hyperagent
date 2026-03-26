@@ -348,6 +348,8 @@ pub struct SearchFilesOutput {
     pub pattern: String,
     pub files: Vec<FileEntry>,
     pub total_found: usize,
+    /// Whether results were truncated due to max_results limit
+    pub truncated: bool,
 }
 
 /// Find files by name pattern in the codebase.
@@ -376,13 +378,14 @@ impl CodebaseSearchTool {
         let root_path = self.root.path.clone();
         let mut files = Vec::new();
 
-        Self::find_files_recursive(&src_dir, &root_path, pattern, &mut files, max_results)?;
+        let truncated = Self::find_files_recursive(&src_dir, &root_path, pattern, &mut files, max_results)?;
 
         let total_found = files.len();
         Ok(SearchFilesOutput {
             pattern: pattern.to_string(),
             files,
             total_found,
+            truncated,
         })
     }
 
@@ -392,16 +395,18 @@ impl CodebaseSearchTool {
         pattern: &str,
         files: &mut Vec<FileEntry>,
         max_results: usize,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if !dir.exists() || files.len() >= max_results {
-            return Ok(());
+            return Ok(files.len() >= max_results);
         }
 
         let entries = std::fs::read_dir(dir)
             .with_context(|| format!("Cannot read dir {}", dir.display()))?;
 
+        let mut truncated = false;
         for entry in entries.flatten() {
             if files.len() >= max_results {
+                truncated = true;
                 break;
             }
             let path = entry.path();
@@ -410,7 +415,11 @@ impl CodebaseSearchTool {
                 if file_name == "target" || file_name.starts_with('.') {
                     continue;
                 }
-                Self::find_files_recursive(&path, root, pattern, files, max_results)?;
+                let was_truncated = Self::find_files_recursive(&path, root, pattern, files, max_results)?;
+                if was_truncated {
+                    truncated = true;
+                    break;
+                }
             } else if path.is_file() {
                 let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if glob_match(pattern, file_name) {
@@ -429,7 +438,7 @@ impl CodebaseSearchTool {
                 }
             }
         }
-        Ok(())
+        Ok(truncated)
     }
 }
 
@@ -1032,6 +1041,28 @@ mod tests {
         for f in &result.files {
             assert!(f.path.starts_with("src/"), "Path '{}' should start with 'src/'", f.path);
         }
+    }
+
+    #[test]
+    fn test_search_files_truncated() {
+        let dir = setup_test_dir("search_truncated");
+        let tool = CodebaseSearchTool::with_root(dir.clone());
+
+        // Request only 1 result when there are multiple matching files
+        let result = tool.search_files("*.rs", 1).unwrap();
+        assert_eq!(result.files.len(), 1, "Should return exactly 1 file");
+        assert!(result.truncated, "Should indicate results were truncated");
+    }
+
+    #[test]
+    fn test_search_files_not_truncated() {
+        let dir = setup_test_dir("search_not_truncated");
+        let tool = CodebaseSearchTool::with_root(dir.clone());
+
+        // Request more results than exist
+        let result = tool.search_files("*.rs", 1000).unwrap();
+        assert!(result.files.len() >= 3, "Should find all files");
+        assert!(!result.truncated, "Should not indicate truncation when all results returned");
     }
 
     #[test]
