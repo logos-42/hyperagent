@@ -51,6 +51,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Add feature X".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 2,
@@ -59,6 +60,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Add feature Y".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 3,
@@ -67,6 +69,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Add feature Z".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 4,
@@ -75,6 +78,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Add feature W".to_string(),
             },
         ];
 
@@ -98,14 +102,15 @@ mod tests {
         let mut results = Vec::new();
         
         // 3 accepted, 1 rejected, 1 failed, 1 skipped
-        for _ in 0..3 {
+        for i in 0..3 {
             results.push(SelfEvolutionResult {
-                iteration: 1,
-                file: "a.rs".to_string(),
+                iteration: i as u32 + 1,
+                file: format!("a{}.rs", i),
                 status: SelfEvolutionStatus::Accepted,
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: format!("Hypothesis {}", i),
             });
         }
         results.push(SelfEvolutionResult {
@@ -115,6 +120,7 @@ mod tests {
             score: None,
             error: None,
             description: "test".to_string(),
+            hypothesis: "Hypothesis rejected".to_string(),
         });
         results.push(SelfEvolutionResult {
             iteration: 3,
@@ -123,6 +129,7 @@ mod tests {
             score: None,
             error: None,
             description: "test".to_string(),
+            hypothesis: "Hypothesis failed".to_string(),
         });
         results.push(SelfEvolutionResult {
             iteration: 4,
@@ -131,6 +138,7 @@ mod tests {
             score: None,
             error: None,
             description: "test".to_string(),
+            hypothesis: "Hypothesis skipped".to_string(),
         });
 
         // Success rate should be 3/5 = 0.6 (skipped excluded)
@@ -176,6 +184,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "First hypothesis".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 2,
@@ -184,6 +193,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Second hypothesis".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 3,
@@ -192,6 +202,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Third hypothesis".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 4,
@@ -200,6 +211,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "test".to_string(),
+                hypothesis: "Fourth hypothesis".to_string(),
             },
         ];
 
@@ -227,6 +239,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "improvement 1".to_string(),
+                hypothesis: "Add optimization A".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 2,
@@ -235,6 +248,7 @@ mod tests {
                 score: None,
                 error: Some("error".to_string()),
                 description: "failed experiment".to_string(),
+                hypothesis: "Add optimization B".to_string(),
             },
             SelfEvolutionResult {
                 iteration: 3,
@@ -243,6 +257,7 @@ mod tests {
                 score: None,
                 error: None,
                 description: "improvement 2".to_string(),
+                hypothesis: "Add optimization C".to_string(),
             },
         ];
 
@@ -257,6 +272,83 @@ mod tests {
         assert_eq!(failed.len(), 1);
         assert!(failed[0].error.is_some());
     }
+
+    #[test]
+    fn test_hypothesis_field_preserved() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "Short summary".to_string(),
+                hypothesis: "Add caching to improve performance by reducing redundant computations".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "b.rs".to_string(),
+                status: SelfEvolutionStatus::Rejected,
+                score: None,
+                error: None,
+                description: "Rejected change".to_string(),
+                hypothesis: "Refactor module structure for better separation of concerns".to_string(),
+            },
+        ];
+
+        // Verify hypothesis field contains full hypothesis text
+        let accepted = results.iter().find(|r| r.status == SelfEvolutionStatus::Accepted).unwrap();
+        assert_eq!(accepted.hypothesis, "Add caching to improve performance by reducing redundant computations");
+        
+        // Verify description is separate from hypothesis
+        assert_ne!(accepted.description, accepted.hypothesis);
+        assert!(accepted.description.len() < accepted.hypothesis.len() || accepted.description == "Short summary");
+    }
+
+    #[test]
+    fn test_successful_hypotheses_extraction() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "Good improvement".to_string(),
+                hypothesis: "First successful hypothesis".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "b.rs".to_string(),
+                status: SelfEvolutionStatus::Failed,
+                score: None,
+                error: Some("error".to_string()),
+                description: "Failed experiment".to_string(),
+                hypothesis: "Failed hypothesis".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 3,
+                file: "c.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "Another good one".to_string(),
+                hypothesis: "Second successful hypothesis".to_string(),
+            },
+        ];
+
+        // Extract hypotheses from successful experiments
+        let successful_hypotheses: Vec<&str> = results
+            .iter()
+            .filter(|r| r.status == SelfEvolutionStatus::Accepted)
+            .map(|r| r.hypothesis.as_str())
+            .collect();
+
+        assert_eq!(successful_hypotheses.len(), 2);
+        assert!(successful_hypotheses.contains(&"First successful hypothesis"));
+        assert!(successful_hypotheses.contains(&"Second successful hypothesis"));
+        assert!(!successful_hypotheses.contains(&"Failed hypothesis"));
+    }
 }
 
 /// 自改进迭代结果
@@ -267,7 +359,10 @@ pub struct SelfEvolutionResult {
     pub status: SelfEvolutionStatus,
     pub score: Option<SelfEvolutionScore>,
     pub error: Option<String>,
+    /// Brief summary of the experiment outcome
     pub description: String,
+    /// Complete hypothesis text that was tested
+    pub hypothesis: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -369,17 +464,21 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
                 None
             };
 
+            let hypothesis = exp.hypothesis.clone();
+            let description = format!(
+                "{} — {}",
+                &exp.hypothesis.chars().take(80).collect::<String>(),
+                &exp.reflection.chars().take(80).collect::<String>(),
+            );
+
             self.results.push(SelfEvolutionResult {
                 iteration: exp.iteration,
                 file: exp.file.clone(),
                 status,
                 score,
                 error,
-                description: format!(
-                    "{} — {}",
-                    &exp.hypothesis.chars().take(80).collect::<String>(),
-                    &exp.reflection.chars().take(80).collect::<String>(),
-                ),
+                description,
+                hypothesis,
             });
         }
 
