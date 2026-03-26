@@ -430,15 +430,13 @@ fn html_to_text(html: &str) -> String {
 }
 
 /// Case-insensitive substring search without allocating.
+/// Returns the starting byte position of the first match, or None if not found.
 #[inline]
 fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
-    haystack
-        .char_indices()
-        .position(|(i, _)| {
-            haystack[i..].chars().zip(needle.chars()).all(|(h, n)| {
-                h.to_ascii_lowercase() == n.to_ascii_lowercase()
-            }) && haystack[i..].len() >= needle.len()
-        })
+    let needle_lower: String = needle.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let haystack_lower: String = haystack.chars().map(|c| c.to_ascii_lowercase()).collect();
+    
+    haystack_lower.find(&needle_lower).map(|i| i)
 }
 
 /// Extract <title> from HTML (case-insensitive).
@@ -833,6 +831,11 @@ mod tests {
         assert_eq!(find_case_insensitive("Hello World", "hello"), Some(0));
         assert_eq!(find_case_insensitive("Hello World", "WORLD"), Some(6));
         assert_eq!(find_case_insensitive("Hello World", "xyz"), None);
+        // Test with short haystack - should not panic
+        assert_eq!(find_case_insensitive("Hi", "hello"), None);
+        assert_eq!(find_case_insensitive("", "test"), None);
+        // Test exact match
+        assert_eq!(find_case_insensitive("test", "test"), Some(0));
     }
 
     #[tokio::test]
