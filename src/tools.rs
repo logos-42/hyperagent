@@ -690,6 +690,8 @@ pub struct TreeEntry {
     pub path: String,
     pub is_dir: bool,
     pub size_bytes: Option<u64>,
+    /// Nesting depth (0 = root level, 1 = one level deep, etc.)
+    pub depth: usize,
 }
 
 /// Output of the codebase_tree tool.
@@ -785,6 +787,7 @@ impl CodebaseTreeTool {
                     path: rel.clone(),
                     is_dir: true,
                     size_bytes: None,
+                    depth: current_depth,
                 });
                 self.build_tree(&path, &rel, max_depth, current_depth + 1, entries, total_files, total_dirs)?;
             } else {
@@ -794,6 +797,7 @@ impl CodebaseTreeTool {
                     path: rel,
                     is_dir: false,
                     size_bytes: size,
+                    depth: current_depth,
                 });
             }
         }
@@ -1154,6 +1158,57 @@ mod tests {
         assert!(result.total_dirs >= 2);
         assert!(result.entries.iter().any(|e| e.path.contains("lib.rs")));
         assert!(result.entries.iter().any(|e| e.is_dir && e.path.contains("runtime")));
+    }
+
+    #[test]
+    fn test_tree_depth_field() {
+        let dir = setup_test_dir("tree_depth");
+        let tool = CodebaseTreeTool::with_root(dir.clone());
+
+        let result = tool.tree("src", 3).unwrap();
+        
+        // Find entries at different depths
+        let lib_entry = result.entries.iter().find(|e| e.path.ends_with("lib.rs")).unwrap();
+        assert_eq!(lib_entry.depth, 0, "lib.rs should be at depth 0 (directly in src)");
+        
+        // Directories at depth 0
+        let runtime_dir = result.entries.iter().find(|e| e.path == "src/runtime").unwrap();
+        assert_eq!(runtime_dir.depth, 0, "src/runtime should be at depth 0");
+        
+        // Files inside runtime at depth 1
+        let loop_entry = result.entries.iter().find(|e| e.path.ends_with("loop_.rs")).unwrap();
+        assert_eq!(loop_entry.depth, 1, "loop_.rs should be at depth 1 (inside runtime)");
+        
+        // Verify depth ordering: parent directories have lower depth than children
+        for entry in &result.entries {
+            if entry.is_dir {
+                // Find children of this directory
+                let child_entries: Vec<_> = result.entries.iter()
+                    .filter(|e| e.path.starts_with(&entry.path) && e.path != entry.path)
+                    .collect();
+                for child in child_entries {
+                    assert!(child.depth > entry.depth, 
+                        "Child {} (depth {}) should have greater depth than parent {} (depth {})",
+                        child.path, child.depth, entry.path, entry.depth);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_tree_depth_consistency() {
+        let dir = setup_test_dir("tree_depth_consistency");
+        let tool = CodebaseTreeTool::with_root(dir.clone());
+
+        let result = tool.tree("src", 3).unwrap();
+        
+        // Verify depth matches path structure (count slashes relative to base)
+        for entry in &result.entries {
+            let expected_depth = entry.path.matches('/').count();
+            assert_eq!(entry.depth, expected_depth, 
+                "Entry {} has depth {} but path suggests depth {}",
+                entry.path, entry.depth, expected_depth);
+        }
     }
 
     #[tokio::test]
