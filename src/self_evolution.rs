@@ -165,6 +165,98 @@ mod tests {
         let status = SelfEvolutionStatus::default();
         assert_eq!(status, SelfEvolutionStatus::Skipped);
     }
+
+    #[test]
+    fn test_filter_by_status() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "test".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "b.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "test".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 3,
+                file: "c.rs".to_string(),
+                status: SelfEvolutionStatus::Rejected,
+                score: None,
+                error: None,
+                description: "test".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 4,
+                file: "d.rs".to_string(),
+                status: SelfEvolutionStatus::Failed,
+                score: None,
+                error: None,
+                description: "test".to_string(),
+            },
+        ];
+
+        // Test filter_by_status
+        let accepted: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Accepted).collect();
+        assert_eq!(accepted.len(), 2);
+        
+        let rejected: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Rejected).collect();
+        assert_eq!(rejected.len(), 1);
+        
+        let failed: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Failed).collect();
+        assert_eq!(failed.len(), 1);
+        
+        let skipped: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Skipped).collect();
+        assert_eq!(skipped.len(), 0);
+    }
+
+    #[test]
+    fn test_accepted_and_failed_convenience_methods() {
+        let results = vec![
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "a.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "improvement 1".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 2,
+                file: "b.rs".to_string(),
+                status: SelfEvolutionStatus::Failed,
+                score: None,
+                error: Some("error".to_string()),
+                description: "failed experiment".to_string(),
+            },
+            SelfEvolutionResult {
+                iteration: 3,
+                file: "c.rs".to_string(),
+                status: SelfEvolutionStatus::Accepted,
+                score: None,
+                error: None,
+                description: "improvement 2".to_string(),
+            },
+        ];
+
+        // Verify accepted results contain correct descriptions
+        let accepted: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Accepted).collect();
+        assert_eq!(accepted.len(), 2);
+        assert!(accepted.iter().any(|r| r.description == "improvement 1"));
+        assert!(accepted.iter().any(|r| r.description == "improvement 2"));
+
+        // Verify failed results contain error info
+        let failed: Vec<_> = results.iter().filter(|r| r.status == SelfEvolutionStatus::Failed).collect();
+        assert_eq!(failed.len(), 1);
+        assert!(failed[0].error.is_some());
+    }
 }
 
 /// 自改进迭代结果
@@ -338,6 +430,21 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
             skipped: self.results.iter().filter(|r| r.status == SelfEvolutionStatus::Skipped).count(),
             success_rate: self.success_rate(),
         }
+    }
+
+    /// Filter results by status type
+    pub fn filter_by_status(&self, status: SelfEvolutionStatus) -> Vec<&SelfEvolutionResult> {
+        self.results.iter().filter(|r| r.status == status).collect()
+    }
+
+    /// Get all accepted results (convenience method)
+    pub fn accepted(&self) -> Vec<&SelfEvolutionResult> {
+        self.filter_by_status(SelfEvolutionStatus::Accepted)
+    }
+
+    /// Get all failed results (convenience method)
+    pub fn failed(&self) -> Vec<&SelfEvolutionResult> {
+        self.filter_by_status(SelfEvolutionStatus::Failed)
     }
 }
 
