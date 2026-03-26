@@ -133,8 +133,42 @@ impl IterationMetrics {
 }
 
 impl MultiEvalResult {
-    /// 从前后指标对比生成多维评估
+    /// 从前后指标对比生成多维评估（使用默认权重）
     pub fn compare(before: &IterationMetrics, after: &IterationMetrics) -> Self {
+        Self::compare_weighted(before, after, None)
+    }
+
+    /// 从前后指标对比生成多维评估（使用可配权重和阈值）
+    ///
+    /// `weights` 为 Option<&StrategyConfig>，为 None 时使用默认值
+    pub fn compare_weighted(
+        before: &IterationMetrics,
+        after: &IterationMetrics,
+        weights: Option<&crate::strategy::StrategyConfig>,
+    ) -> Self {
+        let (w_tests_imp, w_tests_reg) = weights
+            .map(|w| w.weight_tuple("tests"))
+            .unwrap_or((0.4, -0.6));
+        let (w_lines_imp, w_lines_reg) = weights
+            .map(|w| w.weight_tuple("lines"))
+            .unwrap_or((0.1, -0.05));
+        let (w_warn_imp, w_warn_reg) = weights
+            .map(|w| w.weight_tuple("warnings"))
+            .unwrap_or((0.1, -0.1));
+        let (w_cplx_imp, w_cplx_reg) = weights
+            .map(|w| w.weight_tuple("complexity"))
+            .unwrap_or((0.1, -0.05));
+        let (w_bin_imp, w_bin_reg) = weights
+            .map(|w| w.weight_tuple("binary_size"))
+            .unwrap_or((0.05, -0.05));
+
+        let lines_imp_thresh = weights.map(|w| w.lines_improved_threshold).unwrap_or(-5);
+        let lines_reg_thresh = weights.map(|w| w.lines_regressed_threshold).unwrap_or(20);
+        let cplx_imp_thresh = weights.map(|w| w.complexity_improved_threshold).unwrap_or(5.0);
+        let cplx_reg_thresh = weights.map(|w| w.complexity_regressed_threshold).unwrap_or(10.0);
+        let bin_imp_pct = weights.map(|w| w.binary_improved_pct).unwrap_or(-0.02);
+        let bin_reg_pct = weights.map(|w| w.binary_regressed_pct).unwrap_or(0.05);
+
         let tests = if after.tests_passed > before.tests_passed {
             MetricDirection::Improved
         } else if after.tests_passed < before.tests_passed {
@@ -143,10 +177,10 @@ impl MultiEvalResult {
             MetricDirection::Neutral
         };
 
-        let lines = if after.lines_delta < -5 {
-            MetricDirection::Improved // 大幅精简
-        } else if after.lines_delta > 20 {
-            MetricDirection::Regressed // 大幅膨胀
+        let lines = if after.lines_delta < lines_imp_thresh {
+            MetricDirection::Improved
+        } else if after.lines_delta > lines_reg_thresh {
+            MetricDirection::Regressed
         } else {
             MetricDirection::Neutral
         };
@@ -159,9 +193,9 @@ impl MultiEvalResult {
             MetricDirection::Neutral
         };
 
-        let complexity = if after.complexity < before.complexity - 5.0 {
+        let complexity = if after.complexity < before.complexity - cplx_imp_thresh {
             MetricDirection::Improved
-        } else if after.complexity > before.complexity + 10.0 {
+        } else if after.complexity > before.complexity + cplx_reg_thresh {
             MetricDirection::Regressed
         } else {
             MetricDirection::Neutral
@@ -170,9 +204,9 @@ impl MultiEvalResult {
         let binary_size = if before.binary_size > 0 && after.binary_size > 0 {
             let pct_change = (after.binary_size as i64 - before.binary_size as i64) as f64
                 / before.binary_size as f64;
-            if pct_change < -0.02 {
+            if pct_change < bin_imp_pct {
                 MetricDirection::Improved
-            } else if pct_change > 0.05 {
+            } else if pct_change > bin_reg_pct {
                 MetricDirection::Regressed
             } else {
                 MetricDirection::Neutral
@@ -181,31 +215,31 @@ impl MultiEvalResult {
             MetricDirection::Neutral
         };
 
-        // 综合评分：测试最重要，其他维度加权
+        // 综合评分
         let mut score = 0.0_f64;
         score += match tests {
-            MetricDirection::Improved => 0.4,
-            MetricDirection::Regressed => -0.6,
+            MetricDirection::Improved => w_tests_imp,
+            MetricDirection::Regressed => w_tests_reg,
             MetricDirection::Neutral => 0.0,
         };
         score += match lines {
-            MetricDirection::Improved => 0.1,
-            MetricDirection::Regressed => -0.05,
+            MetricDirection::Improved => w_lines_imp,
+            MetricDirection::Regressed => w_lines_reg,
             MetricDirection::Neutral => 0.0,
         };
         score += match warnings {
-            MetricDirection::Improved => 0.1,
-            MetricDirection::Regressed => -0.1,
+            MetricDirection::Improved => w_warn_imp,
+            MetricDirection::Regressed => w_warn_reg,
             MetricDirection::Neutral => 0.0,
         };
         score += match complexity {
-            MetricDirection::Improved => 0.1,
-            MetricDirection::Regressed => -0.05,
+            MetricDirection::Improved => w_cplx_imp,
+            MetricDirection::Regressed => w_cplx_reg,
             MetricDirection::Neutral => 0.0,
         };
         score += match binary_size {
-            MetricDirection::Improved => 0.05,
-            MetricDirection::Regressed => -0.05,
+            MetricDirection::Improved => w_bin_imp,
+            MetricDirection::Regressed => w_bin_reg,
             MetricDirection::Neutral => 0.0,
         };
 

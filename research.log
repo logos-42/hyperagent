@@ -577,3 +577,92 @@ warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hypera
 [2m2026-03-26T01:51:45.488607Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust automated code refactoring and self-modification best practices'
 [2m2026-03-26T01:51:45.792365Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust best practices for implementing complex state machines and iteration loops'
 [2m2026-03-26T01:51:46.078890Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust patterns for safe filesystem operations and sandboxed code execution'
+[2m2026-03-26T01:52:46.692224Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: Optimize the `run_iteration` method by extracting LLM prompt construction into separate methods and reducing code duplication in git operations, making the code more maintainable and testable.
+
+thread 'main' (858230) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+=== RESTART === Thu Mar 26 09:52:46 CST 2026 ===
+   Compiling ring v0.17.14
+   Compiling rustls v0.21.12
+   Compiling rustls-webpki v0.101.7
+   Compiling sct v0.7.1
+   Compiling tokio-rustls v0.24.1
+   Compiling hyper-rustls v0.24.2
+   Compiling reqwest v0.11.27
+   Compiling hyperagent v0.1.1 (/Users/apple/Downloads/hyperagent)
+warning: variable does not need to be mutable
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ----^
+    |                             |
+    |                             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `full_line`
+   --> src/codebase.rs:136:17
+    |
+136 |             let full_line = lines[i];
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_full_line`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `j`
+   --> src/codebase.rs:179:29
+    |
+179 |                         let mut j = i;
+    |                             ^^^^^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: method `make_response` is never used
+   --> src/llm/client.rs:350:8
+    |
+272 | impl RigBackend {
+    | --------------- method in this implementation
+...
+350 |     fn make_response(&self, content: String) -> LLMResponse {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `output` is never read
+  --> src/runtime/loop_.rs:20:5
+   |
+15 | struct BranchResult {
+   |        ------------ field in this struct
+...
+20 |     output: String,
+   |     ^^^^^^
+   |
+   = note: `BranchResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `hyperagent` (lib) generated 5 warnings (run `cargo fix --lib -p hyperagent` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.72s
+     Running `target/debug/research`
+[2m2026-03-26T01:53:13.761121Z[0m [32m INFO[0m [2mresearch[0m[2m:[0m Auto Research: provider=Ollama, model=glm-5:cloud
+[2m2026-03-26T01:53:13.765241Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Scanning codebase for the first time...
+[2m2026-03-26T01:53:13.797231Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Codebase: 35 files, 12944 lines
+[2m2026-03-26T01:53:13.807543Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╔══════════════════════════════════════════╗
+[2m2026-03-26T01:53:13.807587Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ║   Unified Auto Research Loop           ║
+[2m2026-03-26T01:53:13.807603Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m ╚══════════════════════════════════════════╝
+[2m2026-03-26T01:53:13.807615Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Targets: ["auto_research.rs", "self_evolution.rs", "codebase.rs", "web.rs", "tools.rs", "lib.rs", "main.rs", "bin/research.rs", "bin/self_evolve.rs", "bin/unified.rs", "agent/mod.rs", "agent/executor.rs", "agent/mutator.rs", "agent/meta_mutator.rs", "agent/population.rs", "eval/mod.rs", "eval/evaluator.rs", "eval/benchmark.rs", "llm/mod.rs", "llm/client.rs", "llm/prompts.rs", "memory/mod.rs", "memory/archive.rs", "memory/lineage.rs", "runtime/mod.rs", "runtime/thermodynamics.rs", "runtime/loop_.rs", "runtime/selection.rs", "runtime/constraints.rs", "runtime/population.rs", "runtime/environment.rs", "runtime/state.rs", "runtime/local_runtime.rs", "runtime/multi_agent_loop.rs"]
+[2m2026-03-26T01:53:13.807664Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Max iterations: 100
+[2m2026-03-26T01:53:13.807675Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Auto push: true
+[2m2026-03-26T01:53:13.807687Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Dry run: false
+[2m2026-03-26T01:53:13.807696Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Strict mode: false
+[2m2026-03-26T01:53:13.807706Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Web search: true
+[2m2026-03-26T01:53:13.807719Z[0m [33m WARN[0m [2mhyperagent::auto_research[0m[2m:[0m AUTO PUSH enabled — changes will be pushed to GitHub!
+[2m2026-03-26T01:53:38.842638Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m Baseline: 119/122 tests passing
+[2m2026-03-26T01:53:38.846088Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m [Research 1] Improving src/auto_research.rs
+[2m2026-03-26T01:53:38.877269Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Checkpoint: checkpoint-1
+[2m2026-03-26T01:53:42.201623Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Baseline: 119/122 tests
+[2m2026-03-26T01:53:44.378626Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: searching for: ["Rust crate module structure best practices organizing src directory", "Rust idiomatic error handling with anyhow for CLI applications", "Rust file system operations and path handling best practices"]
+[2m2026-03-26T01:53:44.959995Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust crate module structure best practices organizing src directory'
+[2m2026-03-26T01:53:45.200248Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust idiomatic error handling with anyhow for CLI applications'
+[2m2026-03-26T01:53:45.492205Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Web: 0 results for 'Rust file system operations and path handling best practices'
+[2m2026-03-26T01:54:36.345402Z[0m [32m INFO[0m [2mhyperagent::auto_research[0m[2m:[0m   Hypothesis: The `gather_web_context` method calls web search sequentially in a loop, causing slow iteration times; parallelizing these requests with `futures::future::join_all` will reduce latency without changing external behavior.
+
+thread 'main' (872902) panicked at /Users/apple/Downloads/hyperagent/src/auto_research.rs:958:21:
+attempt to subtract with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

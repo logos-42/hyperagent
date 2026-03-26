@@ -5,6 +5,7 @@ pub mod llm;
 pub mod memory;
 pub mod runtime;
 pub mod self_evolution;
+pub mod strategy;
 pub mod auto_research;
 pub mod web;
 pub mod tools;
@@ -36,7 +37,7 @@ pub use runtime::{
     LocalRuntimeConfig, ExecutionContext, ExecutionResult, ProviderStats,
 };
 pub use self_evolution::{SelfEvolutionEngine, SelfEvolutionConfig, SelfEvolutionStatus};
-pub use auto_research::{AutoResearch, ResearchConfig, Experiment, ExperimentOutcome};
+pub use auto_research::{AutoResearch, ResearchConfig, Experiment, ExperimentOutcome, FileChange};
 pub use eval::metrics::{MultiEvalResult, MetricDirection};
 pub use web::{WebSearchTool, WebFetchTool, WebSearchResult, FetchOutput, SearchOutput, build_web_context_prompt};
 pub use tools::{
