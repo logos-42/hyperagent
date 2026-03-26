@@ -148,15 +148,35 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             return None;
         }
 
+        // 合并同文件的 SearchReplace 操作（LLM 可能为同一文件输出多个 EDIT 块）
+        use std::collections::HashMap;
+        let mut merged: HashMap<String, Vec<SearchReplace>> = HashMap::new();
+        let mut full_files: HashMap<String, String> = HashMap::new();
+
+        for edit in &edits {
+            match &edit.op {
+                EditOp::SearchReplace(srs) => {
+                    merged.entry(edit.file_path.clone())
+                        .or_default()
+                        .extend(srs.iter().cloned());
+                }
+                EditOp::FullFile(content) => {
+                    full_files.insert(edit.file_path.clone(), content.clone());
+                }
+            }
+        }
+
         // 应用所有编辑到原始文件
         let mut results: Vec<(String, String)> = Vec::new();
-        for edit in &edits {
-            let original = self.read_file(&edit.file_path).unwrap_or_default();
-            let modified = match &edit.op {
-                EditOp::SearchReplace(srs) => self.apply_search_replaces(&original, srs),
-                EditOp::FullFile(content) => content.clone(),
-            };
-            results.push((edit.file_path.clone(), modified));
+
+        for (file_path, srs) in &merged {
+            let original = self.read_file(file_path).unwrap_or_default();
+            let modified = self.apply_search_replaces(&original, srs);
+            results.push((file_path.clone(), modified));
+        }
+
+        for (file_path, content) in &full_files {
+            results.push((file_path.clone(), content.clone()));
         }
 
         Some(results)
