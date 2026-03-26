@@ -1,3 +1,42 @@
+//! # Hyperagent: Self-Evolving AI Research System
+//!
+//! A recursive self-improvement framework implementing Andrej Karpathy's research methodology:
+//! **Hypothesis → Experiment → Observation → Reflection → New Hypothesis**
+//!
+//! ## Architecture Overview
+//!
+//! The system is organized into interconnected modules:
+//!
+//! - **[`agent`]**: Core agent primitives (`Agent`, `Executor`, `Mutator`, `MetaMutator`)
+//!   for evolutionary code transformation
+//! - **[`llm`]**: Multi-provider LLM client abstraction (OpenAI, Ollama, Qwen, GLM, MiniMax)
+//! - **[`runtime`]**: Evolution loops, thermodynamic state management, and constraint systems
+//! - **[`memory`]**: Evolutionary lineage tracking and solution archival
+//! - **[`eval`]**: Multi-dimensional evaluation metrics and benchmarking
+//! - **[`strategy`]**: Meta-evolutionary strategy parameter adaptation
+//! - **[`auto_research`]**: Karpathy-style autonomous research loop
+//! - **[`self_evolution`]**: Recursive self-improvement engine
+//! - **[`codebase`]**: Codebase context and architectural awareness
+//! - **[`web`]**: Web search and fetch tools for research augmentation
+//! - **[`tools`]**: Local codebase introspection tools (grep, search, read, tree)
+//!
+//! ## Quick Start
+//!
+//! ```rust,no_run
+//! use hyperagent::{Agent, LLMClient, LLMConfig, EvolutionLoop};
+//!
+//! // Create an agent with an LLM client
+//! let config = LLMConfig::default();
+//! let agent = Agent::new(config);
+//!
+//! // Run evolution
+//! let result = agent.evolve("Improve performance").await?;
+//! ```
+//!
+//! ## Feature Flags
+//!
+//! No feature flags are currently used; all modules are always available.
+
 pub mod agent;
 pub mod codebase;
 pub mod eval;
