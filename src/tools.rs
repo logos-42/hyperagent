@@ -539,6 +539,8 @@ pub struct ReadFileOutput {
     pub start_line: usize,
     pub end_line: usize,
     pub content: String,
+    /// Whether there are more lines beyond the requested range
+    pub truncated: bool,
 }
 
 /// Read a file's content.
@@ -590,6 +592,7 @@ impl CodebaseReadTool {
         let end = (start + max_lines).min(total_lines);
         let slice: Vec<&str> = all_lines[start..end].to_vec();
         let returned_content = slice.join("\n");
+        let truncated = end < total_lines;
 
         Ok(ReadFileOutput {
             path: path.to_string(),
@@ -598,6 +601,7 @@ impl CodebaseReadTool {
             start_line: start + 1,
             end_line: end,
             content: returned_content,
+            truncated,
         })
     }
 }
@@ -1316,6 +1320,63 @@ mod tests {
         
         let content = result.unwrap();
         assert!(content.content.contains("pub fn run"));
+    }
+
+    #[test]
+    fn test_read_file_truncated_true() {
+        let dir = setup_test_dir("truncated_true");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Request fewer lines than the file has
+        let result = tool.read_file("src/lib.rs", 1, 1).unwrap();
+        assert!(result.truncated, "Should be truncated when file has more lines");
+        assert_eq!(result.returned_lines, 1);
+        assert_eq!(result.total_lines, 2);
+    }
+
+    #[test]
+    fn test_read_file_truncated_false() {
+        let dir = setup_test_dir("truncated_false");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Request more lines than the file has
+        let result = tool.read_file("src/lib.rs", 1, 100).unwrap();
+        assert!(!result.truncated, "Should not be truncated when all lines returned");
+        assert_eq!(result.returned_lines, 2);
+        assert_eq!(result.total_lines, 2);
+    }
+
+    #[test]
+    fn test_read_file_truncated_with_offset() {
+        let dir = setup_test_dir("truncated_offset");
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Read from line 2 with 1 line limit - there's only 2 lines total
+        let result = tool.read_file("src/lib.rs", 2, 1).unwrap();
+        assert!(!result.truncated, "Should not be truncated when reading last line");
+        assert_eq!(result.start_line, 2);
+        assert_eq!(result.end_line, 2);
+    }
+
+    #[test]
+    fn test_read_file_truncated_mid_file() {
+        let dir = std::env::temp_dir().join("hyperagent_test_truncated_mid");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(dir.join("src"));
+        
+        // Create a file with 10 lines
+        let content: String = (1..=10).map(|i| format!("line {}\n", i)).collect();
+        let _ = fs::write(dir.join("src/ten.rs"), &content);
+        
+        let tool = CodebaseReadTool::with_root(dir.clone());
+        
+        // Read lines 3-5 (max_lines=3)
+        let result = tool.read_file("src/ten.rs", 3, 3).unwrap();
+        assert!(result.truncated, "Should be truncated when more lines remain after requested range");
+        assert_eq!(result.start_line, 3);
+        assert_eq!(result.end_line, 5);
+        assert_eq!(result.total_lines, 10);
+        assert_eq!(result.returned_lines, 3);
     }
 
     #[test]
