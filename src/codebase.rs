@@ -814,22 +814,69 @@ impl CodebaseContext {
     /// // Returns formatted summaries of files that use agent/mod.rs
     /// ```
     pub fn get_related_files_content(&self, target_file: &str, max_files: usize) -> String {
-        let dependents: Vec<&FileSummary> = self
+        let dependents: Vec<(&FileSummary, Vec<String>)> = self
             .files
             .iter()
-            .filter(|(path, summary)| {
-                *path != target_file
-                    && summary.uses.iter().any(|u| {
-                        let module_hint = target_file
-                            .strip_suffix(".rs")
-                            .unwrap_or(target_file)
-                            .replace('/', "::")
-                            .replace("mod.rs", "");
-                        u.contains(&module_hint)
+            .filter_map(|(path, summary)| {
+                if *path == target_file {
+                    return None;
+                }
+                
+                // Find which items from target file are used by this dependent
+                let module_hint = target_file
+                    .strip_suffix(".rs")
+                    .unwrap_or(target_file)
+                    .replace('/', "::")
+                    .replace("mod.rs", "");
+                
+                let used_items: Vec<String> = summary
+                    .uses
+                    .iter()
+                    .filter(|u| {
+                        u.contains(&module_hint) 
                             || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
                     })
+                    .filter_map(|u| {
+                        // Extract specific imported items from use statements
+                        // e.g., "use crate::agent::Agent;" -> "Agent"
+                        // e.g., "use crate::agent::{Agent, MutationStrategy};" -> "Agent, MutationStrategy"
+                        if let Some(stripped) = u.strip_prefix("use crate::") {
+                            let rest = stripped.trim_end_matches(';');
+                            // Check if this use statement references our module
+                            if rest.starts_with(&module_hint) || rest.contains(&format!("{}::", module_hint)) {
+                                // Extract the item name(s)
+                                if let Some(after_module) = rest.strip_prefix(&module_hint) {
+                                    let after_module = after_module.trim_start_matches(':');
+                                    if after_module.starts_with('{') {
+                                        // Multiple items: use crate::module::{Item1, Item2}
+                                        let items = after_module
+                                            .trim_matches('{')
+                                            .trim_matches('}')
+                                            .split(',')
+                                            .map(|s| s.trim().to_string())
+                                            .collect::<Vec<_>>();
+                                        return Some(items);
+                                    } else if !after_module.is_empty() {
+                                        // Single item: use crate::module::Item
+                                        let item = after_module.trim().to_string();
+                                        if !item.is_empty() {
+                                            return Some(vec![item]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .flatten()
+                    .collect();
+
+                if used_items.is_empty() {
+                    None
+                } else {
+                    Some((summary, used_items))
+                }
             })
-            .map(|(_, summary)| summary)
             .collect();
 
         if dependents.is_empty() {
@@ -837,11 +884,11 @@ impl CodebaseContext {
         }
 
         // Sort by line count descending (larger files likely more important)
-        let mut sorted_dependents: Vec<_> = dependents.iter().collect();
-        sorted_dependents.sort_by(|a, b| b.lines.cmp(&a.lines));
+        let mut sorted_dependents = dependents;
+        sorted_dependents.sort_by(|a, b| b.0.lines.cmp(&a.0.lines));
 
         let mut result = String::new();
-        for summary in sorted_dependents.into_iter().take(max_files) {
+        for (summary, used_items) in sorted_dependents.into_iter().take(max_files) {
             result.push_str(&format!(
                 "\n--- {} ({} lines) ---\n",
                 summary.path, summary.lines
@@ -851,6 +898,9 @@ impl CodebaseContext {
             if !summary.doc_summary.is_empty() {
                 result.push_str(&format!("Doc: {}\n", summary.doc_summary));
             }
+            
+            // Show which items from target are used
+            result.push_str(&format!("Uses from target: {}\n", used_items.join(", ")));
             
             // Include key types
             if !summary.structs.is_empty() {
@@ -1347,6 +1397,123 @@ mod tests {
         let result = ctx.get_related_files_content("self_ref.rs", 5);
         
         // Should not include the file itself even though it has a matching use statement
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_related_files_content_shows_used_items() {
+        let mut ctx = CodebaseContext {
+            total_files: 3,
+            total_lines: 250,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        // Target file with exported items
+        ctx.files.insert("agent/mod.rs".to_string(), FileSummary {
+            path: "agent/mod.rs".to_string(),
+            lines: 100,
+            structs: vec!["Agent".to_string(), "MutationStrategy".to_string()],
+            enums: vec![],
+            functions: vec!["new".to_string(), "evolve".to_string()],
+            traits: vec![],
+            impls: vec!["Agent".to_string()],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "Agent module".to_string(),
+            derives: vec![],
+        });
+        
+        // Dependent that imports multiple items
+        ctx.files.insert("runtime/loop_.rs".to_string(), FileSummary {
+            path: "runtime/loop_.rs".to_string(),
+            lines: 100,
+            structs: vec!["EvolutionLoop".to_string()],
+            enums: vec![],
+            functions: vec!["run".to_string()],
+            traits: vec![],
+            impls: vec!["EvolutionLoop".to_string()],
+            uses: vec!["use crate::agent::{Agent, MutationStrategy};".to_string()],
+            mods: vec![],
+            doc_summary: "Evolution loop".to_string(),
+            derives: vec![],
+        });
+        
+        // Dependent that imports single item
+        ctx.files.insert("bin/unified.rs".to_string(), FileSummary {
+            path: "bin/unified.rs".to_string(),
+            lines: 50,
+            structs: vec![],
+            enums: vec![],
+            functions: vec!["main".to_string()],
+            traits: vec![],
+            impls: vec![],
+            uses: vec!["use crate::agent::Agent;".to_string()],
+            mods: vec![],
+            doc_summary: "Unified binary".to_string(),
+            derives: vec![],
+        });
+        
+        let result = ctx.get_related_files_content("agent/mod.rs", 5);
+        
+        // Should show which items are used
+        assert!(result.contains("Uses from target: Agent, MutationStrategy"));
+        assert!(result.contains("Uses from target: Agent"));
+        
+        // Should still show file summaries
+        assert!(result.contains("runtime/loop_.rs"));
+        assert!(result.contains("bin/unified.rs"));
+    }
+
+    #[test]
+    fn test_get_related_files_content_filters_non_matching_uses() {
+        let mut ctx = CodebaseContext {
+            total_files: 2,
+            total_lines: 150,
+            files: HashMap::new(),
+            module_tree: String::new(),
+            architecture_summary: String::new(),
+            last_scanned: String::new(),
+            total_iterations: 0,
+            improvement_history: Vec::new(),
+        };
+        
+        ctx.files.insert("core/types.rs".to_string(), FileSummary {
+            path: "core/types.rs".to_string(),
+            lines: 50,
+            structs: vec!["Config".to_string()],
+            enums: vec![],
+            functions: vec![],
+            traits: vec![],
+            impls: vec![],
+            uses: vec![],
+            mods: vec![],
+            doc_summary: "Types".to_string(),
+            derives: vec![],
+        });
+        
+        // File with unrelated imports - should not be included
+        ctx.files.insert("other/mod.rs".to_string(), FileSummary {
+            path: "other/mod.rs".to_string(),
+            lines: 100,
+            structs: vec![],
+            enums: vec![],
+            functions: vec![],
+            traits: vec![],
+            impls: vec![],
+            uses: vec!["use std::collections::HashMap;".to_string(), "use serde::Serialize;".to_string()],
+            mods: vec![],
+            doc_summary: "Other module".to_string(),
+            derives: vec![],
+        });
+        
+        let result = ctx.get_related_files_content("core/types.rs", 5);
+        
+        // Should be empty since other/mod.rs doesn't use core/types.rs
         assert!(result.is_empty());
     }
 

@@ -89,9 +89,14 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
     /// 读取源文件（支持项目根目录下任意文件）
     fn read_file(&self, rel: &str) -> Result<String> {
-        let path = if rel.starts_with("src/") || rel.contains('/') {
+        let path = if rel.starts_with("src/") {
+            // 已经是 src/ 开头的完整路径
             self.config.project_root.join(rel)
+        } else if rel.contains('/') {
+            // 包含 / 但不以 src/ 开头，说明是 src 下的子目录（如 auto_research/mod.rs）
+            self.config.project_root.join("src").join(rel)
         } else {
+            // 顶层文件（如 lib.rs）
             self.config.project_root.join("src").join(rel)
         };
         std::fs::read_to_string(&path)
@@ -100,9 +105,14 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
     /// 写入源文件（支持项目根目录下任意文件）
     fn write_file(&self, rel: &str, content: &str) -> Result<()> {
-        let path = if rel.starts_with("src/") || rel.contains('/') {
+        let path = if rel.starts_with("src/") {
+            // 已经是 src/ 开头的完整路径
             self.config.project_root.join(rel)
+        } else if rel.contains('/') {
+            // 包含 / 但不以 src/ 开头，说明是 src 下的子目录（如 auto_research/mod.rs）
+            self.config.project_root.join("src").join(rel)
         } else {
+            // 顶层文件（如 lib.rs）
             self.config.project_root.join("src").join(rel)
         };
         std::fs::write(&path, content)
