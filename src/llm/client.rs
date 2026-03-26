@@ -474,11 +474,11 @@ impl LLMClientImpl {
     }
 }
 
-/// LLM request timeout: base 120s + 0.5s per 1KB of prompt, capped at 600s
+/// LLM request timeout: base 180s + 0.5s per 1KB of prompt, capped at 900s
 fn llm_timeout(prompt_len: usize) -> std::time::Duration {
     let dynamic = (prompt_len as u64 / 1024) * 500; // 0.5s per KB
-    let total = 120_000 + dynamic;
-    std::time::Duration::from_millis(total.min(600_000))
+    let total = 180_000 + dynamic;
+    std::time::Duration::from_millis(total.min(900_000))
 }
 
 #[async_trait]

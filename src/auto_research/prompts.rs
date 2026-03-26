@@ -59,7 +59,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
              - Focus on one improvement per iteration (but may span multiple files)\n\
              - Output COMPLETE files, not diffs\n\
              - Include any new tests in the #[cfg(test)] module\n\
-             - When modifying multiple files, ensure cross-file consistency",
+             - When modifying multiple files, ensure cross-file consistency\n\
+             - Make MINIMAL, INCREMENTAL changes — only modify the functions/types directly relevant to your improvement\n\
+             - Do NOT rewrite or refactor unrelated code — preserve the existing structure of unchanged parts\n\
+             - If the file is large (>200 lines), only touch the specific functions that need changing",
             file = file,
             code = code,
             history = if recent_history.is_empty() { "(no experiments yet)".to_string() } else { recent_history },

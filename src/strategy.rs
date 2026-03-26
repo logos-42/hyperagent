@@ -95,7 +95,7 @@ impl Default for StrategyConfig {
             target_selection: TargetSelectionMode::RoundRobin,
             adaptive_window: 10,
             // 进化
-            evolution_interval: 10,
+            evolution_interval: 5,
         }
     }
 }

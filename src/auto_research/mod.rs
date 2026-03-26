@@ -514,9 +514,17 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
             // Phase 6: 定期进化策略参数
             if let Some(ref current_strategy) = self.strategy {
-                if (i + 1) % current_strategy.evolution_interval == 0 {
+                let is_last_iteration = i + 1 == self.config.max_iterations;
+                if is_last_iteration || (i + 1) % current_strategy.evolution_interval == 0 {
                     tracing::info!("[Strategy] Evolving strategy based on {} experiments...", self.experiments.len());
                     let new_strategy = StrategyEvolver::evolve(current_strategy, &self.experiments);
+                    tracing::info!(
+                        "[Strategy] v{} → v{}: temp {:.2}→{:.2}, target={:?}, improved_threshold={:.2}",
+                        current_strategy.version, new_strategy.version,
+                        current_strategy.research_temperature, new_strategy.research_temperature,
+                        new_strategy.target_selection,
+                        new_strategy.improved_score_threshold,
+                    );
                     if let Err(e) = new_strategy.save(&self.strategy_path) {
                         tracing::warn!("Failed to save strategy: {}", e);
                     }
