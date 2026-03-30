@@ -351,42 +351,70 @@ fn normalize_whitespace(s: &str) -> String {
 /// Find the original content positions corresponding to a normalized match
 /// Returns (start_byte, end_byte) in original content, or None if mapping fails
 fn find_original_positions(original: &str, normalized: &str, normalized_idx: usize, normalized_search: &str) -> Option<(usize, usize)> {
-    // Track byte positions in both strings
-    let mut orig_pos = 0;
-    let mut norm_pos = 0;
-    let mut orig_start = None;
-    let mut orig_end = None;
-    let search_end = normalized_idx + normalized_search.len();
-
-    let orig_chars: Vec<char> = original.chars().collect();
+    // Build a mapping from normalized positions to original byte positions
+    // by iterating through words (which is how normalize_whitespace works)
+    let words: Vec<&str> = original.split_whitespace().collect();
+    let norm_words: Vec<&str> = normalized.split_whitespace().collect();
     
-    for (i, ch) in orig_chars.iter().enumerate() {
-        if norm_pos == normalized_idx && orig_start.is_none() {
-            orig_start = Some(orig_pos);
-        }
-        
-        // Track position in original
-        orig_pos += ch.len_utf8();
-        
-        // Track position in normalized (whitespace collapsed)
-        if !ch.is_whitespace() || (i > 0 && !orig_chars[i - 1].is_whitespace()) {
-            // Non-whitespace or first-of-consecutive-whitespace advances normalized position
-            if !ch.is_whitespace() {
-                norm_pos += 1;
-            } else {
-                // Whitespace becomes single space in normalized
-                norm_pos += 1;
-            }
-        }
-        
-        if norm_pos >= search_end && orig_end.is_none() && orig_start.is_some() {
-            orig_end = Some(orig_pos);
-            break;
-        }
+    // Verify the normalized strings match
+    if norm_words != words {
+        return None;
     }
     
-    match (orig_start, orig_end) {
-        (Some(s), Some(e)) => Some((s, e)),
+    // Find which word contains the start and end of the search
+    let search_end = normalized_idx + normalized_search.len();
+    
+    // Build position map: word index -> (start_byte, end_byte) in original
+    let mut word_positions: Vec<(usize, usize)> = Vec::new();
+    let mut byte_pos = 0;
+    
+    for (word_idx, word) in original.split_whitespace().enumerate() {
+        // Skip leading whitespace to find word start
+        while byte_pos < original.len() && original[byte_pos..].chars().next().map(|c| c.is_whitespace()).unwrap_or(false) {
+            byte_pos += original[byte_pos..].chars().next().unwrap().len_utf8();
+        }
+        
+        let word_start = byte_pos;
+        byte_pos += word.len();
+        word_positions.push((word_start, byte_pos));
+    }
+    
+    // Find word indices corresponding to normalized positions
+    // Each word in normalized has format: "word " (word + space), except last word
+    let mut norm_pos = 0;
+    let mut start_word_idx = None;
+    let mut end_word_idx = None;
+    
+    for (word_idx, _word) in words.iter().enumerate() {
+        // In normalized string, each word is followed by a space (except last)
+        let word_len_in_norm = if word_idx < words.len() - 1 {
+            words[word_idx].len() + 1 // word + space
+        } else {
+            words[word_idx].len()
+        };
+        
+        if norm_pos <= normalized_idx && normalized_idx < norm_pos + word_len_in_norm {
+            start_word_idx = Some(word_idx);
+        }
+        
+        if norm_pos <= search_end && search_end <= norm_pos + word_len_in_norm {
+            end_word_idx = Some(word_idx);
+        }
+        
+        norm_pos += word_len_in_norm;
+    }
+    
+    // If search_end is past the last word, end at the last word
+    if search_end >= normalized.len() {
+        end_word_idx = Some(words.len().saturating_sub(1));
+    }
+    
+    match (start_word_idx, end_word_idx) {
+        (Some(swi), Some(ewi)) => {
+            let start_byte = word_positions.get(swi)?.0;
+            let end_byte = word_positions.get(ewi)?.1;
+            Some((start_byte, end_byte))
+        }
         _ => None,
     }
 }
@@ -764,5 +792,69 @@ mod tests {
         // The original fuzzy match should handle trimmed version
         let result = MockResearch::apply_search_replaces_test(original, &ops);
         assert!(result.contains("fn foo()"));
+    }
+
+    #[test]
+    fn test_find_original_positions_basic() {
+        let original = "fn foo() -> i32 { 42 }";
+        let normalized = normalize_whitespace(original);
+        // normalized is "fn foo() -> i32 { 42 }" (same, no extra whitespace)
+        
+        let search = "foo() -> i32";
+        let normalized_search = normalize_whitespace(search);
+        
+        if let Some(idx) = normalized.find(&normalized_search) {
+            let result = find_original_positions(original, &normalized, idx, &normalized_search);
+            assert!(result.is_some());
+            let (start, end) = result.unwrap();
+            assert_eq!(&original[start..end], "foo() -> i32");
+        }
+    }
+
+    #[test]
+    fn test_find_original_positions_with_extra_whitespace() {
+        let original = "fn   foo()   -> i32  { 42 }";
+        let normalized = normalize_whitespace(original);
+        // normalized is "fn foo() -> i32 { 42 }"
+        
+        let search = "foo() -> i32";
+        let normalized_search = normalize_whitespace(search);
+        
+        if let Some(idx) = normalized.find(&normalized_search) {
+            let result = find_original_positions(original, &normalized, idx, &normalized_search);
+            assert!(result.is_some());
+            let (start, end) = result.unwrap();
+            // Should extract "foo()   -> i32" with original spacing
+            assert!(original[start..end].contains("foo()"));
+        }
+    }
+
+    #[test]
+    fn test_find_original_positions_multiline() {
+        let original = "fn test() {\n    let x = 1;\n    x\n}";
+        let normalized = normalize_whitespace(original);
+        
+        let search = "let x = 1";
+        let normalized_search = normalize_whitespace(search);
+        
+        if let Some(idx) = normalized.find(&normalized_search) {
+            let result = find_original_positions(original, &normalized, idx, &normalized_search);
+            assert!(result.is_some());
+            let (start, end) = result.unwrap();
+            assert!(&original[start..end].contains("x = 1"));
+        }
+    }
+
+    #[test]
+    fn test_search_replace_with_fuzzy_normalized() {
+        // Test that fuzzy matching with normalized whitespace actually applies replacements
+        let original = "fn   compute(x: i32)   -> i32 {\n    x * 2\n}";
+        let ops = vec![SearchReplace {
+            search: "fn compute(x: i32) -> i32 {\n    x * 2\n}".to_string(),
+            replace: "fn compute(x: i32) -> i32 {\n    x * 3\n}".to_string(),
+        }];
+        let result = MockResearch::apply_search_replaces_with_fuzzy(original, &ops);
+        // Should have applied the replacement despite whitespace differences
+        assert!(result.contains("x * 3"), "Expected replacement to be applied, got: {}", result);
     }
 }
