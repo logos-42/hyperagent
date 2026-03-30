@@ -95,6 +95,23 @@ pub struct SelfEvolutionScore {
     pub reflection: String,
 }
 
+impl SelfEvolutionScore {
+    /// Returns true if the experiment compiled and all tests passed
+    pub fn is_successful(&self) -> bool {
+        self.compiles && self.tests_total > 0 && self.tests_passed == self.tests_total
+    }
+
+    /// Returns true if any tests were run (total > 0)
+    pub fn has_tests(&self) -> bool {
+        self.tests_total > 0
+    }
+
+    /// Returns true if code compiled successfully
+    pub fn is_compilable(&self) -> bool {
+        self.compiles
+    }
+}
+
 /// 递归自改进引擎（委托给 Karpathy 假设循环）
 pub struct SelfEvolutionEngine<C: LLMClient> {
     client: C,
