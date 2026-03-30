@@ -1218,51 +1218,55 @@ impl Tool for CodebaseWriteTool {
 // ---------------------------------------------------------------------------
 
 /// Simple glob matching (supports * and ?) using dynamic programming.
-/// Achieves O(m*n) time complexity where m = pattern length, n = text length.
+/// Achieves O(m*n) time complexity and O(n) space complexity
+/// where m = pattern length, n = text length.
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
     let m = p.len();
     let n = t.len();
 
-    // dp[i][j] = true if pattern[0..i] matches text[0..j]
-    let mut dp = vec![vec![false; n + 1]; m + 1];
+    // Use two 1D arrays instead of a 2D matrix to reduce space from O(m*n) to O(n)
+    // prev[j] = whether pattern[0..i-1] matches text[0..j]
+    // curr[j] = whether pattern[0..i] matches text[0..j]
+    let mut prev = vec![false; n + 1];
+    let mut curr = vec![false; n + 1];
 
     // Empty pattern matches empty text
-    dp[0][0] = true;
+    prev[0] = true;
 
-    // Handle leading wildcards: * can match empty string
+    // Fill first row: handle leading wildcards (pattern matching empty text)
+    // This is computed in the main loop now, but we need to track if all
+    // pattern chars so far are '*'
     for i in 1..=m {
-        if p[i - 1] == '*' {
-            dp[i][0] = dp[i - 1][0];
-        } else {
-            break;
-        }
-    }
-
-    // Fill the DP table
-    for i in 1..=m {
+        // Reset curr[0]: pattern[0..i] matches empty text iff all chars are '*'
+        curr[0] = p[i - 1] == '*' && prev[0];
+        
         for j in 1..=n {
             match p[i - 1] {
                 '*' => {
                     // * can match:
-                    // - empty string (dp[i-1][j])
-                    // - one or more characters (dp[i][j-1])
-                    dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+                    // - empty string (prev[j] = dp[i-1][j])
+                    // - one or more characters (curr[j-1] = dp[i][j-1])
+                    curr[j] = prev[j] || curr[j - 1];
                 }
                 '?' => {
                     // ? matches exactly one character
-                    dp[i][j] = dp[i - 1][j - 1];
+                    curr[j] = prev[j - 1];
                 }
                 c => {
                     // Literal character must match
-                    dp[i][j] = dp[i - 1][j - 1] && c == t[j - 1];
+                    curr[j] = prev[j - 1] && c == t[j - 1];
                 }
             }
         }
+        
+        // Swap prev and curr for next iteration
+        std::mem::swap(&mut prev, &mut curr);
     }
 
-    dp[m][n]
+    // After last swap, result is in prev (not curr)
+    prev[n]
 }
 
 // ---------------------------------------------------------------------------
@@ -1598,5 +1602,69 @@ mod tests {
         // Verify file deleted but parent dirs still exist
         assert!(!temp_dir.path().join("deep/nested/file.rs").exists());
         assert!(temp_dir.path().join("deep/nested").exists());
+    }
+
+    #[test]
+    fn test_glob_match_empty_pattern_and_text() {
+        assert!(glob_match("", ""));
+        assert!(!glob_match("", "text"));
+        assert!(!glob_match("a", ""));
+    }
+
+    #[test]
+    fn test_glob_match_only_wildcards() {
+        assert!(glob_match("*", ""));
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("**", "anything"));
+        assert!(glob_match("***", "anything"));
+    }
+
+    #[test]
+    fn test_glob_match_consecutive_wildcards() {
+        assert!(glob_match("**.rs", "test.rs"));
+        assert!(glob_match("src/**/*.rs", "src/deep/nested/file.rs"));
+        assert!(glob_match("a**b", "axb"));
+        assert!(glob_match("a**b", "axxxyyyb"));
+    }
+
+    #[test]
+    fn test_glob_match_complex_patterns() {
+        // Pattern with wildcards and literals mixed
+        assert!(glob_match("test*.rs", "test.rs"));
+        assert!(glob_match("test*.rs", "test_file.rs"));
+        assert!(glob_match("test*backup.rs", "test_backup.rs"));
+        assert!(glob_match("test*backup.rs", "test_old_backup.rs"));
+        
+        // Question marks
+        assert!(glob_match("test?.rs", "test1.rs"));
+        assert!(glob_match("test?.rs", "testA.rs"));
+        assert!(!glob_match("test?.rs", "test.rs"));
+        assert!(!glob_match("test?.rs", "test12.rs"));
+    }
+
+    #[test]
+    fn test_glob_match_edge_cases() {
+        // Single character match
+        assert!(glob_match("?", "a"));
+        assert!(!glob_match("?", "ab"));
+        assert!(!glob_match("?", ""));
+        
+        // Pattern longer than text
+        assert!(!glob_match("abcdef", "abc"));
+        assert!(!glob_match("a?b?c?", "ab"));
+        
+        // Text longer than pattern without wildcards
+        assert!(!glob_match("abc", "abcdef"));
+        
+        // Exact match
+        assert!(glob_match("exact", "exact"));
+        assert!(!glob_match("exact", "Exact")); // Case sensitive
+    }
+
+    #[test]
+    fn test_glob_match_unicode() {
+        assert!(glob_match("*.rs", "файл.rs"));
+        assert!(glob_match("test*", "test文字"));
+        assert!(glob_match("*测试*", "前置测试后置"));
     }
 }
