@@ -26,6 +26,42 @@ pub(crate) struct ParsedEdit {
     pub op: EditOp,
 }
 
+/// 编辑操作的统计信息
+#[derive(Debug, Clone, Default)]
+pub struct EditStats {
+    pub lines_added: usize,
+    pub lines_removed: usize,
+    pub chars_added: usize,
+    pub chars_removed: usize,
+}
+
+impl ParsedEdit {
+    /// 计算 SEARCH/REPLACE 操作的统计信息
+    /// 对于 FullFile 编辑，返回 None（需要读取原始文件才能比较）
+    pub fn diff_stats(&self) -> Option<EditStats> {
+        match &self.op {
+            EditOp::SearchReplace(srs) => {
+                let mut stats = EditStats::default();
+                for sr in srs {
+                    let search_lines = sr.search.lines().count();
+                    let replace_lines = sr.replace.lines().count();
+                    
+                    if replace_lines > search_lines {
+                        stats.lines_added += replace_lines - search_lines;
+                    } else {
+                        stats.lines_removed += search_lines - replace_lines;
+                    }
+                    
+                    stats.chars_removed += sr.search.len();
+                    stats.chars_added += sr.replace.len();
+                }
+                Some(stats)
+            }
+            EditOp::FullFile(_) => None,
+        }
+    }
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Phase 3: 解析 LLM 响应中的修改
     ///
@@ -856,5 +892,82 @@ mod tests {
         let result = MockResearch::apply_search_replaces_with_fuzzy(original, &ops);
         // Should have applied the replacement despite whitespace differences
         assert!(result.contains("x * 3"), "Expected replacement to be applied, got: {}", result);
+    }
+
+    #[test]
+    fn test_parsed_edit_diff_stats_adds_lines() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo() {\n    42\n}".to_string(), // 3 lines
+                    replace: "fn foo() -> i32 {\n    let x = 1;\n    x + 41\n}".to_string(), // 4 lines
+                },
+            ]),
+        };
+        let stats = edit.diff_stats().unwrap();
+        assert_eq!(stats.lines_added, 1);
+        assert_eq!(stats.lines_removed, 0);
+    }
+
+    #[test]
+    fn test_parsed_edit_diff_stats_removes_lines() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "let a = 1;\nlet b = 2;\nlet c = 3;\n".to_string(), // 3 lines
+                    replace: "let x = 1;\n".to_string(), // 1 line
+                },
+            ]),
+        };
+        let stats = edit.diff_stats().unwrap();
+        assert_eq!(stats.lines_added, 0);
+        assert_eq!(stats.lines_removed, 2);
+    }
+
+    #[test]
+    fn test_parsed_edit_diff_stats_multiple_edits() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "x\n".to_string(), // 1 line
+                    replace: "a\nb\n".to_string(), // 2 lines, +1
+                },
+                SearchReplace {
+                    search: "y\nz\n".to_string(), // 2 lines
+                    replace: "c\n".to_string(), // 1 line, -1
+                },
+            ]),
+        };
+        let stats = edit.diff_stats().unwrap();
+        assert_eq!(stats.lines_added, 1);
+        assert_eq!(stats.lines_removed, 1);
+    }
+
+    #[test]
+    fn test_parsed_edit_diff_stats_full_file() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::FullFile("fn main() {}".to_string()),
+        };
+        assert!(edit.diff_stats().is_none());
+    }
+
+    #[test]
+    fn test_parsed_edit_diff_stats_chars() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "short".to_string(), // 5 chars
+                    replace: "much longer replacement".to_string(), // 24 chars
+                },
+            ]),
+        };
+        let stats = edit.diff_stats().unwrap();
+        assert_eq!(stats.chars_removed, 5);
+        assert_eq!(stats.chars_added, 24);
     }
 }
