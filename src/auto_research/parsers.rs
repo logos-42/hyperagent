@@ -26,6 +26,32 @@ pub(crate) struct ParsedEdit {
     pub op: EditOp,
 }
 
+/// 模糊匹配策略类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuzzyMatchStrategy {
+    /// 精确匹配（无需模糊）
+    Exact,
+    /// 去除首尾空白后匹配
+    Trimmed,
+    /// 标准化空白字符后匹配
+    Normalized,
+    /// 逐行匹配（忽略空白行差异）
+    LineByLine,
+}
+
+/// 单个 SEARCH 块的模糊匹配需求
+#[derive(Debug, Clone)]
+pub struct FuzzyRequirement {
+    /// 是否需要模糊匹配
+    pub needs_fuzzy: bool,
+    /// 建议的匹配策略
+    pub suggested_strategy: FuzzyMatchStrategy,
+    /// SEARCH 块的行数
+    pub line_count: usize,
+    /// 是否包含多余空白
+    pub has_extra_whitespace: bool,
+}
+
 /// 编辑操作的统计信息
 #[derive(Debug, Clone, Default)]
 pub struct EditStats {
@@ -77,6 +103,42 @@ impl ParsedEdit {
                 })
             }
             EditOp::FullFile(_) => false,
+        }
+    }
+
+    /// 获取每个 SEARCH 块的模糊匹配需求详情
+    /// 返回每个 SEARCH 块是否需要模糊匹配以及建议的策略
+    pub fn get_fuzzy_requirements(&self) -> Vec<FuzzyRequirement> {
+        match &self.op {
+            EditOp::SearchReplace(srs) => {
+                srs.iter().map(|sr| {
+                    let line_count = sr.search.lines().count();
+                    let has_extra_whitespace = sr.search != sr.search.trim() || sr.search.contains("  ");
+                    let is_multiline = line_count > 1;
+                    
+                    // 确定建议的匹配策略
+                    let suggested_strategy = if !has_extra_whitespace && !is_multiline {
+                        FuzzyMatchStrategy::Exact
+                    } else if is_multiline && !has_extra_whitespace {
+                        // 多行但无多余空白：优先尝试逐行匹配
+                        FuzzyMatchStrategy::LineByLine
+                    } else if has_extra_whitespace && !is_multiline {
+                        // 单行但有多余空白：优先尝试 trimmed
+                        FuzzyMatchStrategy::Trimmed
+                    } else {
+                        // 多行 + 多余空白：最复杂情况，需要标准化
+                        FuzzyMatchStrategy::Normalized
+                    };
+                    
+                    FuzzyRequirement {
+                        needs_fuzzy: has_extra_whitespace || is_multiline,
+                        suggested_strategy,
+                        line_count,
+                        has_extra_whitespace,
+                    }
+                }).collect()
+            }
+            EditOp::FullFile(_) => Vec::new(),
         }
     }
 }
@@ -287,14 +349,17 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             let before = &content[..idx];
             let after = &content[idx + trimmed_search.len()..];
             let result = format!("{}{}{}", before, trimmed_replace, after);
-            tracing::debug!("  Fuzzy match succeeded (trimmed whitespace)");
+            tracing::debug!(
+                "  Fuzzy match succeeded: strategy={:?}, search_len={} chars",
+                FuzzyMatchStrategy::Trimmed,
+                op.search.len()
+            );
             return Some(result);
         }
 
         // Strategy 2: Normalized whitespace matching
         let normalized_content = normalize_whitespace(content);
         let normalized_search = normalize_whitespace(&op.search);
-        let normalized_replace = normalize_whitespace(&op.replace);
 
         if let Some(idx) = normalized_content.find(&normalized_search) {
             // Map back to original content positions
@@ -303,14 +368,22 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 let after = &content[end..];
                 // Use original replacement format, not normalized
                 let result = format!("{}{}{}", before, op.replace.trim(), after);
-                tracing::debug!("  Fuzzy match succeeded (normalized whitespace)");
+                tracing::debug!(
+                    "  Fuzzy match succeeded: strategy={:?}, search_len={} chars",
+                    FuzzyMatchStrategy::Normalized,
+                    op.search.len()
+                );
                 return Some(result);
             }
         }
 
         // Strategy 3: Line-by-line matching (ignores blank line differences)
         if let Some(result) = self.try_line_match_with_replace(content, op) {
-            tracing::debug!("  Fuzzy match succeeded (line-by-line matching)");
+            tracing::debug!(
+                "  Fuzzy match succeeded: strategy={:?}, search_len={} chars",
+                FuzzyMatchStrategy::LineByLine,
+                op.search.len()
+            );
             return Some(result);
         }
 
@@ -1071,5 +1144,140 @@ mod tests {
             ]),
         };
         assert!(edit.has_fuzzy_match()); // At least one needs fuzzy
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_exact_match() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo()".to_string(), // Single line, no extra whitespace
+                    replace: "fn bar()".to_string(),
+                },
+            ]),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert_eq!(reqs.len(), 1);
+        assert!(!reqs[0].needs_fuzzy);
+        assert_eq!(reqs[0].suggested_strategy, FuzzyMatchStrategy::Exact);
+        assert_eq!(reqs[0].line_count, 1);
+        assert!(!reqs[0].has_extra_whitespace);
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_multiline() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo() {\n    bar()\n}".to_string(), // Multi-line, no extra whitespace
+                    replace: "fn foo() { baz() }".to_string(),
+                },
+            ]),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].needs_fuzzy);
+        assert_eq!(reqs[0].suggested_strategy, FuzzyMatchStrategy::LineByLine);
+        assert_eq!(reqs[0].line_count, 3);
+        assert!(!reqs[0].has_extra_whitespace);
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_trimmed() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "  fn foo()  ".to_string(), // Single line with extra whitespace
+                    replace: "fn bar()".to_string(),
+                },
+            ]),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].needs_fuzzy);
+        assert_eq!(reqs[0].suggested_strategy, FuzzyMatchStrategy::Trimmed);
+        assert_eq!(reqs[0].line_count, 1);
+        assert!(reqs[0].has_extra_whitespace);
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_normalized() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn   foo()  {\n    bar()\n}".to_string(), // Multi-line with extra whitespace
+                    replace: "fn foo() { baz() }".to_string(),
+                },
+            ]),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].needs_fuzzy);
+        assert_eq!(reqs[0].suggested_strategy, FuzzyMatchStrategy::Normalized);
+        assert_eq!(reqs[0].line_count, 3);
+        assert!(reqs[0].has_extra_whitespace);
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_multiple_blocks() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "exact_match".to_string(), // Exact
+                    replace: "replacement".to_string(),
+                },
+                SearchReplace {
+                    search: "  needs_trim  ".to_string(), // Needs trimmed
+                    replace: "replaced".to_string(),
+                },
+                SearchReplace {
+                    search: "fn multi()\n{\n    body\n}".to_string(), // Multi-line
+                    replace: "fn multi() { body }".to_string(),
+                },
+            ]),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert_eq!(reqs.len(), 3);
+        assert!(!reqs[0].needs_fuzzy);
+        assert!(reqs[1].needs_fuzzy);
+        assert!(reqs[2].needs_fuzzy);
+        assert_eq!(reqs[0].suggested_strategy, FuzzyMatchStrategy::Exact);
+        assert_eq!(reqs[1].suggested_strategy, FuzzyMatchStrategy::Trimmed);
+        assert_eq!(reqs[2].suggested_strategy, FuzzyMatchStrategy::LineByLine);
+    }
+
+    #[test]
+    fn test_get_fuzzy_requirements_full_file() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::FullFile("fn main() {}".to_string()),
+        };
+        let reqs = edit.get_fuzzy_requirements();
+        assert!(reqs.is_empty());
+    }
+
+    #[test]
+    fn test_fuzzy_match_strategy_debug() {
+        // Verify the enum implements Debug correctly for logging
+        let strategy = FuzzyMatchStrategy::Normalized;
+        let debug_str = format!("{:?}", strategy);
+        assert_eq!(debug_str, "Normalized");
+        
+        let strategy = FuzzyMatchStrategy::LineByLine;
+        let debug_str = format!("{:?}", strategy);
+        assert_eq!(debug_str, "LineByLine");
+    }
+
+    #[test]
+    fn test_fuzzy_match_strategy_equality() {
+        // Verify PartialEq and Eq work correctly
+        assert!(FuzzyMatchStrategy::Exact == FuzzyMatchStrategy::Exact);
+        assert!(FuzzyMatchStrategy::Trimmed != FuzzyMatchStrategy::Normalized);
+        assert!(FuzzyMatchStrategy::LineByLine == FuzzyMatchStrategy::LineByLine);
     }
 }
