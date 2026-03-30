@@ -714,6 +714,24 @@ impl CodebaseContext {
                     target_summary.impls.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
                 ));
             }
+            if !target_summary.derives.is_empty() {
+                // Show unique derives across all types in this file
+                let unique_derives: Vec<String> = target_summary
+                    .derives
+                    .iter()
+                    .filter(|d| !d.is_empty())
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .take(8)
+                    .collect();
+                if !unique_derives.is_empty() {
+                    prompt.push_str(&format!(
+                        "Derives: {}\n",
+                        unique_derives.join(", ")
+                    ));
+                }
+            }
             if !target_uses.is_empty() {
                 prompt.push_str(&format!("Internal deps: {}\n", target_uses.join(", ")));
             }
@@ -913,6 +931,22 @@ impl CodebaseContext {
                     "Types: {}\n",
                     summary.structs.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
                 ));
+            }
+            
+            // Include derives for understanding type capabilities
+            if !summary.derives.is_empty() {
+                let unique_derives: Vec<String> = summary
+                    .derives
+                    .iter()
+                    .filter(|d| !d.is_empty())
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .take(6)
+                    .collect();
+                if !unique_derives.is_empty() {
+                    result.push_str(&format!("Derives: {}\n", unique_derives.join(", ")));
+                }
             }
             
             // Include key functions
