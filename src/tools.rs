@@ -494,6 +494,50 @@ pub struct SearchFilesOutput {
     pub truncated: bool,
 }
 
+impl SearchFilesOutput {
+    /// Returns a human-readable one-line summary of the search results.
+    ///
+    /// # Example outputs:
+    /// - `"Found 15 files matching '*.rs'"`
+    /// - `"Found 3 files matching '*config*' (truncated, showing first 3 of 50)"`
+    /// - `"No files found matching 'nonexistent*.txt'"`
+    pub fn summary(&self) -> String {
+        let truncated_note = if self.truncated {
+            format!(" (truncated, showing first {} of {})", self.files.len(), self.total_found)
+        } else {
+            String::new()
+        };
+
+        if self.files.is_empty() {
+            format!("No files found matching '{}'", self.pattern)
+        } else {
+            let files_word = if self.files.len() == 1 { "file" } else { "files" };
+            format!("Found {} {} matching '{}'{}", self.files.len(), files_word, self.pattern, truncated_note)
+        }
+    }
+
+    /// Returns files sorted by size (smallest first).
+    /// Useful for identifying large files that may need attention.
+    pub fn files_by_size(&self) -> Vec<&FileEntry> {
+        let mut files: Vec<&FileEntry> = self.files.iter().collect();
+        files.sort_by_key(|f| f.size_bytes);
+        files
+    }
+
+    /// Returns files sorted by size (largest first).
+    /// Useful for quickly identifying the largest matching files.
+    pub fn files_by_size_desc(&self) -> Vec<&FileEntry> {
+        let mut files: Vec<&FileEntry> = self.files.iter().collect();
+        files.sort_by_key(|f| std::cmp::Reverse(f.size_bytes));
+        files
+    }
+
+    /// Returns the total size in bytes of all matched files.
+    pub fn total_size(&self) -> u64 {
+        self.files.iter().map(|f| f.size_bytes).sum()
+    }
+}
+
 /// Find files by name pattern in the codebase.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CodebaseSearchTool {
@@ -1606,6 +1650,132 @@ mod tests {
 
         assert!(result.truncated);
         assert_eq!(result.files.len(), 10);
+    }
+
+    #[test]
+    fn test_search_files_output_summary_empty() {
+        let output = SearchFilesOutput {
+            pattern: "*.nonexistent".to_string(),
+            files: vec![],
+            total_found: 0,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "No files found matching '*.nonexistent'");
+    }
+
+    #[test]
+    fn test_search_files_output_summary_single_file() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "src/main.rs".to_string(), size_bytes: 100 },
+            ],
+            total_found: 1,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "Found 1 file matching '*.rs'");
+    }
+
+    #[test]
+    fn test_search_files_output_summary_multiple_files() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "src/a.rs".to_string(), size_bytes: 100 },
+                FileEntry { path: "src/b.rs".to_string(), size_bytes: 200 },
+            ],
+            total_found: 2,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "Found 2 files matching '*.rs'");
+    }
+
+    #[test]
+    fn test_search_files_output_summary_truncated() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "src/a.rs".to_string(), size_bytes: 100 },
+                FileEntry { path: "src/b.rs".to_string(), size_bytes: 200 },
+            ],
+            total_found: 50,
+            truncated: true,
+        };
+        
+        assert_eq!(output.summary(), "Found 2 files matching '*.rs' (truncated, showing first 2 of 50)");
+    }
+
+    #[test]
+    fn test_search_files_output_files_by_size() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "large.rs".to_string(), size_bytes: 1000 },
+                FileEntry { path: "small.rs".to_string(), size_bytes: 100 },
+                FileEntry { path: "medium.rs".to_string(), size_bytes: 500 },
+            ],
+            total_found: 3,
+            truncated: false,
+        };
+        
+        let sorted = output.files_by_size();
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(sorted[0].path, "small.rs");
+        assert_eq!(sorted[0].size_bytes, 100);
+        assert_eq!(sorted[1].path, "medium.rs");
+        assert_eq!(sorted[2].path, "large.rs");
+    }
+
+    #[test]
+    fn test_search_files_output_files_by_size_desc() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "large.rs".to_string(), size_bytes: 1000 },
+                FileEntry { path: "small.rs".to_string(), size_bytes: 100 },
+                FileEntry { path: "medium.rs".to_string(), size_bytes: 500 },
+            ],
+            total_found: 3,
+            truncated: false,
+        };
+        
+        let sorted = output.files_by_size_desc();
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(sorted[0].path, "large.rs");
+        assert_eq!(sorted[0].size_bytes, 1000);
+        assert_eq!(sorted[1].path, "medium.rs");
+        assert_eq!(sorted[2].path, "small.rs");
+    }
+
+    #[test]
+    fn test_search_files_output_total_size() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![
+                FileEntry { path: "a.rs".to_string(), size_bytes: 100 },
+                FileEntry { path: "b.rs".to_string(), size_bytes: 200 },
+                FileEntry { path: "c.rs".to_string(), size_bytes: 300 },
+            ],
+            total_found: 3,
+            truncated: false,
+        };
+        
+        assert_eq!(output.total_size(), 600);
+    }
+
+    #[test]
+    fn test_search_files_output_total_size_empty() {
+        let output = SearchFilesOutput {
+            pattern: "*.rs".to_string(),
+            files: vec![],
+            total_found: 0,
+            truncated: false,
+        };
+        
+        assert_eq!(output.total_size(), 0);
     }
 
     #[test]
