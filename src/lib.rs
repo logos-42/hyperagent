@@ -102,7 +102,7 @@ pub enum Error {
     /// LLM client errors (API failures, rate limits, timeouts)
     LLM(String),
     /// I/O errors (file read/write, network requests)
-    Io(String),
+    Io(std::io::Error),
     /// Evaluation errors (test failures, metric computation)
     Evaluation(String),
     /// Evolution errors (constraint violations, population collapse)
@@ -113,7 +113,7 @@ pub enum Error {
     Codebase(String),
     /// Web search/fetch errors
     Web(String),
-    /// Configuration errors
+    /// Configuration/deserialization errors
     Config(String),
     /// Generic error with message
     Other(String),
@@ -123,7 +123,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::LLM(msg) => write!(f, "LLM error: {msg}"),
-            Error::Io(msg) => write!(f, "I/O error: {msg}"),
+            Error::Io(err) => write!(f, "I/O error: {err}"),
             Error::Evaluation(msg) => write!(f, "Evaluation error: {msg}"),
             Error::Evolution(msg) => write!(f, "Evolution error: {msg}"),
             Error::Memory(msg) => write!(f, "Memory error: {msg}"),
@@ -138,9 +138,9 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            // These errors wrap strings, so no underlying source
+            Error::Io(err) => Some(err),
+            // String-based variants have no underlying source
             Error::LLM(_)
-            | Error::Io(_)
             | Error::Evaluation(_)
             | Error::Evolution(_)
             | Error::Memory(_)
@@ -154,7 +154,7 @@ impl StdError for Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error::Io(err.to_string())
+        Error::Io(err)
     }
 }
 
@@ -203,8 +203,9 @@ mod tests {
 
     #[test]
     fn test_error_display_io() {
-        let err = Error::Io("file not found".to_string());
-        assert_eq!(err.to_string(), "I/O error: file not found");
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = Error::Io(io_err);
+        assert!(err.to_string().contains("file not found"));
     }
 
     #[test]
@@ -338,11 +339,10 @@ mod tests {
     }
 
     #[test]
-    fn test_error_source_returns_none() {
-        // All Error variants wrap strings, so source() should return None
+    fn test_error_source_returns_none_for_string_variants() {
+        // String-based Error variants have no source
         let errors = vec![
             Error::LLM("test".to_string()),
-            Error::Io("test".to_string()),
             Error::Evaluation("test".to_string()),
             Error::Evolution("test".to_string()),
             Error::Memory("test".to_string()),
@@ -358,6 +358,22 @@ mod tests {
     }
 
     #[test]
+    fn test_error_source_returns_underlying_io_error() {
+        // Io variant wraps the actual std::io::Error, so source() should return it
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let err = Error::Io(io_err);
+        
+        let source = err.source();
+        assert!(source.is_some(), "Expected source() to return Some for Io variant");
+        
+        // Verify we can downcast back to the original error type
+        let source = source.unwrap();
+        let io_source = source.downcast_ref::<std::io::Error>();
+        assert!(io_source.is_some(), "Expected to downcast source to std::io::Error");
+        assert_eq!(io_source.unwrap().kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
     fn test_error_chain_debug_format() {
         let err = Error::LLM("rate limited after 3 retries".to_string());
         
@@ -369,6 +385,49 @@ mod tests {
         // Verify Display format matches expected output
         let display_str = format!("{}", err);
         assert_eq!(display_str, "LLM error: rate limited after 3 retries");
+    }
+
+    #[test]
+    fn test_io_error_preserves_error_kind() {
+        // Test that different std::io::ErrorKind variants are preserved
+        use std::io::{Error, ErrorKind};
+        
+        let kinds = vec![
+            ErrorKind::NotFound,
+            ErrorKind::PermissionDenied,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::TimedOut,
+        ];
+        
+        for kind in kinds {
+            let io_err = Error::new(kind, "test");
+            let err: Error = io_err.into();
+            
+            match err {
+                Error::Io(ref inner) => {
+                    assert_eq!(inner.kind(), kind, "Error kind should be preserved");
+                }
+                _ => panic!("Expected Io variant"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_io_error_chain_uses_anyhow_style() {
+        // Test that error chaining works similar to anyhow::Error
+        let io_err = std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "unexpected end of file"
+        );
+        let err = Error::Io(io_err);
+        
+        // The Display should show a readable message
+        let display = format!("{}", err);
+        assert!(display.contains("unexpected end of file") || display.contains("I/O error"));
+        
+        // The source should be accessible for programmatic inspection
+        let source = StdError::source(&err);
+        assert!(source.is_some());
     }
 
     #[test]
