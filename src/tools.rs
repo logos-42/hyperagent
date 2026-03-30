@@ -879,6 +879,198 @@ impl Tool for CodebaseTreeTool {
 }
 
 // ---------------------------------------------------------------------------
+// rig Tool: codebase_write
+// ---------------------------------------------------------------------------
+
+/// Arguments for the codebase_write tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct WriteFileArgs {
+    /// File path relative to project root (e.g. "src/lib.rs", "Cargo.toml")
+    pub path: String,
+    /// Content to write to the file
+    pub content: String,
+    /// Whether to create parent directories if they don't exist (default: true)
+    #[serde(default = "default_create_dirs")]
+    pub create_dirs: bool,
+    /// Whether to append to existing file (default: false = overwrite)
+    #[serde(default)]
+    pub append: bool,
+}
+
+fn default_create_dirs() -> bool {
+    true
+}
+
+/// Output of the codebase_write tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WriteFileOutput {
+    pub path: String,
+    pub bytes_written: usize,
+    pub created: bool,
+    pub appended: bool,
+}
+
+/// Write content to a file in the codebase.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseWriteTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseWriteTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct write (without rig Tool machinery).
+    pub fn write_file(&self, path: &str, content: &str, create_dirs: bool, append: bool) -> Result<WriteFileOutput> {
+        let full_path = self.root.path.join(path);
+        
+        // Canonicalize root path for security check
+        let canonical_root = self.root.path.canonicalize()
+            .unwrap_or_else(|_| self.root.path.clone());
+        
+        // Check if file already exists before we create it
+        let existed = full_path.exists();
+        
+        // Create parent directories if needed
+        if create_dirs {
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("Cannot create directories for {}", full_path.display()))?;
+            }
+        }
+        
+        // Security check: ensure resolved path is within project root
+        // Only check if the path exists (can't canonicalize non-existent files)
+        if existed {
+            let canonical_full = full_path.canonicalize()
+                .map_err(|e| CodebaseToolError::PathError(
+                    format!("Cannot resolve path '{}': {}", path, e)
+                ))?;
+            
+            if !canonical_full.starts_with(&canonical_root) {
+                return Err(CodebaseToolError::PathError(
+                    format!("Path '{}' resolves outside project root", path)
+                ).into());
+            }
+        } else {
+            // For new files, check that the parent is within the project root
+            if let Some(parent) = full_path.parent() {
+                if parent.exists() {
+                    let canonical_parent = parent.canonicalize()
+                        .map_err(|e| CodebaseToolError::PathError(
+                            format!("Cannot resolve parent directory: {}", e)
+                        ))?;
+                    
+                    if !canonical_parent.starts_with(&canonical_root) {
+                        return Err(CodebaseToolError::PathError(
+                            format!("Path '{}' would be outside project root", path)
+                        ).into());
+                    }
+                }
+            }
+        }
+        
+        // Write or append content
+        let bytes_written = if append {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&full_path)
+                .with_context(|| format!("Cannot open {} for appending", full_path.display()))?;
+            file.write_all(content.as_bytes())
+                .with_context(|| format!("Cannot append to {}", full_path.display()))?;
+            content.len()
+        } else {
+            std::fs::write(&full_path, content)
+                .with_context(|| format!("Cannot write to {}", full_path.display()))?;
+            content.len()
+        };
+
+        Ok(WriteFileOutput {
+            path: path.to_string(),
+            bytes_written,
+            created: !existed,
+            appended: append,
+        })
+    }
+}
+
+impl Default for CodebaseWriteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseWriteTool {
+    const NAME: &'static str = "codebase_write";
+
+    type Error = CodebaseToolError;
+    type Args = WriteFileArgs;
+    type Output = WriteFileOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_write".to_string(),
+            description: "Write content to a file in the codebase. Creates new files or overwrites \
+                          existing ones. Use this to implement code changes, create new modules, \
+                          or update configuration. Paths are relative to project root.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to project root (e.g. 'src/lib.rs', 'Cargo.toml')"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write to the file"
+                    },
+                    "create_dirs": {
+                        "type": "boolean",
+                        "description": "Create parent directories if they don't exist (default true)",
+                        "default": true
+                    },
+                    "append": {
+                        "type": "boolean",
+                        "description": "Append to existing file instead of overwriting (default false)",
+                        "default": false
+                    }
+                },
+                "required": ["path", "content"]
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let path = args.path.clone();
+        let content = args.content.clone();
+        let create_dirs = args.create_dirs;
+        let append = args.append;
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseWriteTool { root };
+            tool.write_file(&path, &content, create_dirs, append)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1085,5 +1277,75 @@ mod tests {
 
         assert!(result.truncated);
         assert_eq!(result.files.len(), 10);
+    }
+
+    #[test]
+    fn test_write_new_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = CodebaseWriteTool::with_root(temp_dir.path().to_path_buf());
+        
+        let result = tool.write_file("src/new_file.rs", "fn main() {}", true, false).unwrap();
+        
+        assert_eq!(result.bytes_written, 14);
+        assert!(result.created);
+        assert!(!result.appended);
+        
+        // Verify file was created
+        let content = std::fs::read_to_string(temp_dir.path().join("src/new_file.rs")).unwrap();
+        assert_eq!(content, "fn main() {}");
+    }
+
+    #[test]
+    fn test_write_overwrites_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(temp_dir.path(), "test.rs", "old content");
+        
+        let tool = CodebaseWriteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.write_file("test.rs", "new content", true, false).unwrap();
+        
+        assert!(!result.created);
+        
+        // Verify file was overwritten
+        let content = std::fs::read_to_string(temp_dir.path().join("test.rs")).unwrap();
+        assert_eq!(content, "new content");
+    }
+
+    #[test]
+    fn test_write_append() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(temp_dir.path(), "test.rs", "line one\n");
+        
+        let tool = CodebaseWriteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.write_file("test.rs", "line two\n", true, true).unwrap();
+        
+        assert!(result.appended);
+        
+        let content = std::fs::read_to_string(temp_dir.path().join("test.rs")).unwrap();
+        assert_eq!(content, "line one\nline two\n");
+    }
+
+    #[test]
+    fn test_write_creates_directories() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = CodebaseWriteTool::with_root(temp_dir.path().to_path_buf());
+        
+        let result = tool.write_file("deep/nested/path.rs", "content", true, false).unwrap();
+        assert!(result.created);
+        
+        // Verify nested path was created
+        assert!(temp_dir.path().join("deep/nested/path.rs").exists());
+    }
+
+    #[test]
+    fn test_write_security_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = CodebaseWriteTool::with_root(temp_dir.path().to_path_buf());
+        
+        // Attempt to write outside project root
+        let result = tool.write_file("../outside.rs", "content", true, false);
+        assert!(result.is_err());
+        
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("outside project root") || err.contains("Cannot resolve"));
     }
 }
