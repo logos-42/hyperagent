@@ -423,6 +423,76 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
             .cloned()
             .collect()
     }
+
+    /// Categorize each modified file by its cumulative impact across all experiments
+    /// Returns (improving_files, neutral_files, regressing_files)
+    /// - improving: net positive test improvement (passed more tests after changes)
+    /// - regressing: net negative test improvement (passed fewer tests after changes)
+    /// - neutral: no measurable impact or no tests run
+    pub fn file_impact_summary(&self) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut file_deltas: HashMap<String, i32> = HashMap::new();
+        
+        for result in &self.results {
+            // Only count actual code changes (Accepted or Rejected)
+            if !result.is_code_change() {
+                continue;
+            }
+            
+            let delta = result.test_improvement().unwrap_or(0);
+            *file_deltas.entry(result.file.clone()).or_insert(0) += delta;
+        }
+        
+        let mut improving: Vec<String> = Vec::new();
+        let mut neutral: Vec<String> = Vec::new();
+        let mut regressing: Vec<String> = Vec::new();
+        
+        for (file, delta) in file_deltas {
+            if delta > 0 {
+                improving.push(file);
+            } else if delta < 0 {
+                regressing.push(file);
+            } else {
+                neutral.push(file);
+            }
+        }
+        
+        // Sort for deterministic output
+        improving.sort();
+        neutral.sort();
+        regressing.sort();
+        
+        (improving, neutral, regressing)
+    }
+
+    /// Get a human-readable summary of file impacts
+    /// Format: "improving: X, neutral: Y, regressing: Z"
+    pub fn impact_summary_string(&self) -> String {
+        let (improving, neutral, regressing) = self.file_impact_summary();
+        format!(
+            "improving: {}, neutral: {}, regressing: {}",
+            improving.len(),
+            neutral.len(),
+            regressing.len()
+        )
+    }
+
+    /// Get files that should be prioritized for future research
+    /// Returns files that have shown positive impact but haven't been experimented on recently
+    /// Useful for "doubling down" on successful improvements
+    pub fn high_value_targets(&self) -> Vec<String> {
+        let (improving, _, _) = self.file_impact_summary();
+        let recent: std::collections::HashSet<_> = self.results
+            .iter()
+            .rev()
+            .take(3) // Last 3 iterations
+            .map(|r| r.file.as_str())
+            .collect();
+        
+        improving
+            .into_iter()
+            .filter(|f| !recent.contains(f.as_str()))
+            .collect()
+    }
 }
 
 impl SelfEvolutionResult {
@@ -909,5 +979,162 @@ mod tests {
         
         let least = engine.least_experienced_files();
         assert!(least.is_empty());
+    }
+
+    #[test]
+    fn test_file_impact_summary_empty_results() {
+        let config = SelfEvolutionConfig::default();
+        let engine: SelfEvolutionEngine<crate::llm::LLMClientImpl> = SelfEvolutionEngine::new(
+            crate::llm::LLMClientImpl::ollama(),
+            config,
+        );
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert!(improving.is_empty());
+        assert!(neutral.is_empty());
+        assert!(regressing.is_empty());
+    }
+
+    #[test]
+    fn test_file_impact_summary_improving() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10)));
+        engine.results.push(make_result_with_delta(2, "a.rs", SelfEvolutionStatus::Accepted, (8, 10), (10, 10)));
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert_eq!(improving.len(), 1);
+        assert_eq!(improving[0], "a.rs");
+        assert!(neutral.is_empty());
+        assert!(regressing.is_empty());
+    }
+
+    #[test]
+    fn test_file_impact_summary_regressing() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(make_result_with_delta(1, "b.rs", SelfEvolutionStatus::Rejected, (8, 10), (5, 10)));
+        engine.results.push(make_result_with_delta(2, "b.rs", SelfEvolutionStatus::Rejected, (5, 10), (3, 10)));
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert!(improving.is_empty());
+        assert!(neutral.is_empty());
+        assert_eq!(regressing.len(), 1);
+        assert_eq!(regressing[0], "b.rs");
+    }
+
+    #[test]
+    fn test_file_impact_summary_neutral() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // No test metrics means neutral
+        engine.results.push(make_result(1, "c.rs", SelfEvolutionStatus::Accepted));
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert!(improving.is_empty());
+        assert_eq!(neutral.len(), 1);
+        assert_eq!(neutral[0], "c.rs");
+        assert!(regressing.is_empty());
+    }
+
+    #[test]
+    fn test_file_impact_summary_mixed_files() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Improving file
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10)));
+        // Regressing file
+        engine.results.push(make_result_with_delta(2, "b.rs", SelfEvolutionStatus::Rejected, (9, 10), (6, 10)));
+        // Neutral file (no delta)
+        engine.results.push(make_result_with_delta(3, "c.rs", SelfEvolutionStatus::Accepted, (7, 10), (7, 10)));
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert_eq!(improving.len(), 1);
+        assert_eq!(improving[0], "a.rs");
+        assert_eq!(neutral.len(), 1);
+        assert_eq!(neutral[0], "c.rs");
+        assert_eq!(regressing.len(), 1);
+        assert_eq!(regressing[0], "b.rs");
+    }
+
+    #[test]
+    fn test_file_impact_summary_cumulative_delta() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Multiple experiments on same file - should sum deltas
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Accepted, (5, 10), (7, 10))); // +2
+        engine.results.push(make_result_with_delta(2, "a.rs", SelfEvolutionStatus::Accepted, (7, 10), (6, 10))); // -1
+        engine.results.push(make_result_with_delta(3, "a.rs", SelfEvolutionStatus::Accepted, (6, 10), (9, 10))); // +3
+        // Net: +4
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert_eq!(improving.len(), 1);
+        assert_eq!(improving[0], "a.rs");
+    }
+
+    #[test]
+    fn test_file_impact_summary_ignores_non_code_changes() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Failed and Skipped should not be counted
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Failed, (5, 10), (5, 10)));
+        engine.results.push(make_result_with_delta(2, "a.rs", SelfEvolutionStatus::Skipped, (5, 10), (5, 10)));
+        
+        let (improving, neutral, regressing) = engine.file_impact_summary();
+        assert!(improving.is_empty());
+        assert!(neutral.is_empty());
+        assert!(regressing.is_empty());
+    }
+
+    #[test]
+    fn test_impact_summary_string_format() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10)));
+        engine.results.push(make_result_with_delta(2, "b.rs", SelfEvolutionStatus::Rejected, (8, 10), (5, 10)));
+        engine.results.push(make_result(3, "c.rs", SelfEvolutionStatus::Accepted));
+        
+        let summary = engine.impact_summary_string();
+        assert_eq!(summary, "improving: 1, neutral: 1, regressing: 1");
+    }
+
+    #[test]
+    fn test_high_value_targets_excludes_recent() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // a.rs is improving but recent
+        engine.results.push(make_result_with_delta(1, "a.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10)));
+        engine.results.push(make_result_with_delta(2, "a.rs", SelfEvolutionStatus::Accepted, (8, 10), (10, 10)));
+        engine.results.push(make_result_with_delta(3, "a.rs", SelfEvolutionStatus::Accepted, (10, 10), (12, 12)));
+        
+        // b.rs is improving and not recent
+        engine.results.push(make_result_with_delta(4, "b.rs", SelfEvolutionStatus::Accepted, (5, 10), (9, 10)));
+        
+        let high_value = engine.high_value_targets();
+        // a.rs was in last 3 iterations, so only b.rs should be returned
+        assert_eq!(high_value.len(), 1);
+        assert_eq!(high_value[0], "b.rs");
+    }
+
+    #[test]
+    fn test_high_value_targets_only_improving() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Regressing file - should not be high value
+        engine.results.push(make_result_with_delta(1, "regressing.rs", SelfEvolutionStatus::Rejected, (9, 10), (5, 10)));
+        // Neutral file - should not be high value
+        engine.results.push(make_result(2, "neutral.rs", SelfEvolutionStatus::Accepted));
+        
+        let high_value = engine.high_value_targets();
+        assert!(high_value.is_empty());
     }
 }
