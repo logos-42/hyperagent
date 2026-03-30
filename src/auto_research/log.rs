@@ -9,22 +9,22 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         std::fs::create_dir_all(&self.config.experiment_log_dir)?;
         let log_path = self.config.experiment_log_dir.join("research_log.md");
 
-        // Helper to format optional value with unit
-        fn format_opt<T: std::fmt::Display>(val: Option<T>, unit: &str) -> String {
-            val.map(|v| format!("{}{}", v, unit)).unwrap_or_default()
-        }
-        std::fs::create_dir_all(&self.config.experiment_log_dir)?;
-        let log_path = self.config.experiment_log_dir.join("research_log.md");
-
         let metrics_section = match (&exp.metrics_before, &exp.metrics_after, &exp.multi_eval) {
             (Some(before), Some(after), Some(eval)) => {
+                let warnings_delta = after.warnings as i32 - before.warnings as i32;
+                let complexity_delta = after.complexity - before.complexity;
+                let binary_delta = (after.binary_size as i64 - before.binary_size as i64) / 1024;
                 format!(
-                    "\n  - **Metrics**: score={:.2}, lines {:+}, warnings {:+}, complexity {:.0}→{:.0}, binary {:+}KB\n",
+                    "\n  - **Metrics**: score={:.2}, lines {:+}, warnings {:+} ({}→{}), complexity {:+.0} ({:.0}→{:.0}), binary {:+}KB\n",
                     eval.score,
                     after.lines_delta,
-                    after.warnings as i32 - before.warnings as i32,
-                    before.complexity, after.complexity,
-                    (after.binary_size as i64 - before.binary_size as i64) / 1024,
+                    warnings_delta,
+                    before.warnings,
+                    after.warnings,
+                    complexity_delta,
+                    before.complexity,
+                    after.complexity,
+                    binary_delta,
                 )
             }
             _ => String::new(),
@@ -178,6 +178,53 @@ mod tests {
         
         // Verify the entry starts with separator
         assert!(entry.starts_with("---\n\n## Experiment"));
+    }
+
+    #[test]
+    fn test_metrics_section_formats_delta_correctly() {
+        use crate::eval::metrics::IterationMetrics;
+        use crate::auto_research::types::MultiEvalResult;
+        
+        let mut exp = make_test_experiment(3);
+        exp.metrics_before = Some(IterationMetrics {
+            lines_delta: 0,
+            warnings: 2,
+            complexity: 15.0,
+            binary_size: 1024 * 100, // 100KB
+            tests_passed: 10,
+            tests_total: 12,
+            compile_time_ms: 500,
+        });
+        exp.metrics_after = Some(IterationMetrics {
+            lines_delta: 50,
+            warnings: 0,
+            complexity: 12.0,
+            binary_size: 1024 * 105, // 105KB
+            tests_passed: 12,
+            tests_total: 12,
+            compile_time_ms: 450,
+        });
+        exp.multi_eval = Some(MultiEvalResult {
+            score: 0.85,
+            test_passed: true,
+            coverage: Some(0.75),
+        });
+        
+        // Verify the metrics section would show:
+        // - warnings: -2 (2→0)
+        // - complexity: -3.0 (15→12)
+        // - binary: +5KB
+        
+        let before = exp.metrics_before.as_ref().unwrap();
+        let after = exp.metrics_after.as_ref().unwrap();
+        
+        let warnings_delta = after.warnings as i32 - before.warnings as i32;
+        let complexity_delta = after.complexity - before.complexity;
+        let binary_delta = (after.binary_size as i64 - before.binary_size as i64) / 1024;
+        
+        assert_eq!(warnings_delta, -2);
+        assert_eq!(complexity_delta, -3.0);
+        assert_eq!(binary_delta, 5);
     }
 
     #[test]
