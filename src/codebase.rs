@@ -784,7 +784,7 @@ impl CodebaseContext {
                 .collect();
             
             if !target_uses.is_empty() {
-                prompt.push_str(&format!("Used by: {}\n", target_uses.join(", ")));
+                prompt.push_str(&format!("Uses: {}\n", target_uses.join(", ")));
             }
             
             // Include detailed content of dependent files (max 3 for context window)
