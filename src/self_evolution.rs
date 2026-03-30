@@ -60,6 +60,13 @@ impl Default for SelfEvolutionConfig {
     }
 }
 
+/// Test metrics before and after an experiment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestMetrics {
+    pub passed: u32,
+    pub total: u32,
+}
+
 /// 自改进迭代结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelfEvolutionResult {
@@ -72,6 +79,10 @@ pub struct SelfEvolutionResult {
     pub description: String,
     /// Complete hypothesis text that was tested
     pub hypothesis: String,
+    /// Test metrics before the experiment (if available)
+    pub tests_before: Option<(u32, u32)>,
+    /// Test metrics after the experiment (if available)
+    pub tests_after: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -205,6 +216,8 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
                 error,
                 description,
                 hypothesis,
+                tests_before: Some(exp.tests_before),
+                tests_after: Some(exp.tests_after),
             });
         }
 
@@ -324,6 +337,49 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
         let skipped: Vec<_> = matches.iter().filter(|r| r.status == SelfEvolutionStatus::Skipped).copied().collect();
         (accepted, rejected, failed, skipped)
     }
+
+    /// Get top N results sorted by test improvement (descending)
+    /// Only includes results with measurable before/after test metrics
+    pub fn top_improvements(&self, n: usize) -> Vec<&SelfEvolutionResult> {
+        let mut with_improvement: Vec<_> = self.results
+            .iter()
+            .filter(|r| r.test_improvement().is_some())
+            .collect();
+        with_improvement.sort_by(|a, b| {
+            b.test_improvement().unwrap_or(0).cmp(&a.test_improvement().unwrap_or(0))
+        });
+        with_improvement.into_iter().take(n).collect()
+    }
+
+    /// Get results that improved test count (positive delta)
+    pub fn positive_impacts(&self) -> Vec<&SelfEvolutionResult> {
+        self.results
+            .iter()
+            .filter(|r| r.test_improvement().map_or(false, |d| d > 0))
+            .collect()
+    }
+
+    /// Get results that regressed test count (negative delta)
+    pub fn regressions(&self) -> Vec<&SelfEvolutionResult> {
+        self.results
+            .iter()
+            .filter(|r| r.test_improvement().map_or(false, |d| d < 0))
+            .collect()
+    }
+
+    /// Calculate average test improvement across all results with metrics
+    pub fn average_improvement(&self) -> Option<f32> {
+        let improvements: Vec<i32> = self.results
+            .iter()
+            .filter_map(|r| r.test_improvement())
+            .collect();
+        
+        if improvements.is_empty() {
+            return None;
+        }
+        
+        Some(improvements.iter().sum::<i32>() as f32 / improvements.len() as f32)
+    }
 }
 
 impl SelfEvolutionResult {
@@ -358,6 +414,34 @@ impl SelfEvolutionResult {
     pub fn is_code_change(&self) -> bool {
         matches!(self.status, SelfEvolutionStatus::Accepted | SelfEvolutionStatus::Rejected)
     }
+
+    /// Calculate the test improvement delta (passed_after - passed_before)
+    /// Returns None if either before or after metrics are unavailable
+    pub fn test_improvement(&self) -> Option<i32> {
+        match (self.tests_before, self.tests_after) {
+            (Some((before_passed, _)), Some((after_passed, _))) => {
+                Some(after_passed as i32 - before_passed as i32)
+            }
+            _ => None,
+        }
+    }
+
+    /// Calculate the test pass rate improvement
+    /// Returns None if either metric is unavailable or if totals are zero
+    pub fn pass_rate_improvement(&self) -> Option<f32> {
+        match (self.tests_before, self.tests_after) {
+            (Some((before_passed, before_total)), Some((after_passed, after_total))) => {
+                if before_total > 0 && after_total > 0 {
+                    let before_rate = before_passed as f32 / before_total as f32;
+                    let after_rate = after_passed as f32 / after_total as f32;
+                    Some(after_rate - before_rate)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Summary statistics for self-evolution run
@@ -384,6 +468,8 @@ mod tests {
             error: None,
             description: format!("Test result for {}", file),
             hypothesis: format!("Hypothesis for {}", file),
+            tests_before: None,
+            tests_after: None,
         }
     }
 
@@ -410,6 +496,36 @@ mod tests {
             error: None,
             description: format!("Test result for {}", file),
             hypothesis: format!("Hypothesis for {}", file),
+            tests_before: None,
+            tests_after: None,
+        }
+    }
+
+    fn make_result_with_delta(
+        iteration: u32,
+        file: &str,
+        status: SelfEvolutionStatus,
+        before: (u32, u32),
+        after: (u32, u32),
+    ) -> SelfEvolutionResult {
+        SelfEvolutionResult {
+            iteration,
+            file: file.to_string(),
+            status,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: after.0,
+                tests_total: after.1,
+                test_pass_rate: if after.1 > 0 { after.0 as f32 / after.1 as f32 } else { 0.0 },
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: format!("Test result for {}", file),
+            hypothesis: format!("Hypothesis for {}", file),
+            tests_before: Some(before),
+            tests_after: Some(after),
         }
     }
 
@@ -607,5 +723,49 @@ mod tests {
         
         let pattern2 = "fix";
         assert!(hypothesis.to_lowercase().contains(&pattern2.to_lowercase()));
+    }
+
+    #[test]
+    fn test_test_improvement_positive() {
+        let result = make_result_with_delta(1, "test.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10));
+        assert_eq!(result.test_improvement(), Some(3));
+    }
+
+    #[test]
+    fn test_test_improvement_negative() {
+        let result = make_result_with_delta(2, "test.rs", SelfEvolutionStatus::Rejected, (8, 10), (5, 10));
+        assert_eq!(result.test_improvement(), Some(-3));
+    }
+
+    #[test]
+    fn test_test_improvement_no_change() {
+        let result = make_result_with_delta(3, "test.rs", SelfEvolutionStatus::Accepted, (5, 10), (5, 10));
+        assert_eq!(result.test_improvement(), Some(0));
+    }
+
+    #[test]
+    fn test_test_improvement_no_metrics() {
+        let result = make_result(4, "test.rs", SelfEvolutionStatus::Accepted);
+        assert_eq!(result.test_improvement(), None);
+    }
+
+    #[test]
+    fn test_pass_rate_improvement() {
+        let result = make_result_with_delta(1, "test.rs", SelfEvolutionStatus::Accepted, (5, 10), (8, 10));
+        let improvement = result.pass_rate_improvement().unwrap();
+        assert!((improvement - 0.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pass_rate_improvement_different_totals() {
+        let result = make_result_with_delta(1, "test.rs", SelfEvolutionStatus::Accepted, (4, 5), (9, 10));
+        let improvement = result.pass_rate_improvement().unwrap();
+        assert!((improvement - 0.1).abs() < 0.01); // 0.9 - 0.8 = 0.1
+    }
+
+    #[test]
+    fn test_pass_rate_improvement_zero_total() {
+        let result = make_result_with_delta(1, "test.rs", SelfEvolutionStatus::Failed, (0, 0), (5, 10));
+        assert_eq!(result.pass_rate_improvement(), None);
     }
 }
