@@ -260,6 +260,44 @@ impl Error {
         matches!(self, Error::Other(_))
     }
 
+    /// Returns `true` if this error is likely transient and may succeed on retry.
+    ///
+    /// This is useful for implementing retry logic with exponential backoff.
+    /// Returns `true` for:
+    /// - `LLM` errors (rate limits, API timeouts)
+    /// - `Web` errors (network failures, timeouts)
+    /// - `Io` errors with transient kinds (`TimedOut`, `Interrupted`, `WouldBlock`,
+    ///   `ConnectionRefused`, `ConnectionReset`, `ConnectionAborted`)
+    ///
+    /// Returns `false` for:
+    /// - `Evaluation` errors (test failures are deterministic)
+    /// - `Evolution` errors (constraint violations are structural)
+    /// - `Memory` errors (corruption is persistent)
+    /// - `Codebase` errors (scan failures are structural)
+    /// - `Config` errors (invalid config won't fix itself)
+    /// - `Other` errors (unknown, assume non-transient)
+    /// - `Io` errors with non-transient kinds (`NotFound`, `PermissionDenied`, etc.)
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Error::LLM(_) | Error::Web(_) => true,
+            Error::Io(err) => matches!(
+                err.kind(),
+                std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+            ),
+            Error::Evaluation(_)
+            | Error::Evolution(_)
+            | Error::Memory(_)
+            | Error::Codebase(_)
+            | Error::Config(_)
+            | Error::Other(_) => false,
+        }
+    }
+
     /// Returns the inner `std::io::Error` if this is an `Io` error.
     ///
     /// This is useful for inspecting the specific I/O error kind
@@ -1189,6 +1227,117 @@ mod tests {
         for err in variants {
             let category = categorize_error(&err);
             assert_ne!(category, "unknown", "Error {:?} should be categorized", err);
+        }
+    }
+
+    #[test]
+    fn test_is_retryable_for_transient_errors() {
+        use std::io::ErrorKind;
+
+        // LLM and Web errors are always retryable
+        assert!(Error::LLM("rate limited".into()).is_retryable());
+        assert!(Error::LLM("api timeout".into()).is_retryable());
+        assert!(Error::Web("connection failed".into()).is_retryable());
+        assert!(Error::Web("timeout".into()).is_retryable());
+
+        // Transient Io errors are retryable
+        let transient_kinds = vec![
+            ErrorKind::TimedOut,
+            ErrorKind::Interrupted,
+            ErrorKind::WouldBlock,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+        ];
+
+        for kind in transient_kinds {
+            let err = Error::Io(std::io::Error::new(kind, "transient"));
+            assert!(
+                err.is_retryable(),
+                "Expected {:?} to be retryable",
+                kind
+            );
+        }
+
+        // Non-transient Io errors are not retryable
+        let non_transient_kinds = vec![
+            ErrorKind::NotFound,
+            ErrorKind::PermissionDenied,
+            ErrorKind::InvalidInput,
+            ErrorKind::InvalidData,
+            ErrorKind::Other,
+        ];
+
+        for kind in non_transient_kinds {
+            let err = Error::Io(std::io::Error::new(kind, "non-transient"));
+            assert!(
+                !err.is_retryable(),
+                "Expected {:?} to NOT be retryable",
+                kind
+            );
+        }
+
+        // Deterministic errors are not retryable
+        assert!(!Error::Evaluation("assertion failed".into()).is_retryable());
+        assert!(!Error::Evolution("constraint violated".into()).is_retryable());
+        assert!(!Error::Memory("archive corrupted".into()).is_retryable());
+        assert!(!Error::Codebase("scan failed".into()).is_retryable());
+        assert!(!Error::Config("invalid settings".into()).is_retryable());
+        assert!(!Error::Other("unknown".into()).is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_in_retry_logic() {
+        use std::io::ErrorKind;
+
+        // Practical use case: implementing retry with exponential backoff
+        fn should_retry_with_backoff(err: &Error, attempt: u32) -> bool {
+            if !err.is_retryable() {
+                return false;
+            }
+            // Only retry up to 3 times
+            attempt < 3
+        }
+
+        // Transient errors should retry
+        let llm_err = Error::LLM("rate limit".into());
+        assert!(should_retry_with_backoff(&llm_err, 0));
+        assert!(should_retry_with_backoff(&llm_err, 1));
+        assert!(should_retry_with_backoff(&llm_err, 2));
+        assert!(!should_retry_with_backoff(&llm_err, 3)); // max attempts reached
+
+        let io_timeout = Error::Io(std::io::Error::new(ErrorKind::TimedOut, "timeout"));
+        assert!(should_retry_with_backoff(&io_timeout, 0));
+
+        // Non-transient errors should not retry
+        let config_err = Error::Config("invalid".into());
+        assert!(!should_retry_with_backoff(&config_err, 0));
+
+        let not_found = Error::Io(std::io::Error::new(ErrorKind::NotFound, "missing"));
+        assert!(!should_retry_with_backoff(&not_found, 0));
+
+        let eval_err = Error::Evaluation("test failed".into());
+        assert!(!should_retry_with_backoff(&eval_err, 0));
+    }
+
+    #[test]
+    fn test_is_retryable_all_variants_covered() {
+        // Ensure is_retryable handles all Error variants without panic
+        let all_variants: Vec<Error> = vec![
+            Error::LLM("test".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            Error::Evaluation("test".into()),
+            Error::Evolution("test".into()),
+            Error::Memory("test".into()),
+            Error::Codebase("test".into()),
+            Error::Web("test".into()),
+            Error::Config("test".into()),
+            Error::Other("test".into()),
+        ];
+
+        // Each variant should return a boolean without panicking
+        for err in all_variants {
+            let _ = err.is_retryable();
         }
     }
 }
