@@ -225,6 +225,137 @@ note: `agent::meta_mutator::MetaMutator`"#;
         // Should be false for non-existent files
         assert!(!fake_exists || fake_path.contains("fake"), "Non-existent files should not exist");
     }
+
+    #[test]
+    fn test_experiment_summary_single_file() {
+        // Test summary for a single-file experiment with improved outcome
+        let experiment = Experiment {
+            iteration: 42,
+            file: "auto_research/mod.rs".to_string(),
+            files_changed: vec![FileChange {
+                file: "auto_research/mod.rs".to_string(),
+                old_lines: 100,
+                new_lines: 120,
+            }],
+            hypothesis: "Add summary method".to_string(),
+            outcome: ExperimentOutcome::Improved,
+            tests_before: (5, 10),
+            tests_after: (8, 10),
+            reflection: "Worked well".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: Some(MultiEvalResult {
+                score: 0.35,
+                summary: "Test improvement".to_string(),
+            }),
+            tests_generated: true,
+            new_tests_count: 3,
+        };
+        
+        let summary = experiment.summary();
+        assert!(summary.contains("Exp 42"));
+        assert!(summary.contains("auto_research/mod.rs"));
+        assert!(summary.contains("Improved"));
+        assert!(summary.contains("score=0.35"));
+        assert!(summary.contains("5→8 (+3/+0)"), "Should show test improvement delta");
+        assert!(summary.contains("+3t"), "Should show new tests generated");
+        assert!(!summary.contains("[1 files]"), "Should not show file count for single file");
+    }
+
+    #[test]
+    fn test_experiment_summary_multi_file() {
+        // Test summary for a multi-file experiment with neutral outcome
+        let experiment = Experiment {
+            iteration: 100,
+            file: "lib.rs".to_string(),
+            files_changed: vec![
+                FileChange { file: "lib.rs".to_string(), old_lines: 200, new_lines: 205 },
+                FileChange { file: "tools.rs".to_string(), old_lines: 150, new_lines: 145 },
+            ],
+            hypothesis: "Refactor across files".to_string(),
+            outcome: ExperimentOutcome::Neutral,
+            tests_before: (10, 10),
+            tests_after: (10, 10),
+            reflection: "No change".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: Some(MultiEvalResult {
+                score: 0.02,
+                summary: "Neutral".to_string(),
+            }),
+            tests_generated: false,
+            new_tests_count: 0,
+        };
+        
+        let summary = experiment.summary();
+        assert!(summary.contains("Exp 100"));
+        assert!(summary.contains("lib.rs"));
+        assert!(summary.contains("Neutral"));
+        assert!(summary.contains("score=0.02"));
+        assert!(summary.contains("10→10"), "Should show test counts");
+        assert!(summary.contains("[2 files]"), "Should show multi-file indicator");
+    }
+
+    #[test]
+    fn test_experiment_summary_regressed() {
+        // Test summary for a regressed experiment
+        let experiment = Experiment {
+            iteration: 1,
+            file: "testing.rs".to_string(),
+            files_changed: vec![],
+            hypothesis: "Optimize imports".to_string(),
+            outcome: ExperimentOutcome::Regressed,
+            tests_before: (8, 10),
+            tests_after: (6, 10),
+            reflection: "Broke tests".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: Some(MultiEvalResult {
+                score: -0.25,
+                summary: "Regression detected".to_string(),
+            }),
+            tests_generated: false,
+            new_tests_count: 0,
+        };
+        
+        let summary = experiment.summary();
+        assert!(summary.contains("Exp 1"));
+        assert!(summary.contains("testing.rs"));
+        assert!(summary.contains("Regressed"));
+        assert!(summary.contains("score=-0.25"));
+        assert!(summary.contains("8→6 (-2/+0)"), "Should show test regression delta");
+    }
+
+    #[test]
+    fn test_experiment_summary_no_multi_eval() {
+        // Test summary when multi_eval is None (should default to score 0.0)
+        let experiment = Experiment {
+            iteration: 5,
+            file: "parsers.rs".to_string(),
+            files_changed: vec![],
+            hypothesis: "Parse fix".to_string(),
+            outcome: ExperimentOutcome::Failed,
+            tests_before: (0, 0),
+            tests_after: (0, 0),
+            reflection: "Parse error".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: None,
+            tests_generated: false,
+            new_tests_count: 0,
+        };
+        
+        let summary = experiment.summary();
+        assert!(summary.contains("Exp 5"));
+        assert!(summary.contains("parsers.rs"));
+        assert!(summary.contains("Failed"));
+        assert!(summary.contains("score=0.00"), "Should show default score when multi_eval is None");
+        assert!(summary.contains("0→0"), "Should handle zero tests");
+    }
 }
 
 /// Karpathy 风格的自动研究引擎（含全局代码理解 + Web 搜索）
@@ -238,6 +369,36 @@ pub struct AutoResearch<C: LLMClient> {
     /// Phase 6: 可进化的策略参数
     pub(crate) strategy: Option<StrategyConfig>,
     pub(crate) strategy_path: PathBuf,
+}
+
+impl Experiment {
+    /// Returns a human-readable one-line summary of the experiment.
+    /// Format: "Exp {iteration}: {file} — {outcome} (score={score:.2}, tests {before}→{after})"
+    pub fn summary(&self) -> String {
+        let score = self.multi_eval.as_ref().map(|m| m.score).unwrap_or(0.0);
+        let tests_delta = if self.tests_after.0 == self.tests_before.0 && self.tests_after.1 == self.tests_before.1 {
+            format!("{}→{}", self.tests_before.0, self.tests_before.1)
+        } else {
+            format!("{}→{} ({:+}/{:+})", 
+                self.tests_before.0, self.tests_after.0,
+                self.tests_after.0 as i32 - self.tests_before.0 as i32,
+                self.tests_after.1 as i32 - self.tests_before.1 as i32)
+        };
+        let files_info = if self.files_changed.len() > 1 {
+            format!(" [{} files]", self.files_changed.len())
+        } else {
+            String::new()
+        };
+        let tests_gen = if self.tests_generated {
+            format!(" +{}t", self.new_tests_count)
+        } else {
+            String::new()
+        };
+        format!(
+            "Exp {}: {} — {:?} (score={:.2}, tests {}){}{}",
+            self.iteration, self.file, self.outcome, score, tests_delta, files_info, tests_gen
+        )
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
