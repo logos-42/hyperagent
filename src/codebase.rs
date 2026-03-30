@@ -476,7 +476,13 @@ impl CodebaseContext {
             None
         };
 
-        rest?.split('(').next().map(|n| n.trim().to_string())
+        rest.and_then(|s| {
+            // First split at '(' to get the function signature part
+            let before_paren = s.split('(').next()?;
+            // Then strip generic parameters if present (e.g., "foo<T>" -> "foo")
+            let name = before_paren.split('<').next()?;
+            Some(name.trim().to_string())
+        })
     }
 
     /// 构建模块树的可视化
