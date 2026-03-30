@@ -153,6 +153,14 @@ impl CodebaseGrepTool {
                 return;
             }
             
+            // Check for binary files (files containing null bytes)
+            // Binary files can cause regex panics and return garbage matches
+            let is_binary = lines.iter().any(|l| l.contains('\0'));
+            if is_binary {
+                files_searched += 1;
+                return;
+            }
+            
             // Use a rolling window for context extraction
             for (idx, line) in lines.iter().enumerate() {
                 // Find all match ranges in the line
@@ -1347,5 +1355,40 @@ mod tests {
         
         let err = result.unwrap_err().to_string();
         assert!(err.contains("outside project root") || err.contains("Cannot resolve"));
+    }
+
+    #[test]
+    fn test_grep_skips_binary_files() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a binary file with null bytes
+        let binary_content = "fn binary\x00test\x00content".as_bytes();
+        fs::write(temp_dir.path().join("binary.rs"), binary_content).unwrap();
+        
+        // Create a normal text file with a match
+        create_test_file(temp_dir.path(), "normal.rs", "fn hello() { println!(\"hello\"); }");
+        
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("hello", "rs", 10, 0).unwrap();
+        
+        // Should find match in normal.rs but skip binary.rs
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].file, "normal.rs");
+        assert_eq!(result.files_searched, 2); // Both files were examined
+    }
+
+    #[test]
+    fn test_grep_binary_file_no_matches() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a file with null bytes that would match the pattern
+        let binary_content = "fn hello\x00world\x00".as_bytes();
+        fs::write(temp_dir.path().join("binary.rs"), binary_content).unwrap();
+        
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("hello", "rs", 10, 0).unwrap();
+        
+        // Binary file should be skipped entirely
+        assert_eq!(result.matches.len(), 0);
     }
 }
