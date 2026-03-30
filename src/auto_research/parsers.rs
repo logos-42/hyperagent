@@ -60,6 +60,25 @@ impl ParsedEdit {
             EditOp::FullFile(_) => None,
         }
     }
+
+    /// Check if any SEARCH block would likely require fuzzy matching
+    /// Returns true if the search contains multi-line content or significant whitespace
+    /// that may not match exactly in the target file
+    pub fn has_fuzzy_match(&self) -> bool {
+        match &self.op {
+            EditOp::SearchReplace(srs) => {
+                srs.iter().any(|sr| {
+                    // Multi-line content often has whitespace differences
+                    sr.search.lines().count() > 1 ||
+                    // Leading/trailing whitespace differences
+                    sr.search != sr.search.trim() ||
+                    // Multiple consecutive spaces (LLM may normalize)
+                    sr.search.contains("  ")
+                })
+            }
+            EditOp::FullFile(_) => false,
+        }
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -969,5 +988,88 @@ mod tests {
         let stats = edit.diff_stats().unwrap();
         assert_eq!(stats.chars_removed, 5);
         assert_eq!(stats.chars_added, 24);
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_multiline() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo() {\n    bar()\n}".to_string(),
+                    replace: "fn foo() { baz() }".to_string(),
+                },
+            ]),
+        };
+        assert!(edit.has_fuzzy_match());
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_leading_whitespace() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "    fn foo()".to_string(), // Leading spaces
+                    replace: "fn foo()".to_string(),
+                },
+            ]),
+        };
+        assert!(edit.has_fuzzy_match());
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_multiple_spaces() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn  foo()".to_string(), // Double space
+                    replace: "fn foo()".to_string(),
+                },
+            ]),
+        };
+        assert!(edit.has_fuzzy_match());
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_exact_single_line() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo()".to_string(), // No extra whitespace
+                    replace: "fn bar()".to_string(),
+                },
+            ]),
+        };
+        assert!(!edit.has_fuzzy_match());
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_full_file() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::FullFile("fn main() {}".to_string()),
+        };
+        assert!(!edit.has_fuzzy_match());
+    }
+
+    #[test]
+    fn test_has_fuzzy_match_mixed_edits() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "exact_match".to_string(), // No fuzzy needed
+                    replace: "replacement".to_string(),
+                },
+                SearchReplace {
+                    search: "fn foo() {\n    bar()\n}".to_string(), // Multi-line
+                    replace: "fn foo() { baz() }".to_string(),
+                },
+            ]),
+        };
+        assert!(edit.has_fuzzy_match()); // At least one needs fuzzy
     }
 }
