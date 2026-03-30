@@ -61,6 +61,33 @@ pub struct EditStats {
     pub chars_removed: usize,
 }
 
+impl EditStats {
+    /// Returns a human-readable one-line summary of the edit statistics.
+    /// Format: "+N/-M lines, +X/-Y chars" (omitting zero values)
+    pub fn summary(&self) -> String {
+        let lines_part = match (self.lines_added, self.lines_removed) {
+            (0, 0) => None,
+            (a, 0) => Some(format!("+{} lines", a)),
+            (0, r) => Some(format!("-{} lines", r)),
+            (a, r) => Some(format!("+{}/-{} lines", a, r)),
+        };
+        
+        let chars_part = match (self.chars_added, self.chars_removed) {
+            (0, 0) => None,
+            (a, 0) => Some(format!("+{} chars", a)),
+            (0, r) => Some(format!("-{} chars", r)),
+            (a, r) => Some(format!("+{}/-{} chars", a, r)),
+        };
+        
+        match (lines_part, chars_part) {
+            (Some(l), Some(c)) => format!("{}, {}", l, c),
+            (Some(l), None) => l,
+            (None, Some(c)) => c,
+            (None, None) => "no changes".to_string(),
+        }
+    }
+}
+
 impl ParsedEdit {
     /// 计算 SEARCH/REPLACE 操作的统计信息
     /// 对于 FullFile 编辑，返回 None（需要读取原始文件才能比较）
@@ -1396,5 +1423,88 @@ mod tests {
         };
         // 1 out of 2 needs fuzzy = 0.5
         assert_eq!(edit.fuzzy_match_ratio(), 0.5);
+    }
+
+    #[test]
+    fn test_edit_stats_summary_no_changes() {
+        let stats = EditStats::default();
+        assert_eq!(stats.summary(), "no changes");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_lines_added_only() {
+        let stats = EditStats {
+            lines_added: 5,
+            lines_removed: 0,
+            chars_added: 0,
+            chars_removed: 0,
+        };
+        assert_eq!(stats.summary(), "+5 lines");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_lines_removed_only() {
+        let stats = EditStats {
+            lines_added: 0,
+            lines_removed: 3,
+            chars_added: 0,
+            chars_removed: 0,
+        };
+        assert_eq!(stats.summary(), "-3 lines");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_lines_both() {
+        let stats = EditStats {
+            lines_added: 5,
+            lines_removed: 2,
+            chars_added: 0,
+            chars_removed: 0,
+        };
+        assert_eq!(stats.summary(), "+5/-2 lines");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_chars_only() {
+        let stats = EditStats {
+            lines_added: 0,
+            lines_removed: 0,
+            chars_added: 120,
+            chars_removed: 50,
+        };
+        assert_eq!(stats.summary(), "+120/-50 chars");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_full() {
+        let stats = EditStats {
+            lines_added: 5,
+            lines_removed: 2,
+            chars_added: 120,
+            chars_removed: 50,
+        };
+        assert_eq!(stats.summary(), "+5/-2 lines, +120/-50 chars");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_chars_added_only() {
+        let stats = EditStats {
+            lines_added: 0,
+            lines_removed: 0,
+            chars_added: 100,
+            chars_removed: 0,
+        };
+        assert_eq!(stats.summary(), "+100 chars");
+    }
+
+    #[test]
+    fn test_edit_stats_summary_chars_removed_only() {
+        let stats = EditStats {
+            lines_added: 0,
+            lines_removed: 0,
+            chars_added: 0,
+            chars_removed: 75,
+        };
+        assert_eq!(stats.summary(), "-75 chars");
     }
 }
