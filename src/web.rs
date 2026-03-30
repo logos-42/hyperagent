@@ -62,6 +62,22 @@ impl HttpClient {
         Self { inner, config }
     }
     
+    /// Returns a reference to the current HTTP client configuration.
+    ///
+    /// This is useful for diagnostics and logging, allowing callers to
+    /// inspect timeout settings and retry configuration.
+    fn config(&self) -> &HttpClientConfig {
+        &self.config
+    }
+    
+    /// Checks if the client has remaining retry attempts for a failed request.
+    ///
+    /// Returns `true` if `max_retries > 0`, indicating the client will
+    /// attempt to recover from transient failures.
+    fn has_retry_budget(&self) -> bool {
+        self.config.max_retries > 0
+    }
+    
     /// Execute a request with retry logic and exponential backoff with jitter.
     ///
     /// Uses "full jitter" strategy: random delay between 0 and the exponential backoff.
@@ -1027,6 +1043,47 @@ mod tests {
     fn test_web_fetch_tool_with_timeout() {
         let tool = WebFetchTool::with_timeout(60);
         assert!(Arc::try_unwrap(tool.client).is_ok());
+    }
+
+    #[test]
+    fn test_http_client_config_accessor() {
+        let client = HttpClient::new();
+        let config = client.config();
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_base_delay_ms, 100);
+        assert!(config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_http_client_has_retry_budget() {
+        let client = HttpClient::new();
+        assert!(client.has_retry_budget());
+        
+        let config = HttpClientConfig {
+            timeout_secs: 30,
+            max_retries: 0,
+            retry_base_delay_ms: 100,
+            retry_on_timeout: true,
+        };
+        let client_no_retry = HttpClient::with_config(config);
+        assert!(!client_no_retry.has_retry_budget());
+    }
+
+    #[test]
+    fn test_http_client_custom_config_reflection() {
+        let config = HttpClientConfig {
+            timeout_secs: 60,
+            max_retries: 5,
+            retry_base_delay_ms: 200,
+            retry_on_timeout: false,
+        };
+        let client = HttpClient::with_config(config.clone());
+        let reflected = client.config();
+        assert_eq!(reflected.timeout_secs, 60);
+        assert_eq!(reflected.max_retries, 5);
+        assert_eq!(reflected.retry_base_delay_ms, 200);
+        assert!(!reflected.retry_on_timeout);
     }
 
     #[test]
