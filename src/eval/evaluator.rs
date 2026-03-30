@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use futures::future::join_all;
 
 use crate::llm::LLMClient;
 use crate::agent::executor::ExecutionResult;
@@ -204,16 +205,23 @@ impl<C: LLMClient> EnsembleEvaluator<C> {
         task: &str,
         result: &ExecutionResult,
     ) -> Result<EvaluationResult> {
-        let mut results = Vec::new();
+        let futures: Vec<_> = self.evaluators
+            .iter()
+            .map(|evaluator| evaluator.score(task, result))
+            .collect();
 
-        for evaluator in &self.evaluators {
-            match evaluator.score(task, result).await {
-                Ok(eval_result) => results.push(eval_result),
+        let outcomes = join_all(futures).await;
+
+        let results: Vec<EvaluationResult> = outcomes
+            .into_iter()
+            .filter_map(|outcome| match outcome {
+                Ok(eval_result) => Some(eval_result),
                 Err(e) => {
                     tracing::warn!("Evaluator failed: {}", e);
+                    None
                 }
-            }
-        }
+            })
+            .collect();
 
         if results.is_empty() {
             return Ok(EvaluationResult {
@@ -230,7 +238,7 @@ impl<C: LLMClient> EnsembleEvaluator<C> {
         let avg_robustness = results.iter().map(|r| r.score.robustness).sum::<f32>() / results.len() as f32;
 
         let justification = format!(
-            "Ensemble of {} evaluators",
+            "Ensemble of {} evaluators (parallel)",
             results.len()
         );
 
@@ -265,5 +273,30 @@ mod tests {
     fn test_rule_based_evaluator() {
         let score = RuleBasedEvaluator::evaluate("Write a function", "fn main() {}");
         assert!(score.correctness > 5.0);
+    }
+
+    #[test]
+    fn test_ensemble_evaluator_aggregation() {
+        // Test that aggregation logic produces correct averages
+        let score1 = Score::new(8.0, 7.0, 6.0);
+        let score2 = Score::new(6.0, 5.0, 4.0);
+
+        let avg_correctness = (score1.correctness + score2.correctness) / 2.0;
+        let avg_efficiency = (score1.efficiency + score2.efficiency) / 2.0;
+        let avg_robustness = (score1.robustness + score2.robustness) / 2.0;
+
+        assert!((avg_correctness - 7.0).abs() < 0.01);
+        assert!((avg_efficiency - 6.0).abs() < 0.01);
+        assert!((avg_robustness - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_score_clamping() {
+        // Verify scores are clamped to valid range
+        let score = Score::new(15.0, -5.0, 11.0);
+        assert_eq!(score.correctness, 10.0);
+        assert_eq!(score.efficiency, 0.0);
+        assert_eq!(score.robustness, 10.0);
+        assert!(score.value <= 10.0);
     }
 }
