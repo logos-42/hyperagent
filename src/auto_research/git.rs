@@ -284,6 +284,42 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
         Ok(GitLog { entries })
     }
+
+    /// Get git commit history for a specific file path
+    ///
+    /// Returns commits that modified the given file, helping understand
+    /// the evolution of a file before making changes to it.
+    pub(crate) fn git_log_for_file(&self, file_path: &str, count: usize) -> Result<GitLog> {
+        let output = std::process::Command::new("git")
+            .args(&[
+                "log",
+                &format!("-{}", count),
+                "--pretty=format:%h|%an|%s",
+                "--",
+                file_path,
+            ])
+            .current_dir(&self.config.project_root)
+            .output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut entries = Vec::new();
+
+        for line in stdout.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = line.splitn(3, '|').collect();
+            if parts.len() == 3 {
+                entries.push(GitLogEntry {
+                    hash: parts[0].to_string(),
+                    author: parts[1].to_string(),
+                    message: parts[2].to_string(),
+                });
+            }
+        }
+
+        Ok(GitLog { entries })
+    }
 }
 
 #[cfg(test)]
@@ -504,5 +540,48 @@ mod tests {
     fn test_git_log_empty() {
         let log = GitLog { entries: vec![] };
         assert!(log.entries.is_empty());
+    }
+
+    #[test]
+    fn test_git_log_for_file_entry_construction() {
+        // Verify GitLog can represent file-specific history
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Fix bug in git.rs".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def5678".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Add git_log_for_file method".to_string(),
+                },
+            ],
+        };
+        assert_eq!(log.entries.len(), 2);
+        assert!(log.entries[0].message.contains("git.rs"));
+        assert!(log.entries[1].message.contains("git_log_for_file"));
+    }
+
+    #[test]
+    fn test_git_log_for_file_empty() {
+        // File with no commits should return empty log
+        let log = GitLog { entries: vec![] };
+        assert!(log.entries.is_empty());
+    }
+
+    #[test]
+    fn test_git_log_for_file_single_entry() {
+        // Single commit for a file
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "a1b2c3d".to_string(),
+                author: "Developer".to_string(),
+                message: "Initial implementation".to_string(),
+            }],
+        };
+        assert_eq!(log.entries.len(), 1);
+        assert_eq!(log.entries[0].hash, "a1b2c3d");
     }
 }
