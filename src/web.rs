@@ -29,6 +29,9 @@ pub struct HttpClientConfig {
     pub retry_base_delay_ms: u64,
     /// Whether to retry on timeout errors (default: true)
     pub retry_on_timeout: bool,
+    /// Maximum response body size in bytes (default: 10MB)
+    /// Prevents memory exhaustion from oversized responses.
+    pub max_response_size: usize,
 }
 
 impl Default for HttpClientConfig {
@@ -38,6 +41,7 @@ impl Default for HttpClientConfig {
             max_retries: 3,
             retry_base_delay_ms: 100,
             retry_on_timeout: true,
+            max_response_size: 10 * 1024 * 1024, // 10MB default
         }
     }
 }
@@ -589,7 +593,27 @@ impl Tool for WebFetchTool {
                 return Err(WebToolError::Http(format!("HTTP {} for {}", resp.status(), url)));
             }
 
+            // Check response size limit before loading body
+            let content_length = resp.content_length();
+            if let Some(len) = content_length {
+                if len as usize > client.config.max_response_size {
+                    return Err(WebToolError::Http(format!(
+                        "Response too large: {} bytes (limit: {})",
+                        len, client.config.max_response_size
+                    )));
+                }
+            }
+
             let html = resp.text().await.map_err(|e| WebToolError::Http(e.to_string()))?;
+            
+            // Double-check after loading (content-length may be absent)
+            if html.len() > client.config.max_response_size {
+                return Err(WebToolError::Http(format!(
+                    "Response body too large: {} bytes (limit: {})",
+                    html.len(), client.config.max_response_size
+                )));
+            }
+            
             let title = extract_title(&html);
             let text = html_to_text(&html);
 
@@ -1041,6 +1065,35 @@ mod tests {
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.retry_base_delay_ms, 100);
         assert!(config.retry_on_timeout);
+        assert_eq!(config.max_response_size, 10 * 1024 * 1024); // 10MB
+    }
+
+    #[test]
+    fn test_http_client_max_response_size() {
+        let client = HttpClient::new();
+        assert_eq!(client.max_response_size(), 10 * 1024 * 1024);
+        
+        let config = HttpClientConfig {
+            timeout_secs: 30,
+            max_retries: 3,
+            retry_base_delay_ms: 100,
+            retry_on_timeout: true,
+            max_response_size: 1024, // 1KB limit
+        };
+        let small_client = HttpClient::with_config(config);
+        assert_eq!(small_client.max_response_size(), 1024);
+    }
+
+    #[test]
+    fn test_http_client_config_custom_max_response_size() {
+        let config = HttpClientConfig {
+            timeout_secs: 60,
+            max_retries: 5,
+            retry_base_delay_ms: 200,
+            retry_on_timeout: false,
+            max_response_size: 5 * 1024 * 1024, // 5MB
+        };
+        assert_eq!(config.max_response_size, 5 * 1024 * 1024);
     }
 
     #[test]
@@ -1087,6 +1140,7 @@ mod tests {
             max_retries: 5,
             retry_base_delay_ms: 200,
             retry_on_timeout: false,
+            max_response_size: 20 * 1024 * 1024, // 20MB
         };
         let client = HttpClient::with_config(config.clone());
         let reflected = client.config();
@@ -1094,6 +1148,7 @@ mod tests {
         assert_eq!(reflected.max_retries, 5);
         assert_eq!(reflected.retry_base_delay_ms, 200);
         assert!(!reflected.retry_on_timeout);
+        assert_eq!(reflected.max_response_size, 20 * 1024 * 1024);
     }
 
     #[test]
