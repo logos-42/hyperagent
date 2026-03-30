@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::process::Stdio;
 
 use crate::llm::LLMClient;
 
@@ -203,6 +204,48 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
         Ok((passed, total, combined))
     }
+
+    /// Run clippy lints to detect code quality issues and potential bugs.
+    /// Returns (warning_count, combined_output) where warning_count is the number of clippy warnings.
+    pub(crate) async fn run_clippy_checks(&self) -> Result<(u32, String)> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("cargo")
+                .arg("clippy")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .arg("--")
+                .arg("-W")
+                .arg("clippy::all")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Clippy timeout: {}", e))??;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let warning_count = Self::parse_clippy_warnings(&combined);
+        Ok((warning_count, combined))
+    }
+
+    /// Parse clippy output to count the number of warnings.
+    /// Clippy warnings typically appear as "warning: <message>" lines.
+    fn parse_clippy_warnings(output: &str) -> u32 {
+        output
+            .lines()
+            .filter(|line| {
+                line.trim().starts_with("warning:") ||
+                line.contains("error[E") ||
+                (line.contains("warning[") && line.contains("]:"))
+            })
+            .count() as u32
+    }
 }
 
 #[cfg(test)]
@@ -335,5 +378,43 @@ mod tests {
 
         let code3 = "#[cfg(test)]\nmod tests { #[test]\nfn inner() {} }";
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code3), 1);
+    }
+
+    #[test]
+    fn test_parse_clippy_warnings_basic() {
+        let output = "warning: unused variable\nnote: consider binding to underscore\nwarning: function too long";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
+    }
+
+    #[test]
+    fn test_parse_clippy_warnings_with_error_codes() {
+        let output = "error[E0277]: the trait bound is not satisfied\nwarning[clippy::unwrap_used]: called unwrap on an Option";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
+    }
+
+    #[test]
+    fn test_parse_clippy_warnings_empty() {
+        let output = "Compiling hyperagent v0.1.0\nFinished dev [unoptimized + debuginfo]";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 0);
+    }
+
+    #[test]
+    fn test_parse_clippy_warnings_mixed() {
+        let output = "warning: variable does not need to be mutable\n   --> src/lib.rs:10:5\nhelp: remove this\nwarning[clippy::let_unit_value]: this creates a () value";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
+    }
+
+    #[test]
+    fn test_parse_clippy_warnings_multiline() {
+        let output = r#"warning: this function is too long
+   --> src/main.rs:15:1
+    |
+15  | fn long_function() {
+    | ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `-W clippy::too-long-function` implied by `-W clippy::all`
+warning: another issue
+"#;
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
     }
 }
