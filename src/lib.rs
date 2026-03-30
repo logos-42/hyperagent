@@ -255,6 +255,11 @@ impl Error {
         matches!(self, Error::Config(_))
     }
 
+    /// Returns `true` if this is an `Other` error.
+    pub fn is_other(&self) -> bool {
+        matches!(self, Error::Other(_))
+    }
+
     /// Returns the inner `std::io::Error` if this is an `Io` error.
     ///
     /// This is useful for inspecting the specific I/O error kind
@@ -262,6 +267,18 @@ impl Error {
     pub fn as_io(&self) -> Option<&std::io::Error> {
         match self {
             Error::Io(err) => Some(err),
+            _ => None,
+        }
+    }
+
+    /// Returns the inner `std::io::Error` if this is an `Io` error.
+    ///
+    /// This returns a cloned `std::io::Error` without consuming the `Error`.
+    /// Use this when you need an owned error but also need to retain ownership
+    /// of the original `Error`.
+    pub fn to_io(&self) -> Option<std::io::Error> {
+        match self {
+            Error::Io(err) => Some(std::io::Error::new(err.kind(), err.to_string())),
             _ => None,
         }
     }
@@ -280,6 +297,24 @@ impl Error {
             Error::Config(msg) => Some(msg),
             Error::Other(msg) => Some(msg),
             Error::Io(_) => None,
+        }
+    }
+
+    /// Returns a cloned error message string if this is a string-based variant.
+    ///
+    /// This is the non-consuming equivalent of [`into_message`](Self::into_message).
+    /// Use this when you need an owned `String` but also need to retain ownership
+    /// of the original `Error`.
+    ///
+    /// Returns `None` for `Io` errors which cannot be meaningfully converted
+    /// Consumes the error and returns the inner `std::io::Error` if this is an `Io` error.
+    ///
+    /// This is useful when you need to work with the underlying I/O error
+    /// directly without keeping the outer `Error` wrapper.
+    pub fn into_io(self) -> Option<std::io::Error> {
+        match self {
+            Error::Io(err) => Some(err),
+            _ => None,
         }
     }
 
@@ -671,16 +706,16 @@ mod tests {
         assert!(Error::Config("test".into()).is_config());
         assert!(!Error::Config("test".into()).is_other());
         
-        // Test Other variant - there's no is_other() method, but we can verify it's not any of the others
-        let other_err = Error::Other("test".into());
-        assert!(!other_err.is_llm());
-        assert!(!other_err.is_io());
-        assert!(!other_err.is_evaluation());
-        assert!(!other_err.is_evolution());
-        assert!(!other_err.is_memory());
-        assert!(!other_err.is_codebase());
-        assert!(!other_err.is_web());
-        assert!(!other_err.is_config());
+        // Test is_other method
+        assert!(Error::Other("test".into()).is_other());
+        assert!(!Error::LLM("test".into()).is_other());
+        assert!(!Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).is_other());
+        assert!(!Error::Evaluation("test".into()).is_other());
+        assert!(!Error::Evolution("test".into()).is_other());
+        assert!(!Error::Memory("test".into()).is_other());
+        assert!(!Error::Codebase("test".into()).is_other());
+        assert!(!Error::Web("test".into()).is_other());
+        assert!(!Error::Config("test".into()).is_other());
     }
 
     #[test]
@@ -1003,5 +1038,157 @@ mod tests {
         assert!(errors[1].is_web());
         assert!(errors[2].is_config());
         assert!(errors[3].is_io());
+    }
+
+    #[test]
+    fn test_to_io_returns_cloned_error() {
+        use std::io::ErrorKind;
+
+        // Io variant returns Some with cloned error
+        let original = std::io::Error::new(ErrorKind::NotFound, "file missing");
+        let err = Error::Io(original);
+        let cloned = err.to_io();
+        assert!(cloned.is_some());
+        let cloned = cloned.unwrap();
+        assert_eq!(cloned.kind(), ErrorKind::NotFound);
+
+        // Original error is still usable
+        assert!(err.is_io());
+
+        // Non-Io variants return None
+        let err = Error::LLM("test".into());
+        assert!(err.to_io().is_none());
+
+        let err = Error::Evaluation("test".into());
+        assert!(err.to_io().is_none());
+
+        let err = Error::Other("test".into());
+        assert!(err.to_io().is_none());
+    }
+
+    #[test]
+    fn test_into_io_consumes_error() {
+        use std::io::ErrorKind;
+
+        // Io variant returns Some and consumes the error
+        let err = Error::Io(std::io::Error::new(ErrorKind::TimedOut, "timeout"));
+        let inner = err.into_io();
+        assert!(inner.is_some());
+        let inner = inner.unwrap();
+        assert_eq!(inner.kind(), ErrorKind::TimedOut);
+
+        // Non-Io variants return None and consume the error
+        let err = Error::LLM("test".into());
+        let result = err.into_io();
+        assert!(result.is_none());
+
+        let err = Error::Web("timeout".into());
+        let result = err.into_io();
+        assert!(result.is_none());
+
+        let err = Error::Other("test".into());
+        let result = err.into_io();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_to_io_vs_as_io_vs_into_io() {
+        use std::io::ErrorKind;
+
+        // Demonstrate the ergonomic trio for Io errors:
+        // - as_io: borrowed reference
+        // - to_io: owned clone without consuming
+        // - into_io: owned, consumes self
+
+        let err = Error::Io(std::io::Error::new(ErrorKind::NotFound, "file"));
+
+        // as_io returns reference, error is still usable
+        let borrowed = err.as_io();
+        assert!(borrowed.is_some());
+        assert!(err.is_io()); // err still valid
+
+        // to_io returns owned Error, original still usable
+        let owned = err.to_io();
+        assert!(owned.is_some());
+        assert!(err.is_io()); // err still valid
+
+        // into_io returns owned Error and consumes self
+        let consumed = err.into_io();
+        assert!(consumed.is_some());
+        // err is no longer usable here (moved)
+    }
+
+    #[test]
+    fn test_to_io_preserves_error_kind() {
+        use std::io::ErrorKind;
+
+        // Test that different error kinds are preserved through to_io
+        let kinds = vec![
+            ErrorKind::NotFound,
+            ErrorKind::PermissionDenied,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::TimedOut,
+            ErrorKind::Interrupted,
+        ];
+
+        for kind in kinds {
+            let original = std::io::Error::new(kind, "test");
+            let err = Error::Io(original);
+            let cloned = err.to_io().unwrap();
+            assert_eq!(
+                cloned.kind(), kind,
+                "Error kind should be preserved through to_io"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_other_in_error_handling() {
+        // Practical use case: handling unknown/generic errors
+        fn categorize_error(err: &Error) -> &'static str {
+            if err.is_io() {
+                "io"
+            } else if err.is_llm() {
+                "llm"
+            } else if err.is_web() {
+                "web"
+            } else if err.is_config() {
+                "config"
+            } else if err.is_evaluation() {
+                "evaluation"
+            } else if err.is_evolution() {
+                "evolution"
+            } else if err.is_memory() {
+                "memory"
+            } else if err.is_codebase() {
+                "codebase"
+            } else if err.is_other() {
+                "other"
+            } else {
+                "unknown"
+            }
+        }
+
+        assert_eq!(categorize_error(&Error::Other("misc".into())), "other");
+        assert_eq!(categorize_error(&Error::LLM("api".into())), "llm");
+        assert_eq!(categorize_error(&Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x"))), "io");
+
+        // Verify all variants are covered (no "unknown" should be returned)
+        let variants: Vec<Error> = vec![
+            Error::LLM("x".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")),
+            Error::Evaluation("x".into()),
+            Error::Evolution("x".into()),
+            Error::Memory("x".into()),
+            Error::Codebase("x".into()),
+            Error::Web("x".into()),
+            Error::Config("x".into()),
+            Error::Other("x".into()),
+        ];
+
+        for err in variants {
+            let category = categorize_error(&err);
+            assert_ne!(category, "unknown", "Error {:?} should be categorized", err);
+        }
     }
 }
