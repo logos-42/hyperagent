@@ -295,6 +295,48 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
     pub fn results_for_file(&self, file: &str) -> Vec<&SelfEvolutionResult> {
         self.results.iter().filter(|r| r.file == file).collect()
     }
+
+    /// Get results that had a measurable impact (tests ran and passed or failed)
+    /// Experiments with no tests (tests_total == 0) are filtered out
+    pub fn with_test_results(&self) -> Vec<&SelfEvolutionResult> {
+        self.results.iter()
+            .filter(|r| r.score.as_ref().map_or(false, |s| s.tests_total > 0))
+            .collect()
+    }
+}
+
+impl SelfEvolutionResult {
+    /// Generate a human-readable one-line summary of this result
+    /// Format: "[iteration:X] {file} → {status}: {description}"
+    pub fn status_summary(&self) -> String {
+        let status_str = match &self.status {
+            SelfEvolutionStatus::Accepted => "✓ ACCEPTED",
+            SelfEvolutionStatus::Rejected => "✗ REJECTED",
+            SelfEvolutionStatus::Failed => "⚠ FAILED",
+            SelfEvolutionStatus::Skipped => "○ SKIPPED",
+        };
+        
+        let score_str = self.score.as_ref().map(|s| {
+            if s.tests_total > 0 {
+                format!(" [tests: {}/{}]", s.tests_passed, s.tests_total)
+            } else {
+                String::new()
+            }
+        }).unwrap_or_default();
+        
+        format!(
+            "[iteration:{}] {} → {}{}",
+            self.iteration,
+            self.file,
+            status_str,
+            score_str
+        )
+    }
+
+    /// Returns true if this result represents a code change (not Failed or Skipped)
+    pub fn is_code_change(&self) -> bool {
+        matches!(self.status, SelfEvolutionStatus::Accepted | SelfEvolutionStatus::Rejected)
+    }
 }
 
 /// Summary statistics for self-evolution run
@@ -306,4 +348,200 @@ pub struct SelfEvolutionSummary {
     pub failed: usize,
     pub skipped: usize,
     pub success_rate: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_result(iteration: u32, file: &str, status: SelfEvolutionStatus) -> SelfEvolutionResult {
+        SelfEvolutionResult {
+            iteration,
+            file: file.to_string(),
+            status,
+            score: None,
+            error: None,
+            description: format!("Test result for {}", file),
+            hypothesis: format!("Hypothesis for {}", file),
+        }
+    }
+
+    fn make_result_with_tests(
+        iteration: u32,
+        file: &str,
+        status: SelfEvolutionStatus,
+        passed: u32,
+        total: u32,
+    ) -> SelfEvolutionResult {
+        SelfEvolutionResult {
+            iteration,
+            file: file.to_string(),
+            status,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: passed,
+                tests_total: total,
+                test_pass_rate: if total > 0 { passed as f32 / total as f32 } else { 0.0 },
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: format!("Test result for {}", file),
+            hypothesis: format!("Hypothesis for {}", file),
+        }
+    }
+
+    #[test]
+    fn test_status_summary_accepted() {
+        let result = make_result(1, "agent/mod.rs", SelfEvolutionStatus::Accepted);
+        let summary = result.status_summary();
+        assert!(summary.contains("[iteration:1]"));
+        assert!(summary.contains("agent/mod.rs"));
+        assert!(summary.contains("✓ ACCEPTED"));
+    }
+
+    #[test]
+    fn test_status_summary_rejected() {
+        let result = make_result(2, "eval/metrics.rs", SelfEvolutionStatus::Rejected);
+        let summary = result.status_summary();
+        assert!(summary.contains("✗ REJECTED"));
+    }
+
+    #[test]
+    fn test_status_summary_with_tests() {
+        let result = make_result_with_tests(3, "eval/metrics.rs", SelfEvolutionStatus::Accepted, 8, 10);
+        let summary = result.status_summary();
+        assert!(summary.contains("[tests: 8/10]"));
+    }
+
+    #[test]
+    fn test_status_summary_failed() {
+        let result = make_result(4, "llm/client.rs", SelfEvolutionStatus::Failed);
+        let summary = result.status_summary();
+        assert!(summary.contains("⚠ FAILED"));
+    }
+
+    #[test]
+    fn test_status_summary_skipped() {
+        let result = make_result(5, "memory/lineage.rs", SelfEvolutionStatus::Skipped);
+        let summary = result.status_summary();
+        assert!(summary.contains("○ SKIPPED"));
+    }
+
+    #[test]
+    fn test_is_code_change() {
+        let accepted = make_result(1, "test.rs", SelfEvolutionStatus::Accepted);
+        let rejected = make_result(2, "test.rs", SelfEvolutionStatus::Rejected);
+        let failed = make_result(3, "test.rs", SelfEvolutionStatus::Failed);
+        let skipped = make_result(4, "test.rs", SelfEvolutionStatus::Skipped);
+
+        assert!(accepted.is_code_change());
+        assert!(rejected.is_code_change());
+        assert!(!failed.is_code_change());
+        assert!(!skipped.is_code_change());
+    }
+
+    #[test]
+    fn test_score_is_successful() {
+        let success = SelfEvolutionScore {
+            compiles: true,
+            tests_passed: 10,
+            tests_total: 10,
+            test_pass_rate: 1.0,
+            compilation_errors: String::new(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(success.is_successful());
+
+        let partial = SelfEvolutionScore {
+            compiles: true,
+            tests_passed: 8,
+            tests_total: 10,
+            test_pass_rate: 0.8,
+            compilation_errors: String::new(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(!partial.is_successful());
+
+        let no_tests = SelfEvolutionScore {
+            compiles: true,
+            tests_passed: 0,
+            tests_total: 0,
+            test_pass_rate: 0.0,
+            compilation_errors: String::new(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(!no_tests.is_successful());
+    }
+
+    #[test]
+    fn test_score_has_tests_and_compilable() {
+        let with_tests = SelfEvolutionScore {
+            compiles: true,
+            tests_passed: 5,
+            tests_total: 10,
+            test_pass_rate: 0.5,
+            compilation_errors: String::new(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(with_tests.has_tests());
+        assert!(with_tests.is_compilable());
+
+        let no_tests = SelfEvolutionScore {
+            compiles: true,
+            tests_passed: 0,
+            tests_total: 0,
+            test_pass_rate: 0.0,
+            compilation_errors: String::new(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(!no_tests.has_tests());
+
+        let compile_failed = SelfEvolutionScore {
+            compiles: false,
+            tests_passed: 0,
+            tests_total: 0,
+            test_pass_rate: 0.0,
+            compilation_errors: "error[E0433]: failed to resolve".to_string(),
+            test_output: String::new(),
+            reflection: String::new(),
+        };
+        assert!(!compile_failed.is_compilable());
+    }
+
+    #[test]
+    fn test_truncate_words_short_string() {
+        let short = "hello world";
+        assert_eq!(truncate_words(short, 100), short);
+    }
+
+    #[test]
+    fn test_truncate_words_exact_length() {
+        let exact = "hello world";
+        assert_eq!(truncate_words(exact, 11), "hello world");
+    }
+
+    #[test]
+    fn test_truncate_words_at_word_boundary() {
+        let long = "hello world this is a test string";
+        let truncated = truncate_words(long, 15);
+        // Should truncate at word boundary (after "hello")
+        assert!(truncated.ends_with("..."));
+        assert!(!truncated.contains("world"));
+    }
+
+    #[test]
+    fn test_truncate_words_no_spaces() {
+        let no_spaces = "abcdefghijklmnopqrstuvwxyz";
+        let truncated = truncate_words(no_spaces, 10);
+        // No word boundary, just truncate
+        assert!(truncated.ends_with("..."));
+        assert_eq!(truncated.len(), 13); // 10 chars + "..."
+    }
 }
