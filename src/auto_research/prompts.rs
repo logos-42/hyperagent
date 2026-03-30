@@ -3,6 +3,15 @@ use crate::llm::LLMClient;
 use super::{AutoResearch, Experiment};
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
+    /// Truncate a string to a maximum number of characters, appending "..." if truncated.
+    fn truncate_output(s: &str, max_chars: usize) -> String {
+        if s.len() <= max_chars {
+            s.to_string()
+        } else {
+            format!("{}...", &s[..max_chars])
+        }
+    }
+
     /// Format test results as a "passed/total" string
     fn format_tests(passed: u32, total: u32) -> String {
         format!("{}/{}", passed, total)
@@ -241,7 +250,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             after_passed = tests_after.0,
             after_total = tests_after.1,
             compile_ok = compile_ok,
-            output = test_output.chars().take(500).collect::<String>(),
+            output = Self::truncate_output(test_output, 500),
         )
     }
 }
