@@ -3,19 +3,30 @@ use crate::llm::LLMClient;
 use super::{AutoResearch, Experiment};
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
+    /// Format test results as a "passed/total" string
+    fn format_tests(passed: u32, total: u32) -> String {
+        format!("{}/{}", passed, total)
+    }
+
+    /// Format a test transition from before to after
+    fn format_test_transition(before: (u32, u32), after: (u32, u32)) -> String {
+        format!(
+            "{} → {}",
+            Self::format_tests(before.0, before.1),
+            Self::format_tests(after.0, after.1)
+        )
+    }
+
     /// Format a single experiment for display in the research prompt
     fn format_experiment_summary(experiment: &Experiment) -> String {
         format!(
-            "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}/{} → {}/{}",
+            "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}",
             experiment.iteration,
             experiment.file,
             experiment.hypothesis,
             experiment.outcome,
             experiment.reflection,
-            experiment.tests_before.0,
-            experiment.tests_before.1,
-            experiment.tests_after.0,
-            experiment.tests_after.1,
+            Self::format_test_transition(experiment.tests_before, experiment.tests_after),
         )
     }
 
