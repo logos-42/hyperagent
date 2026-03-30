@@ -131,6 +131,48 @@ impl QualityDelta {
 
         score.clamp(-1.0, 1.0)
     }
+
+    /// Returns a human-readable one-line summary of the changes.
+    /// Example: "2 more tests passing, compilation fixed, 3 fewer warnings"
+    /// Example: "1 test failing, compilation broken, 5 more warnings"
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+
+        // Test changes
+        if self.tests_passed_delta > 0 {
+            parts.push(format!("{} more test{} passing", 
+                self.tests_passed_delta, 
+                if self.tests_passed_delta == 1 { "" } else { "s" }));
+        } else if self.tests_passed_delta < 0 {
+            parts.push(format!("{} test{} failing", 
+                (-self.tests_passed_delta),
+                if self.tests_passed_delta == -1 { "" } else { "s" }));
+        }
+
+        // Compilation changes
+        if self.compilation_fixed {
+            parts.push("compilation fixed".to_string());
+        } else if self.compilation_broken {
+            parts.push("compilation broken".to_string());
+        }
+
+        // Warning changes
+        if self.clippy_warnings_delta < 0 {
+            parts.push(format!("{} fewer warning{}", 
+                (-self.clippy_warnings_delta),
+                if self.clippy_warnings_delta == -1 { "" } else { "s" }));
+        } else if self.clippy_warnings_delta > 0 {
+            parts.push(format!("{} more warning{}", 
+                self.clippy_warnings_delta,
+                if self.clippy_warnings_delta == 1 { "" } else { "s" }));
+        }
+
+        if parts.is_empty() {
+            "no changes".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -947,5 +989,92 @@ warning: another issue
         assert_eq!(delta.tests_total_delta, 5);
         assert_eq!(delta.test_pass_rate_delta, 0.0); // Both have 100% pass rate
         assert!(delta.is_improvement());
+    }
+
+    #[test]
+    fn test_quality_delta_summary_improvement() {
+        let delta = QualityDelta {
+            tests_passed_delta: 2,
+            tests_total_delta: 2,
+            test_pass_rate_delta: 0.1,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -1,
+            clippy_warnings_delta: -3,
+            health_score_delta: 0.15,
+        };
+        assert_eq!(delta.summary(), "2 more tests passing, compilation fixed, 3 fewer warnings");
+    }
+
+    #[test]
+    fn test_quality_delta_summary_regression() {
+        let delta = QualityDelta {
+            tests_passed_delta: -1,
+            tests_total_delta: 0,
+            test_pass_rate_delta: -0.1,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 2,
+            clippy_warnings_delta: 5,
+            health_score_delta: -0.2,
+        };
+        assert_eq!(delta.summary(), "1 test failing, compilation broken, 5 more warnings");
+    }
+
+    #[test]
+    fn test_quality_delta_summary_single_changes() {
+        let single_test = QualityDelta {
+            tests_passed_delta: 1,
+            tests_total_delta: 1,
+            test_pass_rate_delta: 0.1,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.05,
+        };
+        assert_eq!(single_test.summary(), "1 more test passing");
+
+        let single_warning = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: -1,
+            health_score_delta: 0.02,
+        };
+        assert_eq!(single_warning.summary(), "1 fewer warning");
+    }
+
+    #[test]
+    fn test_quality_delta_summary_no_changes() {
+        let no_change = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert_eq!(no_change.summary(), "no changes");
+    }
+
+    #[test]
+    fn test_quality_delta_summary_warnings_only() {
+        let warnings_only = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 2,
+            health_score_delta: -0.01,
+        };
+        assert_eq!(warnings_only.summary(), "2 more warnings");
     }
 }
