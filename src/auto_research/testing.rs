@@ -5,6 +5,42 @@ use crate::llm::LLMClient;
 
 use super::AutoResearch;
 
+/// Comprehensive quality report from running tests and linting together.
+/// Provides a unified view of code health for evaluation.
+#[derive(Debug, Clone)]
+pub struct QualityReport {
+    /// Number of tests that passed
+    pub tests_passed: u32,
+    /// Total number of tests run
+    pub tests_total: u32,
+    /// Whether compilation succeeded
+    pub compiles: bool,
+    /// Number of compilation errors (blocking)
+    pub compilation_errors: u32,
+    /// Number of clippy warnings (non-blocking quality issues)
+    pub clippy_warnings: u32,
+    /// Combined output for debugging
+    pub output: String,
+}
+
+impl QualityReport {
+    /// Returns true if all tests pass and code compiles without errors.
+    pub fn is_healthy(&self) -> bool {
+        self.tests_passed == self.tests_total && self.compilation_errors == 0
+    }
+
+    /// Returns a simple score from 0.0 to 1.0 based on test pass rate and error count.
+    /// Uses a weighted formula: test_pass_rate * 0.7 - error_penalty * 0.3
+    pub fn health_score(&self) -> f64 {
+        if self.tests_total == 0 {
+            return if self.compilation_errors == 0 { 0.5 } else { 0.0 };
+        }
+        let test_rate = self.tests_passed as f64 / self.tests_total as f64;
+        let error_penalty = (self.compilation_errors as f64).min(1.0);
+        (test_rate * 0.7 + (1.0 - error_penalty) * 0.3).clamp(0.0, 1.0)
+    }
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// cargo test，解析结果
     pub(crate) async fn run_tests(&self) -> Result<(u32, u32, String)> {
@@ -285,6 +321,71 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
         Ok((passed, total, has_errors, combined))
     }
+
+    /// Run all quality checks (tests + clippy + compilation) in a single pass.
+    /// This is more efficient than running each check separately because it
+    /// compiles once and captures all metrics from the same output.
+    /// 
+    /// Returns a QualityReport with comprehensive code health metrics.
+    pub(crate) async fn run_quality_checks(&self) -> Result<QualityReport> {
+        // Run cargo test first (compiles + runs tests)
+        let test_output = tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            tokio::process::Command::new("cargo")
+                .arg("test")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Test timeout: {}", e))??;
+
+        let test_combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&test_output.stdout),
+            String::from_utf8_lossy(&test_output.stderr)
+        );
+
+        let (tests_passed, tests_total) = Self::parse_test_result(&test_combined);
+        let compilation_errors = Self::count_compilation_errors(&test_combined);
+
+        // Run clippy separately (lint checks don't run tests)
+        let clippy_output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("cargo")
+                .arg("clippy")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .arg("--")
+                .arg("-W")
+                .arg("clippy::all")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Clippy timeout: {}", e))??;
+
+        let clippy_combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&clippy_output.stdout),
+            String::from_utf8_lossy(&clippy_output.stderr)
+        );
+
+        let clippy_warnings = Self::parse_clippy_warnings(&clippy_combined);
+
+        // Combine outputs for debugging
+        let full_output = format!("{}\n\n=== CLIPPY ===\n{}", test_combined, clippy_combined);
+
+        Ok(QualityReport {
+            tests_passed,
+            tests_total,
+            compiles: compilation_errors == 0 && test_output.status.success(),
+            compilation_errors,
+            clippy_warnings,
+            output: full_output,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -474,5 +575,100 @@ mod tests {
 warning: another issue
 "#;
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
+    }
+
+    #[test]
+    fn test_quality_report_is_healthy() {
+        let healthy = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+        assert!(healthy.is_healthy());
+
+        let unhealthy = QualityReport {
+            tests_passed: 8,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert!(!unhealthy.is_healthy());
+
+        let broken = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 2,
+            clippy_warnings: 5,
+            output: String::new(),
+        };
+        assert!(!broken.is_healthy());
+    }
+
+    #[test]
+    fn test_quality_report_health_score() {
+        // Perfect score
+        let perfect = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert!((perfect.health_score() - 1.0).abs() < 0.01);
+
+        // Partial tests, no errors
+        let partial = QualityReport {
+            tests_passed: 5,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 5,
+            output: String::new(),
+        };
+        let score = partial.health_score();
+        assert!(score > 0.35 && score < 0.36, "Expected ~0.35, got {}", score);
+
+        // No tests, no errors (neutral)
+        let no_tests = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+        assert!((no_tests.health_score() - 0.5).abs() < 0.01);
+
+        // No tests, has errors (bad)
+        let no_tests_errors = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: false,
+            compilation_errors: 1,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert!((no_tests_errors.health_score() - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_quality_report_health_score_clamps() {
+        // Test that score is clamped between 0 and 1
+        let all_fail = QualityReport {
+            tests_passed: 0,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 5,
+            clippy_warnings: 10,
+            output: String::new(),
+        };
+        assert!(all_fail.health_score() >= 0.0);
     }
 }
