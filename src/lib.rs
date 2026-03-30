@@ -398,6 +398,142 @@ impl Error {
             Error::Io(_) => None,
         }
     }
+
+    /// Returns a structured error context for programmatic handling.
+    ///
+    /// The context provides categorized error information useful for
+    /// programmatic error handling, logging, and telemetry.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::Error;
+    ///
+    /// let err = Error::LLM("rate limited".into());
+    /// let ctx = err.context();
+    /// assert_eq!(ctx.category, "llm");
+    /// assert!(ctx.retryable);
+    /// ```
+    pub fn context(&self) -> ErrorContext {
+        match self {
+            Error::LLM(msg) => ErrorContext {
+                category: "llm",
+                message: msg.clone(),
+                retryable: true,
+                action: "retry_with_backoff",
+            },
+            Error::Io(err) => ErrorContext {
+                category: "io",
+                message: err.to_string(),
+                retryable: self.is_retryable(),
+                action: if self.is_retryable() { "retry_with_backoff" } else { "fail_fast" },
+            },
+            Error::Evaluation(msg) => ErrorContext {
+                category: "evaluation",
+                message: msg.clone(),
+                retryable: false,
+                action: "log_and_continue",
+            },
+            Error::Evolution(msg) => ErrorContext {
+                category: "evolution",
+                message: msg.clone(),
+                retryable: false,
+                action: "fail_fast",
+            },
+            Error::Memory(msg) => ErrorContext {
+                category: "memory",
+                message: msg.clone(),
+                retryable: false,
+                action: "restore_from_backup",
+            },
+            Error::Codebase(msg) => ErrorContext {
+                category: "codebase",
+                message: msg.clone(),
+                retryable: false,
+                action: "rescan",
+            },
+            Error::Web(msg) => ErrorContext {
+                category: "web",
+                message: msg.clone(),
+                retryable: true,
+                action: "retry_with_backoff",
+            },
+            Error::Config(msg) => ErrorContext {
+                category: "config",
+                message: msg.clone(),
+                retryable: false,
+                action: "fix_configuration",
+            },
+            Error::Other(msg) => ErrorContext {
+                category: "unknown",
+                message: msg.clone(),
+                retryable: false,
+                action: "investigate",
+            },
+        }
+    }
+
+    /// Returns a human-readable recovery suggestion.
+    ///
+    /// This provides actionable guidance for users or operators on how
+    /// to resolve or mitigate the error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::Error;
+    /// use std::io::ErrorKind;
+    ///
+    /// let err = Error::LLM("rate limited".into());
+    /// assert!(err.suggestion().contains("retry"));
+    ///
+    /// let err = Error::Io(std::io::Error::new(ErrorKind::NotFound, "file"));
+    /// assert!(err.suggestion().contains("missing"));
+    /// ```
+    pub fn suggestion(&self) -> &'static str {
+        match self {
+            Error::LLM(_) => "Retry the request with exponential backoff. Check API rate limits and quotas.",
+            Error::Io(err) => match err.kind() {
+                std::io::ErrorKind::NotFound => "The requested file or resource was not found. Verify the path exists.",
+                std::io::ErrorKind::PermissionDenied => "Permission denied. Check file permissions and ownership.",
+                std::io::ErrorKind::TimedOut => "Operation timed out. Consider increasing timeout duration or retrying.",
+                std::io::ErrorKind::ConnectionRefused => "Connection refused. Verify the service is running and accessible.",
+                std::io::ErrorKind::ConnectionReset => "Connection reset by peer. This may be transient—retry the operation.",
+                std::io::ErrorKind::ConnectionAborted => "Connection aborted. Check network stability and retry.",
+                std::io::ErrorKind::Interrupted => "Operation was interrupted. Retry the operation.",
+                _ => "An I/O error occurred. Check logs for details.",
+            },
+            Error::Evaluation(_) => "Evaluation failed. Review test results and fix the failing assertions.",
+            Error::Evolution(_) => "Evolution process encountered an error. Check constraints and population health.",
+            Error::Memory(_) => "Memory/archive error. Check disk space and archive integrity.",
+            Error::Codebase(_) => "Codebase scanning failed. Verify source files are accessible and valid.",
+            Error::Web(_) => "Web request failed. Check network connectivity and retry with backoff.",
+            Error::Config(_) => "Configuration error. Verify settings file syntax and required fields.",
+            Error::Other(_) => "An unknown error occurred. Check logs for details and investigate.",
+        }
+    }
+}
+
+/// Structured error context for programmatic handling.
+///
+/// Provides categorized error information useful for logging, telemetry,
+/// and programmatic error handling decisions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorContext {
+    /// Error category (e.g., "llm", "io", "evaluation")
+    pub category: &'static str,
+    /// Human-readable error message
+    pub message: String,
+    /// Whether this error is likely transient and may succeed on retry
+    pub retryable: bool,
+    /// Suggested action for handling this error
+    pub action: &'static str,
+}
+
+impl fmt::Display for ErrorContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}] {} (retryable={}, action={})", self.category, self.message, self.retryable, self.action)
+    }
 }
 
 /// A specialized Result type for Hyperagent operations.
@@ -1338,6 +1474,205 @@ mod tests {
         // Each variant should return a boolean without panicking
         for err in all_variants {
             let _ = err.is_retryable();
+        }
+    }
+
+    #[test]
+    fn test_context_returns_structured_error_info() {
+        // LLM error context
+        let err = Error::LLM("rate limited".into());
+        let ctx = err.context();
+        assert_eq!(ctx.category, "llm");
+        assert_eq!(ctx.message, "rate limited");
+        assert!(ctx.retryable);
+        assert_eq!(ctx.action, "retry_with_backoff");
+
+        // Evaluation error context
+        let err = Error::Evaluation("test failed".into());
+        let ctx = err.context();
+        assert_eq!(ctx.category, "evaluation");
+        assert_eq!(ctx.message, "test failed");
+        assert!(!ctx.retryable);
+        assert_eq!(ctx.action, "log_and_continue");
+
+        // Config error context
+        let err = Error::Config("invalid settings".into());
+        let ctx = err.context();
+        assert_eq!(ctx.category, "config");
+        assert_eq!(ctx.message, "invalid settings");
+        assert!(!ctx.retryable);
+        assert_eq!(ctx.action, "fix_configuration");
+
+        // Other error context
+        let err = Error::Other("unknown".into());
+        let ctx = err.context();
+        assert_eq!(ctx.category, "unknown");
+        assert_eq!(ctx.message, "unknown");
+        assert!(!ctx.retryable);
+        assert_eq!(ctx.action, "investigate");
+    }
+
+    #[test]
+    fn test_context_for_io_errors() {
+        use std::io::ErrorKind;
+
+        // Transient Io error - retryable
+        let err = Error::Io(std::io::Error::new(ErrorKind::TimedOut, "timeout"));
+        let ctx = err.context();
+        assert_eq!(ctx.category, "io");
+        assert!(ctx.retryable);
+        assert_eq!(ctx.action, "retry_with_backoff");
+
+        // Non-transient Io error - not retryable
+        let err = Error::Io(std::io::Error::new(ErrorKind::NotFound, "file missing"));
+        let ctx = err.context();
+        assert_eq!(ctx.category, "io");
+        assert!(!ctx.retryable);
+        assert_eq!(ctx.action, "fail_fast");
+    }
+
+    #[test]
+    fn test_context_for_all_variants() {
+        // Verify all variants return valid context
+        let variants: Vec<Error> = vec![
+            Error::LLM("test".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            Error::Evaluation("test".into()),
+            Error::Evolution("test".into()),
+            Error::Memory("test".into()),
+            Error::Codebase("test".into()),
+            Error::Web("test".into()),
+            Error::Config("test".into()),
+            Error::Other("test".into()),
+        ];
+
+        for err in variants {
+            let ctx = err.context();
+            assert!(!ctx.category.is_empty(), "Category should not be empty");
+            assert!(!ctx.message.is_empty(), "Message should not be empty");
+            assert!(!ctx.action.is_empty(), "Action should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_suggestion_returns_helpful_guidance() {
+        // LLM error suggestion
+        let err = Error::LLM("rate limited".into());
+        let suggestion = err.suggestion();
+        assert!(suggestion.contains("retry"));
+        assert!(suggestion.contains("rate"));
+
+        // Web error suggestion
+        let err = Error::Web("timeout".into());
+        let suggestion = err.suggestion();
+        assert!(suggestion.contains("network") || suggestion.contains("retry"));
+
+        // Evaluation error suggestion
+        let err = Error::Evaluation("assertion failed".into());
+        let suggestion = err.suggestion();
+        assert!(suggestion.contains("test") || suggestion.contains("assertion"));
+
+        // Config error suggestion
+        let err = Error::Config("invalid".into());
+        let suggestion = err.suggestion();
+        assert!(suggestion.contains("configuration") || suggestion.contains("settings"));
+
+        // Evolution error suggestion
+        let err = Error::Evolution("constraint violated".into());
+        let suggestion = err.suggestion();
+        assert!(suggestion.contains("constraint") || suggestion.contains("population"));
+    }
+
+    #[test]
+    fn test_suggestion_for_io_error_kinds() {
+        use std::io::ErrorKind;
+
+        // NotFound
+        let err = Error::Io(std::io::Error::new(ErrorKind::NotFound, "file"));
+        assert!(err.suggestion().contains("not found") || err.suggestion().contains("missing"));
+
+        // PermissionDenied
+        let err = Error::Io(std::io::Error::new(ErrorKind::PermissionDenied, "denied"));
+        assert!(err.suggestion().contains("Permission"));
+
+        // TimedOut
+        let err = Error::Io(std::io::Error::new(ErrorKind::TimedOut, "timeout"));
+        assert!(err.suggestion().contains("timeout") || err.suggestion().contains("timed out"));
+
+        // ConnectionRefused
+        let err = Error::Io(std::io::Error::new(ErrorKind::ConnectionRefused, "refused"));
+        assert!(err.suggestion().contains("refused") || err.suggestion().contains("service"));
+
+        // Generic Io error
+        let err = Error::Io(std::io::Error::new(ErrorKind::Other, "generic"));
+        assert!(err.suggestion().contains("I/O") || err.suggestion().contains("error"));
+    }
+
+    #[test]
+    fn test_suggestion_for_all_variants() {
+        // All variants should return non-empty static strings
+        let variants: Vec<Error> = vec![
+            Error::LLM("test".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            Error::Evaluation("test".into()),
+            Error::Evolution("test".into()),
+            Error::Memory("test".into()),
+            Error::Codebase("test".into()),
+            Error::Web("test".into()),
+            Error::Config("test".into()),
+            Error::Other("test".into()),
+        ];
+
+        for err in variants {
+            let suggestion = err.suggestion();
+            assert!(!suggestion.is_empty(), "Suggestion should not be empty");
+            // Suggestions should be helpful (end with period)
+            assert!(suggestion.ends_with('.'), "Suggestion should end with period: {}", suggestion);
+        }
+    }
+
+    #[test]
+    fn test_error_context_display() {
+        let err = Error::LLM("rate limited".into());
+        let ctx = err.context();
+        let display = format!("{}", ctx);
+        assert!(display.contains("[llm]"));
+        assert!(display.contains("rate limited"));
+        assert!(display.contains("retryable=true"));
+        assert!(display.contains("action=retry_with_backoff"));
+    }
+
+    #[test]
+    fn test_context_message_preserves_original() {
+        // Ensure context message preserves the original error message
+        let err = Error::LLM("api rate limit exceeded".into());
+        let ctx = err.context();
+        assert_eq!(ctx.message, "api rate limit exceeded");
+
+        let err = Error::Evaluation("assertion failed: expected 5, got 3".into());
+        let ctx = err.context();
+        assert_eq!(ctx.message, "assertion failed: expected 5, got 3");
+    }
+
+    #[test]
+    fn test_context_retryable_matches_is_retryable() {
+        // Verify that context.retryable matches is_retryable() for all variants
+        let variants: Vec<Error> = vec![
+            Error::LLM("test".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "test")),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "test")),
+            Error::Evaluation("test".into()),
+            Error::Evolution("test".into()),
+            Error::Memory("test".into()),
+            Error::Codebase("test".into()),
+            Error::Web("test".into()),
+            Error::Config("test".into()),
+            Error::Other("test".into()),
+        ];
+
+        for err in variants {
+            let ctx = err.context();
+            assert_eq!(ctx.retryable, err.is_retryable(), "Context retryable should match is_retryable for {:?}", err);
         }
     }
 }
