@@ -3,15 +3,30 @@ use crate::llm::LLMClient;
 use super::{AutoResearch, Experiment};
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
+    /// Format a single experiment for display in the research prompt
+    fn format_experiment_summary(experiment: &Experiment) -> String {
+        let (before_passed, before_total) = experiment.tests_before;
+        let (after_passed, after_total) = experiment.tests_after;
+        format!(
+            "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}/{} → {}/{}",
+            experiment.iteration,
+            experiment.file,
+            experiment.hypothesis,
+            experiment.outcome,
+            experiment.reflection,
+            before_passed,
+            before_total,
+            after_passed,
+            after_total,
+        )
+    }
+
     /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文 + 相关文件（Phase 4）
     pub(crate) fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment], web_context: Option<&str>) -> String {
-        let recent_history = history.iter().rev().take(5).map(|e| {
-            format!(
-                "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}/{} → {}/{}",
-                e.iteration, e.file, e.hypothesis, e.outcome, e.reflection,
-                e.tests_before.0, e.tests_before.1, e.tests_after.0, e.tests_after.1,
-            )
-        }).collect::<Vec<_>>().join("\n");
+        let recent_history = history.iter().rev().take(5)
+            .map(Self::format_experiment_summary)
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let codebase_context = self.codebase.build_context_prompt(file);
 
