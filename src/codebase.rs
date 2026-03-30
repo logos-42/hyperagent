@@ -753,30 +753,13 @@ impl CodebaseContext {
                 .collect();
             
             if !target_uses.is_empty() {
-                prompt.push_str(&format!("Depends on: {}\n", target_uses.join(", ")));
+                prompt.push_str(&format!("Used by: {}\n", target_uses.join(", ")));
             }
             
-            // Find files that depend on this file
-            let dependents: Vec<String> = self
-                .files
-                .iter()
-                .filter(|(path, summary)| {
-                    *path != target_file
-                        && summary.uses.iter().any(|u| {
-                            let module_hint = target_file
-                                .strip_suffix(".rs")
-                                .unwrap_or(target_file)
-                                .replace('/', "::")
-                                .replace("mod.rs", "");
-                            u.contains(&module_hint)
-                                || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
-                        })
-                })
-                .map(|(path, _)| path.clone())
-                .collect();
-            
-            if !dependents.is_empty() {
-                prompt.push_str(&format!("Used by: {}\n", dependents.join(", ")));
+            // Include detailed content of dependent files (max 3 for context window)
+            let related_content = self.get_related_files_content(target_file, 3);
+            if !related_content.is_empty() {
+                prompt.push_str(&related_content);
             }
         }
 
