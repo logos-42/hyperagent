@@ -705,6 +705,36 @@ pub struct SelfEvolutionSummary {
     pub success_rate: f32,
 }
 
+impl SelfEvolutionSummary {
+    /// Generate a human-readable one-line summary of evolution statistics.
+    ///
+    /// Format: "{total} total: {accepted} accepted, {rejected} rejected, {failed} failed, {skipped} skipped ({success_rate:.1}% success)"
+    ///
+    /// # Example
+    /// ```
+    /// let summary = SelfEvolutionSummary {
+    ///     total: 10,
+    ///     accepted: 6,
+    ///     rejected: 2,
+    ///     failed: 1,
+    ///     skipped: 1,
+    ///     success_rate: 0.6,
+    /// };
+    /// assert_eq!(summary.summary(), "10 total: 6 accepted, 2 rejected, 1 failed, 1 skipped (60.0% success)");
+    /// ```
+    pub fn summary(&self) -> String {
+        format!(
+            "{} total: {} accepted, {} rejected, {} failed, {} skipped ({:.1}% success)",
+            self.total,
+            self.accepted,
+            self.rejected,
+            self.failed,
+            self.skipped,
+            self.success_rate * 100.0
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1748,5 +1778,76 @@ mod tests {
         assert_eq!(compiled, 1);
         assert_eq!(total, 3);
         assert!((rate - 0.333).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_summary_method_on_summary_struct() {
+        let summary = SelfEvolutionSummary {
+            total: 10,
+            accepted: 6,
+            rejected: 2,
+            failed: 1,
+            skipped: 1,
+            success_rate: 0.6,
+        };
+        let result = summary.summary();
+        assert_eq!(result, "10 total: 6 accepted, 2 rejected, 1 failed, 1 skipped (60.0% success)");
+    }
+
+    #[test]
+    fn test_summary_method_all_accepted() {
+        let summary = SelfEvolutionSummary {
+            total: 5,
+            accepted: 5,
+            rejected: 0,
+            failed: 0,
+            skipped: 0,
+            success_rate: 1.0,
+        };
+        let result = summary.summary();
+        assert_eq!(result, "5 total: 5 accepted, 0 rejected, 0 failed, 0 skipped (100.0% success)");
+    }
+
+    #[test]
+    fn test_summary_method_all_failed() {
+        let summary = SelfEvolutionSummary {
+            total: 3,
+            accepted: 0,
+            rejected: 0,
+            failed: 3,
+            skipped: 0,
+            success_rate: 0.0,
+        };
+        let result = summary.summary();
+        assert_eq!(result, "3 total: 0 accepted, 0 rejected, 3 failed, 0 skipped (0.0% success)");
+    }
+
+    #[test]
+    fn test_summary_method_empty_results() {
+        let summary = SelfEvolutionSummary {
+            total: 0,
+            accepted: 0,
+            rejected: 0,
+            failed: 0,
+            skipped: 0,
+            success_rate: 0.0,
+        };
+        let result = summary.summary();
+        assert_eq!(result, "0 total: 0 accepted, 0 rejected, 0 failed, 0 skipped (0.0% success)");
+    }
+
+    #[test]
+    fn test_summary_method_fractional_success_rate() {
+        let summary = SelfEvolutionSummary {
+            total: 7,
+            accepted: 3,
+            rejected: 2,
+            failed: 1,
+            skipped: 1,
+            success_rate: 0.42857,
+        };
+        let result = summary.summary();
+        // 0.42857 * 100 = 42.857, formatted as 42.9
+        assert!(result.contains("42.9% success"));
     }
 }
