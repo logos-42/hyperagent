@@ -233,6 +233,16 @@ pub struct SearchOutput {
     pub query: String,
 }
 
+impl SearchOutput {
+    /// Returns `true` if the search returned no results.
+    ///
+    /// This is a convenience method for quickly checking emptiness
+    /// without needing to access the `results` vector directly.
+    pub fn is_empty(&self) -> bool {
+        self.results.is_empty()
+    }
+}
+
 /// A single search result.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WebSearchResult {
@@ -1439,5 +1449,79 @@ mod tests {
             text_length: 4,
         };
         assert_eq!(output.domain(), Some("github.com"));
+    }
+
+    #[test]
+    fn test_search_output_is_empty() {
+        // Empty results
+        let empty = SearchOutput {
+            results: vec![],
+            query: "test".to_string(),
+        };
+        assert!(empty.is_empty());
+
+        // Non-empty results
+        let non_empty = SearchOutput {
+            results: vec![WebSearchResult {
+                title: "Test".to_string(),
+                url: "https://example.com".to_string(),
+                snippet: "Test snippet".to_string(),
+            }],
+            query: "test".to_string(),
+        };
+        assert!(!non_empty.is_empty());
+    }
+
+    #[test]
+    fn test_tag_starts_with_basic() {
+        // Basic case-insensitive matching
+        assert!(tag_starts_with("<script>", "script"));
+        assert!(tag_starts_with("<SCRIPT>", "script"));
+        assert!(tag_starts_with("<ScRiPt>", "script"));
+        assert!(tag_starts_with("<div>", "div"));
+        assert!(tag_starts_with("<DIV>", "div"));
+    }
+
+    #[test]
+    fn test_tag_starts_with_closing_tags() {
+        // Closing tags
+        assert!(tag_starts_with("</script>", "script"));
+        assert!(tag_starts_with("</SCRIPT>", "/script"));
+        assert!(tag_starts_with("</style>", "/style"));
+        assert!(tag_starts_with("</div>", "/div"));
+    }
+
+    #[test]
+    fn test_tag_starts_with_with_whitespace() {
+        // Tags with leading whitespace (should still work after trim)
+        assert!(tag_starts_with("  <script>", "script"));
+        assert!(tag_starts_with("\t<div>", "div"));
+    }
+
+    #[test]
+    fn test_tag_starts_with_no_match() {
+        // No match cases
+        assert!(!tag_starts_with("<div>", "script"));
+        assert!(!tag_starts_with("<span>", "div"));
+        assert!(!tag_starts_with("<script>", "div"));
+        assert!(!tag_starts_with("", "div"));
+        assert!(!tag_starts_with("<a>", "div"));
+    }
+
+    #[test]
+    fn test_tag_starts_with_partial_match() {
+        // Partial matches should not match
+        assert!(!tag_starts_with("<sc", "script")); // Too short
+        assert!(!tag_starts_with("<scrip>", "script")); // Missing char
+        assert!(!tag_starts_with("<scripts>", "script")); // Extra char at end shouldn't matter for prefix
+    }
+
+    #[test]
+    fn test_tag_starts_with_attributes() {
+        // Tags with attributes (function only checks the tag name at start)
+        // Note: the function strips '<' and checks prefix, so "<script " would match "script"
+        assert!(tag_starts_with("<script type='text/javascript'>", "script"));
+        assert!(tag_starts_with("<div class='container'>", "div"));
+        assert!(tag_starts_with("<style media='screen'>", "style"));
     }
 }
