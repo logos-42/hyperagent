@@ -22,12 +22,37 @@ pub struct GitDiff {
     pub diff_output: String,
 }
 
+impl GitDiff {
+    /// Returns a human-readable one-line summary of the diff.
+    ///
+    /// Format: "{count} file(s) changed, +{insertions}/-{deletions}"
+    /// (e.g., "3 files changed, +10/-5" or "1 file changed, +25/-0")
+    pub fn summary(&self) -> String {
+        let file_count = self.files_changed.len();
+        let files_str = if file_count == 1 { "file" } else { "files" };
+        format!(
+            "{} {} changed, +{}/-{}",
+            file_count, files_str, self.insertions, self.deletions
+        )
+    }
+}
+
 /// Git log entry for observability
 #[derive(Debug, Clone)]
 pub struct GitLogEntry {
     pub hash: String,
     pub author: String,
     pub message: String,
+}
+
+impl GitLogEntry {
+    /// Returns a compact one-line summary of this commit.
+    ///
+    /// Format: "{hash}|{author}: {message}" (e.g., "abc1234|Alice: Fix bug in parser")
+    /// Useful for quickly scanning commit history in research context.
+    pub fn summary(&self) -> String {
+        format!("{}|{}: {}", self.hash, self.author, self.message)
+    }
 }
 
 /// Git log representation for recent commits
@@ -815,5 +840,90 @@ mod tests {
         };
         assert!(conflicts.has_conflicts);
         assert_eq!(conflicts.files.len(), 1);
+    }
+
+    #[test]
+    fn test_git_log_entry_summary() {
+        let entry = GitLogEntry {
+            hash: "abc1234".to_string(),
+            author: "Alice".to_string(),
+            message: "Fix bug in parser".to_string(),
+        };
+        assert_eq!(entry.summary(), "abc1234|Alice: Fix bug in parser");
+    }
+
+    #[test]
+    fn test_git_log_entry_summary_special_chars() {
+        let entry = GitLogEntry {
+            hash: "def5678".to_string(),
+            author: "Bob (contributor)".to_string(),
+            message: "Add feature: x, y, z".to_string(),
+        };
+        assert_eq!(entry.summary(), "def5678|Bob (contributor): Add feature: x, y, z");
+    }
+
+    #[test]
+    fn test_git_log_entry_summary_short_message() {
+        let entry = GitLogEntry {
+            hash: "a1b".to_string(),
+            author: "Dev".to_string(),
+            message: "WIP".to_string(),
+        };
+        assert_eq!(entry.summary(), "a1b|Dev: WIP");
+    }
+
+    #[test]
+    fn test_git_diff_summary_multiple_files() {
+        let diff = GitDiff {
+            files_changed: vec!["src/main.rs".to_string(), "src/lib.rs".to_string(), "src/util.rs".to_string()],
+            insertions: 25,
+            deletions: 10,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.summary(), "3 files changed, +25/-10");
+    }
+
+    #[test]
+    fn test_git_diff_summary_single_file() {
+        let diff = GitDiff {
+            files_changed: vec!["src/main.rs".to_string()],
+            insertions: 5,
+            deletions: 2,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.summary(), "1 file changed, +5/-2");
+    }
+
+    #[test]
+    fn test_git_diff_summary_no_changes() {
+        let diff = GitDiff {
+            files_changed: vec![],
+            insertions: 0,
+            deletions: 0,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.summary(), "0 files changed, +0/-0");
+    }
+
+    #[test]
+    fn test_git_diff_summary_additions_only() {
+        let diff = GitDiff {
+            files_changed: vec!["src/new.rs".to_string()],
+            insertions: 100,
+            deletions: 0,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.summary(), "1 file changed, +100/-0");
+    }
+
+    #[test]
+    fn test_git_diff_summary_deletions_only() {
+        let diff = GitDiff {
+            files_changed: vec!["src/deprecated.rs".to_string()],
+            insertions: 0,
+            deletions: 50,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.summary(), "1 file changed, +0/-50");
     }
 }
