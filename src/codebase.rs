@@ -636,6 +636,102 @@ impl CodebaseContext {
         files
     }
 
+    /// Get all improvement records for a specific file.
+    ///
+    /// Returns records in reverse chronological order (most recent first).
+    /// This enables analysis of experiment patterns on specific files to
+    /// identify what hypotheses have already been tested.
+    ///
+    /// # Arguments
+    /// * `file` - The file path to get improvements for
+    ///
+    /// # Returns
+    /// A vector of references to improvement records for the file
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// for record in ctx.get_file_improvements("agent/mutator.rs") {
+    ///     println!("{}: {} -> {}", record.timestamp, record.hypothesis, record.outcome);
+    /// }
+    /// ```
+    pub fn get_file_improvements(&self, file: &str) -> Vec<&ImprovementRecord> {
+        self.improvement_history
+            .iter()
+            .rev()
+            .filter(|record| record.file == file)
+            .collect()
+    }
+
+    /// Get improvement records filtered by outcome type.
+    ///
+    /// Useful for analyzing what worked (Improved), what didn't (Regressed),
+    /// or what had no effect (Neutral) to guide future experiments.
+    ///
+    /// # Arguments
+    /// * `outcome` - The outcome filter: "Improved", "Regressed", or "Neutral"
+    /// * `limit` - Maximum number of records to return (None for all)
+    ///
+    /// # Returns
+    /// A vector of references to matching improvement records
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// // Get all successful improvements
+    /// let successes = ctx.improvements_by_outcome("Improved", None);
+    /// // Get last 5 regressions
+    /// let regressions = ctx.improvements_by_outcome("Regressed", Some(5));
+    /// ```
+    pub fn improvements_by_outcome(&self, outcome: &str, limit: Option<usize>) -> Vec<&ImprovementRecord> {
+        let filtered: Vec<&ImprovementRecord> = self.improvement_history
+            .iter()
+            .rev()
+            .filter(|record| record.outcome == outcome)
+            .collect();
+
+        match limit {
+            Some(n) => filtered.into_iter().take(n).collect(),
+            None => filtered,
+        }
+    }
+
+    /// Count improvements by outcome type for a specific file.
+    ///
+    /// Returns a tuple of (improved, regressed, neutral) counts for the file,
+    /// enabling quick assessment of whether a file is a good target for experiments.
+    ///
+    /// # Arguments
+    /// * `file` - The file path to analyze
+    ///
+    /// # Returns
+    /// A tuple of (improved_count, regressed_count, neutral_count)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let (improved, regressed, neutral) = ctx.count_file_outcomes("agent/mod.rs");
+    /// let success_rate = improved as f64 / (improved + regressed + neutral).max(1) as f64;
+    /// ```
+    pub fn count_file_outcomes(&self, file: &str) -> (u32, u32, u32) {
+        let mut improved = 0u32;
+        let mut regressed = 0u32;
+        let mut neutral = 0u32;
+
+        for record in &self.improvement_history {
+            if record.file == file {
+                match record.outcome.as_str() {
+                    "Improved" => improved += 1,
+                    "Regressed" => regressed += 1,
+                    "Neutral" => neutral += 1,
+                    _ => {}
+                }
+            }
+        }
+
+        (improved, regressed, neutral)
+    }
+
     /// Clear the improvement history while preserving the scanned codebase structure.
     ///
     /// This is useful when starting a fresh research session, allowing the system
