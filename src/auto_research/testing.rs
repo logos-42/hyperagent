@@ -118,6 +118,34 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             .next()
             .and_then(|n| n.parse().ok())
     }
+
+    /// Run tests for a specific module/file using cargo test with --lib flag.
+    /// Returns (passed, total, combined_output) like run_tests, but only for the specified module.
+    pub(crate) async fn run_tests_for_file(&self, module_name: &str) -> Result<(u32, u32, String)> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("cargo")
+                .arg("test")
+                .arg("--lib")
+                .arg("--")
+                .arg(module_name)
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Module test timeout for {}: {}", module_name, e))??;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let (passed, total) = Self::parse_test_result(&combined);
+
+        Ok((passed, total, combined))
+    }
 }
 
 #[cfg(test)]
@@ -178,5 +206,19 @@ mod tests {
         // This test validates the underlying count_test_fns works correctly
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(old_code), 1);
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(new_code), 2);
+    }
+
+    #[test]
+    fn test_parse_test_result_empty_output() {
+        let output = "Build succeeded, no tests run.";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (0, 0));
+    }
+
+    #[test]
+    fn test_parse_test_result_multiple_test_lines() {
+        // When running tests for multiple modules, cargo outputs multiple test result lines
+        let output = "test result: 2 passed; 0 failed\ntest result: 3 passed; 1 failed";
+        // Should parse the first matching line
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (2, 2));
     }
 }
