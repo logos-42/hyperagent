@@ -82,7 +82,9 @@ pub struct GrepMatch {
     pub file: String,
     pub line_number: usize,
     pub line: String,
+    /// Context lines before the match, formatted as "line_num: content"
     pub context_before: Vec<String>,
+    /// Context lines after the match, formatted as "line_num: content"  
     pub context_after: Vec<String>,
     /// Character ranges where the pattern matched (start, end positions in the line)
     pub match_ranges: Vec<(usize, usize)>,
@@ -160,15 +162,17 @@ impl CodebaseGrepTool {
                     .collect();
                 
                 if !match_ranges.is_empty() {
-                    // Extract context using slicing (lines are now owned Strings)
+                    // Extract context with line numbers for easier navigation
                     let before: Vec<String> = lines[idx.saturating_sub(context_lines)..idx]
                         .iter()
-                        .cloned()
+                        .enumerate()
+                        .map(|(i, l)| format!("{}: {}", idx.saturating_sub(context_lines) + i + 1, l))
                         .collect();
                     let after: Vec<String> = lines[idx + 1..]
                         .iter()
                         .take(context_lines)
-                        .cloned()
+                        .enumerate()
+                        .map(|(i, l)| format!("{}: {}", idx + i + 2, l))
                         .collect();
 
                     matches.push(GrepMatch {
@@ -1019,6 +1023,54 @@ mod tests {
         assert_eq!(first_match.line_number, 1);
         assert!(!first_match.match_ranges.is_empty());
         assert_eq!(first_match.match_ranges[0], (3, 8)); // "hello" position in "fn hello()"
+    }
+
+    #[test]
+    fn test_grep_context_with_line_numbers() {
+        let temp_dir = TempDir::new().unwrap();
+        let content = "line one\nfn target() {\n    println!(\"hello\");\n}\nline five\n";
+        create_test_file(temp_dir.path(), "test.rs", content);
+
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("target", "rs", 10, 2).unwrap();
+
+        assert_eq!(result.matches.len(), 1);
+        
+        let m = &result.matches[0];
+        assert_eq!(m.line_number, 2);
+        assert_eq!(m.line, "fn target() {");
+        
+        // Context before should have line numbers
+        assert_eq!(m.context_before.len(), 1);
+        assert_eq!(m.context_before[0], "1: line one");
+        
+        // Context after should have line numbers
+        assert_eq!(m.context_after.len(), 2);
+        assert_eq!(m.context_after[0], "3:     println!(\"hello\");");
+        assert_eq!(m.context_after[1], "4: }");
+    }
+
+    #[test]
+    fn test_grep_context_at_file_start() {
+        let temp_dir = TempDir::new().unwrap();
+        let content = "fn first() {}\nfn second() {}\nfn third() {}\n";
+        create_test_file(temp_dir.path(), "test.rs", content);
+
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("first", "rs", 10, 5).unwrap();
+
+        assert_eq!(result.matches.len(), 1);
+        
+        let m = &result.matches[0];
+        assert_eq!(m.line_number, 1);
+        
+        // Context before should be empty (no lines before line 1)
+        assert!(m.context_before.is_empty());
+        
+        // Context after should have line numbers
+        assert_eq!(m.context_after.len(), 2);
+        assert_eq!(m.context_after[0], "2: fn second() {}");
+        assert_eq!(m.context_after[1], "3: fn third() {}");
     }
 
     #[test]
