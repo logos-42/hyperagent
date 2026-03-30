@@ -366,4 +366,88 @@ mod tests {
         let result = MockResearch::apply_search_replaces_test(original, &ops);
         assert_eq!(result, original); // 原封不动
     }
+
+    #[test]
+    fn test_find_marker_basic() {
+        let text = "some text\nMARKER: value\nmore text";
+        let pos = AutoResearch::<crate::llm::LLMClientImpl>::find_marker(text, "MARKER", 0);
+        assert!(pos.is_some());
+        assert_eq!(pos.unwrap(), 10); // position of 'M' in MARKER
+    }
+
+    #[test]
+    fn test_find_marker_case_insensitive() {
+        let text = "some text\nmarker: value\nmore text";
+        let pos = AutoResearch::<crate::llm::LLMClientImpl>::find_marker(text, "MARKER", 0);
+        assert!(pos.is_some());
+    }
+
+    #[test]
+    fn test_find_marker_not_found() {
+        let text = "some text without the marker";
+        let pos = AutoResearch::<crate::llm::LLMClientImpl>::find_marker(text, "NONEXISTENT", 0);
+        assert!(pos.is_none());
+    }
+
+    #[test]
+    fn test_find_marker_with_offset() {
+        let text = "prefix\nMARKER: first\ncontent\nMARKER: second\nend";
+        let first_pos = AutoResearch::<crate::llm::LLMClientImpl>::find_marker(text, "MARKER", 0);
+        let second_pos = AutoResearch::<crate::llm::LLMClientImpl>::find_marker(text, "MARKER", first_pos.unwrap() + 1);
+        assert!(first_pos.is_some());
+        assert!(second_pos.is_some());
+        assert!(first_pos.unwrap() < second_pos.unwrap());
+    }
+
+    #[test]
+    fn test_extract_code_with_rust_block() {
+        let raw = "Here's the code:\n```rust\nfn main() {}\n```\nEnd.";
+        let code = AutoResearch::<crate::llm::LLMClientImpl>::extract_code(raw);
+        assert_eq!(code, "fn main() {}");
+    }
+
+    #[test]
+    fn test_extract_code_with_plain_block() {
+        let raw = "Code:\n```\nlet x = 1;\n```\nDone.";
+        let code = AutoResearch::<crate::llm::LLMClientImpl>::extract_code(raw);
+        assert_eq!(code, "let x = 1;");
+    }
+
+    #[test]
+    fn test_extract_code_no_block() {
+        let raw = "Just plain text without code blocks";
+        let code = AutoResearch::<crate::llm::LLMClientImpl>::extract_code(raw);
+        assert_eq!(code, "Just plain text without code blocks");
+    }
+
+    #[test]
+    fn test_extract_code_empty_block() {
+        let raw = "Empty:\n```\n```\nDone.";
+        let code = AutoResearch::<crate::llm::LLMClientImpl>::extract_code(raw);
+        assert_eq!(code, "");
+    }
+
+    #[test]
+    fn test_search_replace_preserves_unmatched() {
+        let original = "fn alpha() {}\nfn beta() {}\nfn gamma() {}";
+        let ops = vec![SearchReplace {
+            search: "fn beta() {}".to_string(),
+            replace: "fn beta() -> bool { true }".to_string(),
+        }];
+        let result = MockResearch::apply_search_replaces_test(original, &ops);
+        assert!(result.contains("fn alpha() {}"));
+        assert!(result.contains("fn beta() -> bool { true }"));
+        assert!(result.contains("fn gamma() {}"));
+    }
+
+    #[test]
+    fn test_search_replace_empty_replacement() {
+        let original = "keep this\ndelete this\nkeep this too";
+        let ops = vec![SearchReplace {
+            search: "delete this\n".to_string(),
+            replace: "".to_string(),
+        }];
+        let result = MockResearch::apply_search_replaces_test(original, &ops);
+        assert_eq!(result, "keep this\nkeep this too");
+    }
 }
