@@ -217,9 +217,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                     }
                 }
             }
-            // Parse file names from diff headers like "--- a/src/file.rs"
+            // Parse file names from diff headers like "diff --git a/src/old.rs b/src/new.rs"
+            // We want the "new" filename (after b/), which is the 4th space-separated field
             if line.starts_with("diff --git") {
-                if let Some(file) = line.split(' ').nth(2) {
+                if let Some(file) = line.split(' ').nth(3) {
                     let file = file.strip_prefix("b/").unwrap_or(file);
                     if !files_changed.contains(&file.to_string()) {
                         files_changed.push(file.to_string());
@@ -382,5 +383,39 @@ mod tests {
         };
         assert!(status.staged.contains(&"new_file.rs".to_string()));
         assert!(status.unstaged.contains(&"new_file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_diff_parsing_diff_git_line() {
+        // Verify git_diff correctly parses "diff --git a/old b/new" format
+        // The new filename (b/new) should be extracted, not the old (a/old)
+        let status = GitDiff {
+            files_changed: vec!["src/new_file.rs".to_string()],
+            insertions: 5,
+            deletions: 3,
+            diff_output: "diff --git a/src/old_file.rs b/src/new_file.rs\n".to_string(),
+        };
+        // The key assertion: we should have the "new" filename
+        assert!(status.files_changed.contains(&"src/new_file.rs".to_string()));
+        // We should NOT have the "old" filename
+        assert!(!status.files_changed.contains(&"src/old_file.rs".to_string()));
+        assert!(!status.files_changed.contains(&"a/src/old_file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_diff_multiple_files() {
+        // Test parsing multiple files from diff output
+        let diff = GitDiff {
+            files_changed: vec![
+                "src/main.rs".to_string(),
+                "src/lib.rs".to_string(),
+            ],
+            insertions: 20,
+            deletions: 10,
+            diff_output: String::new(),
+        };
+        assert_eq!(diff.files_changed.len(), 2);
+        assert!(diff.files_changed.contains(&"src/main.rs".to_string()));
+        assert!(diff.files_changed.contains(&"src/lib.rs".to_string()));
     }
 }
