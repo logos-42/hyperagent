@@ -283,6 +283,28 @@ impl Error {
         }
     }
 
+    /// Returns a cloned error message string if this is a string-based variant.
+    ///
+    /// This is the non-consuming equivalent of [`into_message`](Self::into_message).
+    /// Use this when you need an owned `String` but also need to retain ownership
+    /// of the original `Error`.
+    ///
+    /// Returns `None` for `Io` errors which cannot be meaningfully converted
+    /// to a simple string without losing the error kind information.
+    pub fn to_message(&self) -> Option<String> {
+        match self {
+            Error::LLM(msg) => Some(msg.clone()),
+            Error::Evaluation(msg) => Some(msg.clone()),
+            Error::Evolution(msg) => Some(msg.clone()),
+            Error::Memory(msg) => Some(msg.clone()),
+            Error::Codebase(msg) => Some(msg.clone()),
+            Error::Web(msg) => Some(msg.clone()),
+            Error::Config(msg) => Some(msg.clone()),
+            Error::Other(msg) => Some(msg.clone()),
+            Error::Io(_) => None,
+        }
+    }
+
     /// Consumes the error and returns the message string.
     ///
     /// This is useful for error transformation patterns where you want to
@@ -846,5 +868,140 @@ mod tests {
         let io_err = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file"));
         let transformed = transform_to_generic(io_err);
         assert!(matches!(transformed, Error::Other(m) if m.contains("original was I/O")));
+    }
+
+    #[test]
+    fn test_to_message_returns_owned_string() {
+        // String-based variants return Some(String) without consuming the error
+        let err = Error::LLM("rate limited".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("rate limited".to_string()));
+        // Error is still usable after to_message
+        assert!(err.is_llm());
+
+        let err = Error::Evaluation("test failed".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("test failed".to_string()));
+        assert!(err.is_evaluation());
+
+        let err = Error::Evolution("population collapse".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("population collapse".to_string()));
+        assert!(err.is_evolution());
+
+        let err = Error::Memory("archive corrupted".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("archive corrupted".to_string()));
+        assert!(err.is_memory());
+
+        let err = Error::Codebase("scan failed".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("scan failed".to_string()));
+        assert!(err.is_codebase());
+
+        let err = Error::Web("timeout".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("timeout".to_string()));
+        assert!(err.is_web());
+
+        let err = Error::Config("invalid settings".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("invalid settings".to_string()));
+        assert!(err.is_config());
+
+        let err = Error::Other("unknown error".into());
+        let msg = err.to_message();
+        assert_eq!(msg, Some("unknown error".to_string()));
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    #[test]
+    fn test_to_message_io_returns_none() {
+        // Io variant returns None
+        let err = Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "io err"));
+        let msg = err.to_message();
+        assert!(msg.is_none());
+        // Error is still usable
+        assert!(err.is_io());
+    }
+
+    #[test]
+    fn test_to_message_vs_as_message_vs_into_message() {
+        // Demonstrate the ergonomic trio:
+        // - as_message: borrowed &str
+        // - to_message: owned String without consuming
+        // - into_message: owned String, consumes self
+
+        let err = Error::LLM("test message".into());
+
+        // as_message returns &str, error is still usable
+        let borrowed = err.as_message();
+        assert_eq!(borrowed, Some("test message"));
+        assert!(err.is_llm()); // err still valid
+
+        // to_message returns String, error is still usable
+        let owned = err.to_message();
+        assert_eq!(owned, Some("test message".to_string()));
+        assert!(err.is_llm()); // err still valid
+
+        // into_message returns String, error is consumed
+        let consumed = err.into_message();
+        assert_eq!(consumed, Some("test message".to_string()));
+        // err is no longer usable here (moved)
+    }
+
+    #[test]
+    fn test_to_message_for_thread_safe_logging() {
+        // Practical use case: logging errors in async/multi-threaded contexts
+        // where you need owned data without consuming the error
+
+        fn log_error(err: &Error) -> String {
+            match err.to_message() {
+                Some(msg) => format!("[LOG] Error occurred: {}", msg),
+                None => format!("[LOG] I/O error: {}", err),
+            }
+        }
+
+        let err = Error::Web("connection timeout".into());
+        let log_entry = log_error(&err);
+        assert!(log_entry.contains("connection timeout"));
+
+        // Error is still usable after logging
+        assert!(err.is_web());
+
+        // Can log multiple times with same error
+        let log_entry2 = log_error(&err);
+        assert!(log_entry2.contains("connection timeout"));
+    }
+
+    #[test]
+    fn test_to_message_for_error_aggregation() {
+        // Practical use case: collecting error messages without consuming errors
+
+        fn collect_messages(errors: &[Error]) -> Vec<String> {
+            errors
+                .iter()
+                .filter_map(|e| e.to_message())
+                .collect()
+        }
+
+        let errors = vec![
+            Error::LLM("rate limit".into()),
+            Error::Web("timeout".into()),
+            Error::Config("invalid".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file")),
+        ];
+
+        let messages = collect_messages(&errors);
+        assert_eq!(messages.len(), 3);
+        assert!(messages.contains(&"rate limit".to_string()));
+        assert!(messages.contains(&"timeout".to_string()));
+        assert!(messages.contains(&"invalid".to_string()));
+
+        // All errors are still usable after collection
+        assert!(errors[0].is_llm());
+        assert!(errors[1].is_web());
+        assert!(errors[2].is_config());
+        assert!(errors[3].is_io());
     }
 }
