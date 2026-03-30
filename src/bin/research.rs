@@ -82,46 +82,54 @@ async fn main() -> Result<()> {
     
     let total = experiments.len();
     
-    println!("\n=== Experiment Log ===");
+    println!("\n┌───────────────────────────────────────────────────────────────────");
+    println!("│ Experiment Log");
+    println!("├───────────────────────────────────────────────────────────────────");
     for e in &experiments {
         let icon = match e.outcome {
-            hyperagent::ExperimentOutcome::Improved => "+",
-            hyperagent::ExperimentOutcome::Neutral => "=",
-            hyperagent::ExperimentOutcome::Regressed => "-",
+            hyperagent::ExperimentOutcome::Improved => "✓",
+            hyperagent::ExperimentOutcome::Neutral => "○",
+            hyperagent::ExperimentOutcome::Regressed => "✗",
             hyperagent::ExperimentOutcome::Failed => "!",
         };
+        let hypothesis_truncated = truncate_str(&e.hypothesis, 48);
         println!(
-            "  [{}] #{} src/{} | {} | {}/{} -> {}/{}",
+            "│ {} #{:02} src/{}\n│   {} | tests: {}/{} → {}/{}",
             icon, e.iteration, e.file,
-            &e.hypothesis[..e.hypothesis.len().min(50)],
+            hypothesis_truncated,
             e.tests_before.0, e.tests_before.1,
             e.tests_after.0, e.tests_after.1,
         );
     }
+    println!("└───────────────────────────────────────────────────────────────────");
 
-    println!("\n=== Summary ===");
-    println!("  Total experiments: {}", total);
+    println!("\n╔═══════════════════════════════════════════════════════════════════");
+    println!("║ Summary");
+    println!("╠═══════════════════════════════════════════════════════════════════");
+    println!("║ Total experiments: {}", total);
     if total > 0 {
-        let improved_pct = (improved as f64 / total as f64) * 100.0;
-        let neutral_pct = (neutral as f64 / total as f64) * 100.0;
-        let regressed_pct = (regressed as f64 / total as f64) * 100.0;
-        let failed_pct = (failed as f64 / total as f64) * 100.0;
-        println!("  Improved:  {} ({:.1}%)", improved, improved_pct);
-        println!("  Neutral:   {} ({:.1}%)", neutral, neutral_pct);
-        println!("  Regressed: {} ({:.1}%)", regressed, regressed_pct);
-        println!("  Failed:    {} ({:.1}%)", failed, failed_pct);
+        let success_rate = (improved as f64 / total as f64) * 100.0;
+        println!("║ Success rate: {:.1}%", success_rate);
+        println!("╟───────────────────────────────────────────────────────────────────");
+        println!("║ ✓ Improved:  {:3} ({:5.1}%)", improved, pct(improved, total));
+        println!("║ ○ Neutral:   {:3} ({:5.1}%)", neutral, pct(neutral, total));
+        println!("║ ✗ Regressed: {:3} ({:5.1}%)", regressed, pct(regressed, total));
+        println!("║ ! Failed:    {:3} ({:5.1}%)", failed, pct(failed, total));
+        println!("╟───────────────────────────────────────────────────────────────────");
         
-        // Provide actionable recommendation
-        if improved > 0 {
-            println!("\n✓ Research produced {} improvement(s).", improved);
+        // Provide actionable recommendation based on outcome distribution
+        let recommendation = if improved > 0 {
+            format!("✓ Research produced {} improvement(s). Consider running more iterations.", improved)
         } else if neutral > 0 && failed == 0 {
-            println!("\n○ No improvements found. Consider adjusting search parameters.");
+            "○ No improvements found. Consider adjusting search parameters or hypothesis scope.".to_string()
         } else if failed > (total / 2) {
-            println!("\n✗ High failure rate ({}/{}) suggests issues with build or test environment.", failed, total);
+            format!("✗ High failure rate ({}/{}) suggests build/test environment issues.", failed, total)
         } else {
-            println!("\n○ Mixed results. Review experiment logs for patterns.");
-        }
+            "○ Mixed results. Review experiment logs for patterns.".to_string()
+        };
+        println!("║ {}", recommendation);
     }
+    println!("╚═══════════════════════════════════════════════════════════════════");
 
     // Exit with error if all experiments failed (useful for CI/CD)
     if total > 0 && failed == total {
@@ -129,4 +137,68 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Safely truncate a string to a maximum length, appending "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        // Find safe UTF-8 boundary
+        let mut end = max_len;
+        while !s.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
+    }
+}
+
+/// Calculate percentage as a formatted string.
+fn pct(n: usize, total: usize) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        (n as f64 / total as f64) * 100.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact() {
+        assert_eq!(truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        assert_eq!(truncate_str("hello world", 5), "hello...");
+    }
+
+    #[test]
+    fn test_truncate_str_unicode() {
+        // "héllo" has multi-byte characters
+        let s = "héllo wörld";
+        let truncated = truncate_str(s, 7);
+        assert!(truncated.starts_with("h"));
+        assert!(truncated.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_str_empty() {
+        assert_eq!(truncate_str("", 10), "");
+    }
+
+    #[test]
+    fn test_pct_calculation() {
+        assert!((pct(5, 10) - 50.0).abs() < 0.01);
+        assert!((pct(1, 3) - 33.333).abs() < 0.01);
+        assert_eq!(pct(0, 0), 0.0);
+    }
 }
