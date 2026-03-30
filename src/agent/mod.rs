@@ -40,6 +40,11 @@ impl Agent {
         self
     }
 
+    pub fn with_code(mut self, code: String) -> Self {
+        self.code = code;
+        self
+    }
+
     pub fn from_prompt(prompt: String) -> Self {
         Self::new(String::new(), prompt)
     }
@@ -48,6 +53,18 @@ impl Agent {
         self.code = new_code;
         self.generation += 1;
         self
+    }
+
+    /// Creates a new Agent with updated code and incremented generation.
+    /// This is a functional alternative to `evolve` that returns a new instance.
+    pub fn evolve_with(&self, new_code: String) -> Self {
+        Self {
+            id: self.id.clone(),
+            code: new_code,
+            prompt: self.prompt.clone(),
+            generation: self.generation + 1,
+            created_at: chrono::Utc::now(),
+        }
     }
 }
 
@@ -137,5 +154,40 @@ mod tests {
         agent.evolve("even newer code".to_string());
         assert_eq!(agent.code, "even newer code");
         assert_eq!(agent.generation, 2);
+    }
+
+    #[test]
+    fn test_agent_with_code() {
+        let agent = Agent::new("old".to_string(), "prompt".to_string())
+            .with_code("new code".to_string());
+        assert_eq!(agent.code, "new code");
+        assert_eq!(agent.generation, 0);
+    }
+
+    #[test]
+    fn test_agent_evolve_with() {
+        let original = Agent::new("old code".to_string(), "prompt".to_string());
+        let evolved = original.evolve_with("new code".to_string());
+        
+        // Original unchanged
+        assert_eq!(original.code, "old code");
+        assert_eq!(original.generation, 0);
+        
+        // Evolved has new code and incremented generation
+        assert_eq!(evolved.code, "new code");
+        assert_eq!(evolved.generation, 1);
+        assert_eq!(evolved.id, original.id);
+        assert_eq!(evolved.prompt, original.prompt);
+    }
+
+    #[test]
+    fn test_agent_evolve_with_chain() {
+        let agent = Agent::new("v1".to_string(), "prompt".to_string());
+        let v2 = agent.evolve_with("v2".to_string());
+        let v3 = v2.evolve_with("v3".to_string());
+        
+        assert_eq!(agent.generation, 0);
+        assert_eq!(v2.generation, 1);
+        assert_eq!(v3.generation, 2);
     }
 }
