@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -471,6 +472,81 @@ impl LLMClientImpl {
     /// Get the configured max_tokens
     pub fn max_tokens(&self) -> Option<i32> {
         self.backend.max_tokens
+    }
+
+    /// Retry a failed LLM request with exponential backoff.
+    ///
+    /// This method wraps the `complete` operation with retry logic:
+    /// - Maximum 3 retries (4 total attempts)
+    /// - Exponential backoff: 1s, 2s, 4s delays between retries
+    /// - Logs retry attempts for observability
+    ///
+    /// # Example
+    /// ```ignore
+    /// let client = LLMClientImpl::new(&config)?;
+    /// let response = client.retry_with_backoff("Write a haiku about Rust").await?;
+    /// ```
+    pub async fn retry_with_backoff(&self, prompt: &str) -> Result<LLMResponse> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 1000;
+
+        let mut last_error = None;
+
+        for attempt in 0..=MAX_RETRIES {
+            match self.complete(prompt).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    if attempt < MAX_RETRIES {
+                        let delay_ms = BASE_DELAY_MS * (1 << attempt); // 1s, 2s, 4s
+                        eprintln!(
+                            "[LLM] Attempt {} failed: {}. Retrying in {}ms...",
+                            attempt + 1,
+                            e,
+                            delay_ms
+                        );
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    }
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown error after retries")))
+    }
+
+    /// Retry a failed system+user prompt request with exponential backoff.
+    ///
+    /// Same retry strategy as `retry_with_backoff` but for system prompts.
+    pub async fn retry_with_system_backoff(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<LLMResponse> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 1000;
+
+        let mut last_error = None;
+
+        for attempt in 0..=MAX_RETRIES {
+            match self.complete_with_system(system_prompt, user_prompt).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    if attempt < MAX_RETRIES {
+                        let delay_ms = BASE_DELAY_MS * (1 << attempt);
+                        eprintln!(
+                            "[LLM] Attempt {} failed: {}. Retrying in {}ms...",
+                            attempt + 1,
+                            e,
+                            delay_ms
+                        );
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    }
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown error after retries")))
     }
 }
 
