@@ -754,6 +754,99 @@ impl CodebaseContext {
         self.total_iterations = 0;
     }
 
+    /// Calculate the success rate for a specific file based on improvement history.
+    ///
+    /// Returns the percentage of experiments that resulted in "Improved" outcomes
+    /// for the given file, or `None` if the file has no recorded improvements.
+    /// This helps prioritize files that have been receptive to past experiments.
+    ///
+    /// # Arguments
+    /// * `file` - The file path to analyze
+    ///
+    /// # Returns
+    /// * `Some(f64)` - Success rate as a percentage (0.0 to 100.0)
+    /// * `None` - If no improvements recorded for this file
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut ctx = CodebaseContext::scan(project_root)?;
+    /// ctx.record_improvement("agent/mod.rs", "refactor", "Improved");
+    /// ctx.record_improvement("agent/mod.rs", "optimize", "Regressed");
+    /// ctx.record_improvement("agent/mod.rs", "fix", "Improved");
+    ///
+    /// let rate = ctx.calculate_success_rate("agent/mod.rs");
+    /// assert_eq!(rate, Some(66.66666666666666)); // 2 out of 3 improved
+    ///
+    /// let no_data = ctx.calculate_success_rate("other.rs");
+    /// assert_eq!(no_data, None);
+    /// ```
+    pub fn calculate_success_rate(&self, file: &str) -> Option<f64> {
+        let (improved, regressed, neutral) = self.count_file_outcomes(file);
+        let total = improved + regressed + neutral;
+
+        if total == 0 {
+            return None;
+        }
+
+        Some((improved as f64 / total as f64) * 100.0)
+    }
+
+    /// Find files with the highest improvement success rates.
+    ///
+    /// Returns files sorted by success rate (descending), useful for identifying
+    /// which files have been most receptive to improvements and may be good
+    /// candidates for future experiments.
+    ///
+    /// # Arguments
+    /// * `min_experiments` - Minimum number of experiments required to be included
+    ///
+    /// # Returns
+    /// A vector of (file_path, success_rate, total_experiments) tuples, sorted by
+    /// success rate descending, then by total experiments descending.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let top_files = ctx.top_performing_files(2); // At least 2 experiments
+    /// for (file, rate, count) in top_files {
+    ///     println!("{}: {:.1}% success ({} experiments)", file, rate, count);
+    /// }
+    /// ```
+    pub fn top_performing_files(&self, min_experiments: usize) -> Vec<(String, f64, usize)> {
+        let mut file_stats: HashMap<&str, (u32, u32, u32)> = HashMap::new();
+
+        for record in &self.improvement_history {
+            let entry = file_stats.entry(&record.file).or_default();
+            match record.outcome.as_str() {
+                "Improved" => entry.0 += 1,
+                "Regressed" => entry.1 += 1,
+                "Neutral" => entry.2 += 1,
+                _ => {}
+            }
+        }
+
+        let mut results: Vec<(String, f64, usize)> = file_stats
+            .into_iter()
+            .filter_map(|(file, (improved, regressed, neutral))| {
+                let total = (improved + regressed + neutral) as usize;
+                if total < min_experiments {
+                    return None;
+                }
+                let rate = (improved as f64 / total as f64) * 100.0;
+                Some((file.to_string(), rate, total))
+            })
+            .collect();
+
+        // Sort by success rate descending, then by total experiments descending
+        results.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.2.cmp(&a.2))
+        });
+
+        results
+    }
+
     /// 生成给 LLM 的全局上下文 prompt
     /// target_file: 当前要改进的文件
     pub fn build_context_prompt(&self, target_file: &str) -> String {
