@@ -10,6 +10,7 @@
 
 mod git;
 mod log;
+pub use log::ExperimentStats;
 mod parsers;
 mod prompts;
 mod testing;

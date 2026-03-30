@@ -3,6 +3,43 @@ use crate::llm::LLMClient;
 
 use super::{AutoResearch, Experiment, ExperimentOutcome};
 
+/// Statistics aggregated from experiment logs
+#[derive(Debug, Clone, Default)]
+pub struct ExperimentStats {
+    pub total: usize,
+    pub improved: usize,
+    pub failed: usize,
+    pub neutral: usize,
+    pub regressed: usize,
+    pub total_tests_passed: usize,
+    pub total_tests_run: usize,
+}
+
+impl ExperimentStats {
+    /// Returns true if no experiments have been recorded
+    pub fn is_empty(&self) -> bool {
+        self.total == 0
+    }
+
+    /// Returns the percentage of improved experiments out of total
+    pub fn success_rate(&self) -> f64 {
+        if self.total == 0 {
+            0.0
+        } else {
+            (self.improved as f64 / self.total as f64) * 100.0
+        }
+    }
+
+    /// Returns the percentage of tests passed across all experiments
+    pub fn test_pass_rate(&self) -> f64 {
+        if self.total_tests_run == 0 {
+            0.0
+        } else {
+            (self.total_tests_passed as f64 / self.total_tests_run as f64) * 100.0
+        }
+    }
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// 写入实验日志到 markdown 文件（含多维指标 + Phase 3 多文件信息）
     pub(crate) fn append_experiment_log(&self, exp: &Experiment) -> Result<()> {
@@ -158,6 +195,47 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
         
         Ok(entries.into_iter().filter(|s| !s.trim().is_empty()).collect())
+    }
+
+    /// Get aggregate statistics from all experiment logs
+    /// Parses log entries to count outcomes and test results
+    pub fn get_experiment_stats(&self) -> Result<ExperimentStats> {
+        let entries = self.read_experiment_logs()?;
+        let mut stats = ExperimentStats::default();
+
+        for entry in &entries {
+            stats.total += 1;
+
+            // Parse outcome
+            if entry.contains("Outcome: Improved") {
+                stats.improved += 1;
+            } else if entry.contains("Outcome: Failed") {
+                stats.failed += 1;
+            } else if entry.contains("Outcome: Neutral") {
+                stats.neutral += 1;
+            } else if entry.contains("Outcome: Regressed") {
+                stats.regressed += 1;
+            }
+
+            // Parse tests: "Tests: X/Y → Z/W"
+            if let Some(tests_line) = entry.lines().find(|l| l.contains("**Tests**:")) {
+                if let Some(after_arrow) = tests_line.split("→").nth(1) {
+                    let parts: Vec<&str> = after_arrow.trim().split('/').collect();
+                    if parts.len() >= 2 {
+                        if let Ok(passed) = parts[0].trim().parse::<usize>() {
+                            stats.total_tests_passed += passed;
+                        }
+                        // Extract total from second part (may have trailing content)
+                        let total_str = parts[1].split_whitespace().next().unwrap_or("0");
+                        if let Ok(total) = total_str.parse::<usize>() {
+                            stats.total_tests_run += total;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(stats)
     }
 }
 
