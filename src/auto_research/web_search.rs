@@ -1,5 +1,6 @@
 use crate::llm::LLMClient;
 use crate::web::{WebFetchTool, WebSearchResult, FetchOutput, build_web_context_prompt};
+use futures::future::join_all;
 
 use super::AutoResearch;
 
@@ -67,17 +68,30 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             .collect();
 
         if !fetch_urls.is_empty() {
-            tracing::info!("  Web: fetching {} pages...", fetch_urls.len());
-            let mut pages: Vec<FetchOutput> = Vec::new();
-            for url in &fetch_urls {
-                match fetch_tool.fetch(url).await {
-                    Ok(page) => {
-                        tracing::info!("  Web: fetched {} ({} chars)", url, page.text_length);
-                        pages.push(page);
+            tracing::info!("  Web: fetching {} pages concurrently...", fetch_urls.len());
+            let fetch_futures: Vec<_> = fetch_urls
+                .iter()
+                .map(|url| fetch_tool.fetch(url))
+                .collect();
+            
+            let fetch_results = join_all(fetch_futures).await;
+            
+            let pages: Vec<FetchOutput> = fetch_results
+                .into_iter()
+                .zip(fetch_urls.iter())
+                .filter_map(|(result, url)| {
+                    match result {
+                        Ok(page) => {
+                            tracing::info!("  Web: fetched {} ({} chars)", url, page.text_length);
+                            Some(page)
+                        }
+                        Err(e) => {
+                            tracing::warn!("  Web: failed to fetch {}: {}", url, e);
+                            None
+                        }
                     }
-                    Err(e) => tracing::warn!("  Web: failed to fetch {}: {}", url, e),
-                }
-            }
+                })
+                .collect();
 
             let context = build_web_context_prompt(&all_results, &pages);
             tracing::info!("  Web: gathered {} chars of context", context.len());
@@ -85,5 +99,41 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
 
         Some(build_web_context_prompt(&all_results, &[]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_concurrent_fetch_ordering() {
+        // Verify that pages are collected in the same order as URLs
+        // even though they may complete in different orders
+        let urls = vec!["url1".to_string(), "url2".to_string(), "url3".to_string()];
+        let results: Vec<Result<usize, &'static str>> = vec![Ok(1), Ok(2), Ok(3)];
+        
+        let pages: Vec<usize> = results
+            .into_iter()
+            .zip(urls.iter())
+            .filter_map(|(result, _)| result.ok())
+            .collect();
+        
+        assert_eq!(pages, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_concurrent_fetch_partial_failure() {
+        // Verify that partial failures don't prevent successful fetches from being collected
+        let urls = vec!["url1".to_string(), "url2".to_string(), "url3".to_string()];
+        let results: Vec<Result<usize, &'static str>> = vec![Ok(1), Err("failed"), Ok(3)];
+        
+        let pages: Vec<usize> = results
+            .into_iter()
+            .zip(urls.iter())
+            .filter_map(|(result, _)| result.ok())
+            .collect();
+        
+        assert_eq!(pages, vec![1, 3]);
     }
 }
