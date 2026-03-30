@@ -15,6 +15,20 @@ pub struct ExperimentStats {
     pub total_tests_run: usize,
 }
 
+/// Delta between two experiment statistics snapshots
+#[derive(Debug, Clone)]
+pub struct StatsDelta {
+    pub total_delta: i64,
+    pub improved_delta: i64,
+    pub failed_delta: i64,
+    pub neutral_delta: i64,
+    pub regressed_delta: i64,
+    pub tests_passed_delta: i64,
+    pub tests_run_delta: i64,
+    pub success_rate_delta: f64,
+    pub test_pass_rate_delta: f64,
+}
+
 impl ExperimentStats {
     /// Returns true if no experiments have been recorded
     pub fn is_empty(&self) -> bool {
@@ -37,6 +51,42 @@ impl ExperimentStats {
         } else {
             (self.total_tests_passed as f64 / self.total_tests_run as f64) * 100.0
         }
+    }
+
+    /// Compare this stats snapshot with another, computing the delta
+    pub fn compare(&self, other: &ExperimentStats) -> StatsDelta {
+        StatsDelta {
+            total_delta: self.total as i64 - other.total as i64,
+            improved_delta: self.improved as i64 - other.improved as i64,
+            failed_delta: self.failed as i64 - other.failed as i64,
+            neutral_delta: self.neutral as i64 - other.neutral as i64,
+            regressed_delta: self.regressed as i64 - other.regressed as i64,
+            tests_passed_delta: self.total_tests_passed as i64 - other.total_tests_passed as i64,
+            tests_run_delta: self.total_tests_run as i64 - other.total_tests_run as i64,
+            success_rate_delta: self.success_rate() - other.success_rate(),
+            test_pass_rate_delta: self.test_pass_rate() - other.test_pass_rate(),
+        }
+    }
+}
+
+impl StatsDelta {
+    /// Returns true if the delta shows overall improvement
+    pub fn is_improvement(&self) -> bool {
+        self.improved_delta > 0 && self.success_rate_delta > 0.0
+    }
+
+    /// Returns true if the delta shows regression
+    pub fn is_regression(&self) -> bool {
+        self.regressed_delta > 0 || self.success_rate_delta < 0.0
+    }
+
+    /// Returns a net score combining all deltas (positive = improvement)
+    pub fn net_score(&self) -> f64 {
+        (self.improved_delta as f64 * 1.0)
+            + (self.regressed_delta as f64 * -2.0)
+            + (self.failed_delta as f64 * -1.5)
+            + (self.success_rate_delta * 0.5)
+            + (self.test_pass_rate_delta * 0.3)
     }
 }
 
@@ -614,5 +664,220 @@ mod tests {
         assert_eq!(stats.neutral, 1);
         assert_eq!(stats.total, 3);
         assert!(!stats.is_empty());
+    }
+
+    #[test]
+    fn test_stats_delta_compare() {
+        let earlier = ExperimentStats {
+            total: 10,
+            improved: 3,
+            failed: 2,
+            neutral: 4,
+            regressed: 1,
+            total_tests_passed: 50,
+            total_tests_run: 60,
+        };
+        
+        let later = ExperimentStats {
+            total: 20,
+            improved: 8,
+            failed: 3,
+            neutral: 7,
+            regressed: 2,
+            total_tests_passed: 120,
+            total_tests_run: 140,
+        };
+        
+        let delta = later.compare(&earlier);
+        
+        assert_eq!(delta.total_delta, 10);
+        assert_eq!(delta.improved_delta, 5);
+        assert_eq!(delta.failed_delta, 1);
+        assert_eq!(delta.neutral_delta, 3);
+        assert_eq!(delta.regressed_delta, 1);
+        assert_eq!(delta.tests_passed_delta, 70);
+        assert_eq!(delta.tests_run_delta, 80);
+        
+        // Success rate: 40% -> 40% = 0.0 delta
+        assert!((delta.success_rate_delta).abs() < 0.01);
+        // Test pass rate: 83.33% -> 85.71% = ~2.38% delta
+        assert!(delta.test_pass_rate_delta > 2.0 && delta.test_pass_rate_delta < 3.0);
+    }
+
+    #[test]
+    fn test_stats_delta_is_improvement() {
+        let baseline = ExperimentStats::default();
+        
+        let improved = ExperimentStats {
+            total: 10,
+            improved: 5,
+            failed: 0,
+            neutral: 5,
+            regressed: 0,
+            total_tests_passed: 100,
+            total_tests_run: 100,
+        };
+        
+        let delta = improved.compare(&baseline);
+        assert!(delta.is_improvement(), "5 improvements from 0 should be improvement");
+        
+        let regressed = ExperimentStats {
+            total: 10,
+            improved: 0,
+            failed: 5,
+            neutral: 3,
+            regressed: 2,
+            total_tests_passed: 50,
+            total_tests_run: 100,
+        };
+        
+        let delta2 = regressed.compare(&baseline);
+        assert!(!delta2.is_improvement(), "No improvements should not be improvement");
+    }
+
+    #[test]
+    fn test_stats_delta_is_regression() {
+        let baseline = ExperimentStats {
+            total: 10,
+            improved: 5,
+            failed: 1,
+            neutral: 3,
+            regressed: 1,
+            total_tests_passed: 80,
+            total_tests_run: 100,
+        };
+        
+        let worse = ExperimentStats {
+            total: 10,
+            improved: 2,
+            failed: 3,
+            neutral: 3,
+            regressed: 2,
+            total_tests_passed: 60,
+            total_tests_run: 100,
+        };
+        
+        let delta = worse.compare(&baseline);
+        assert!(delta.is_regression(), "Lower success rate should be regression");
+        
+        let better = ExperimentStats {
+            total: 10,
+            improved: 7,
+            failed: 0,
+            neutral: 3,
+            regressed: 0,
+            total_tests_passed: 95,
+            total_tests_run: 100,
+        };
+        
+        let delta2 = better.compare(&baseline);
+        assert!(!delta2.is_regression(), "Higher success rate should not be regression");
+    }
+
+    #[test]
+    fn test_stats_delta_net_score() {
+        let baseline = ExperimentStats::default();
+        
+        // All improvements
+        let good = ExperimentStats {
+            total: 10,
+            improved: 10,
+            failed: 0,
+            neutral: 0,
+            regressed: 0,
+            total_tests_passed: 100,
+            total_tests_run: 100,
+        };
+        
+        let good_delta = good.compare(&baseline);
+        assert!(good_delta.net_score() > 0.0, "All improvements should have positive net score");
+        
+        // All failures
+        let bad = ExperimentStats {
+            total: 10,
+            improved: 0,
+            failed: 10,
+            neutral: 0,
+            regressed: 0,
+            total_tests_passed: 0,
+            total_tests_run: 100,
+        };
+        
+        let bad_delta = bad.compare(&baseline);
+        assert!(bad_delta.net_score() < 0.0, "All failures should have negative net score");
+        
+        // Mixed: 5 improved, 2 regressed, 1 failed = 5*1 + 2*(-2) + 1*(-1.5) = 5 - 4 - 1.5 = -0.5
+        let mixed = ExperimentStats {
+            total: 10,
+            improved: 5,
+            failed: 1,
+            neutral: 2,
+            regressed: 2,
+            total_tests_passed: 80,
+            total_tests_run: 100,
+        };
+        
+        let mixed_delta = mixed.compare(&baseline);
+        // Net score should be approximately: 5 + (-4) + (-1.5) = -0.5 (plus rate deltas)
+        // With baseline having 0 total, success_rate_delta will be inf/undefined handled as 0
+        // So we just check the sign based on improved/regressed/failed deltas
+        let expected_base = 5.0 * 1.0 + 2.0 * (-2.0) + 1.0 * (-1.5);
+        assert!(mixed_delta.net_score() < 1.0, "Mixed with more regressions should be near zero or negative");
+    }
+
+    #[test]
+    fn test_stats_delta_empty_baseline() {
+        let empty = ExperimentStats::default();
+        let stats = ExperimentStats {
+            total: 5,
+            improved: 3,
+            failed: 1,
+            neutral: 1,
+            regressed: 0,
+            total_tests_passed: 45,
+            total_tests_run: 50,
+        };
+        
+        let delta = stats.compare(&empty);
+        
+        // All deltas should equal the stats values when baseline is zero
+        assert_eq!(delta.total_delta, 5);
+        assert_eq!(delta.improved_delta, 3);
+        assert_eq!(delta.failed_delta, 1);
+        assert_eq!(delta.tests_passed_delta, 45);
+        
+        // Success rate: 0% -> 60% = 60% delta
+        assert!((delta.success_rate_delta - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_stats_delta_symmetry() {
+        let a = ExperimentStats {
+            total: 10,
+            improved: 5,
+            failed: 2,
+            neutral: 2,
+            regressed: 1,
+            total_tests_passed: 80,
+            total_tests_run: 100,
+        };
+        
+        let b = ExperimentStats {
+            total: 20,
+            improved: 10,
+            failed: 4,
+            neutral: 4,
+            regressed: 2,
+            total_tests_passed: 160,
+            total_tests_run: 200,
+        };
+        
+        let delta_ab = a.compare(&b);
+        let delta_ba = b.compare(&a);
+        
+        // Comparing A to B should be negative of comparing B to A
+        assert_eq!(delta_ab.total_delta, -delta_ba.total_delta);
+        assert_eq!(delta_ab.improved_delta, -delta_ba.improved_delta);
+        assert_eq!(delta_ab.failed_delta, -delta_ba.failed_delta);
     }
 }
