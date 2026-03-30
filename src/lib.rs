@@ -155,6 +155,12 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<tokio::task::JoinError> for Error {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Error::Evolution(err.to_string())
+    }
+}
+
 /// A specialized Result type for Hyperagent operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -237,6 +243,34 @@ mod tests {
         if let Err(e) = json_err {
             let err: Error = e.into();
             assert!(matches!(err, Error::Config(_)));
+        }
+    }
+
+    #[test]
+    fn test_from_tokio_join_error() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        
+        // Create a scenario that can produce a JoinError
+        // We test that the From impl exists and compiles correctly
+        // by relying on type inference in a Result context
+        fn convert_join_error(e: tokio::task::JoinError) -> Error {
+            e.into()
+        }
+        
+        // Verify the error message contains task-related info
+        let handle = tokio::runtime::Handle::current();
+        let result = handle.block_on(async {
+            let task = tokio::spawn(async {
+                panic!("test panic");
+            });
+            task.await
+        });
+        
+        if let Err(e) = result {
+            let err: Error = e.into();
+            assert!(matches!(err, Error::Evolution(_)));
+            assert!(err.to_string().contains("task") || err.to_string().contains("panic") || err.to_string().contains("Evolution"));
         }
     }
 }
