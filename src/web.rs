@@ -245,6 +245,19 @@ impl SearchOutput {
     pub fn is_empty(&self) -> bool {
         self.results.is_empty()
     }
+
+    /// Returns a human-readable one-line summary of the search results.
+    ///
+    /// Format: "{count} result(s) for '{query}'" or "No results for '{query}'"
+    /// This is useful for quick logging and display without needing to
+    /// format the results manually.
+    pub fn summary(&self) -> String {
+        if self.results.is_empty() {
+            format!("No results for '{}'", self.query)
+        } else {
+            format!("{} result(s) for '{}'", self.results.len(), self.query)
+        }
+    }
 }
 
 /// A single search result.
@@ -478,6 +491,19 @@ impl FetchOutput {
             None
         } else {
             Some(domain)
+        }
+    }
+
+    /// Returns a human-readable one-line summary of the fetched page.
+    ///
+    /// Format: "{domain}: '{title}' ({text_length} chars)" or
+    ///         "URL '{url}': '{title}' ({text_length} chars)" if domain extraction fails.
+    /// This is useful for quick logging and display without needing to
+    /// format the output manually.
+    pub fn summary(&self) -> String {
+        match self.domain() {
+            Some(domain) => format!("{}: '{}' ({} chars)", domain, self.title, self.text_length),
+            None => format!("URL '{}': '{}' ({} chars)", self.url, self.title, self.text_length),
         }
     }
 }
@@ -1525,6 +1551,80 @@ mod tests {
             query: "test".to_string(),
         };
         assert!(!non_empty.is_empty());
+    }
+
+    #[test]
+    fn test_search_output_summary() {
+        // Empty results summary
+        let empty = SearchOutput {
+            results: vec![],
+            query: "rust programming".to_string(),
+        };
+        assert_eq!(empty.summary(), "No results for 'rust programming'");
+
+        // Single result summary
+        let single = SearchOutput {
+            results: vec![WebSearchResult {
+                title: "Rust".to_string(),
+                url: "https://rust-lang.org".to_string(),
+                snippet: "Safe systems programming".to_string(),
+            }],
+            query: "rust".to_string(),
+        };
+        assert_eq!(single.summary(), "1 result(s) for 'rust'");
+
+        // Multiple results summary
+        let multiple = SearchOutput {
+            results: vec![
+                WebSearchResult {
+                    title: "Result 1".to_string(),
+                    url: "https://example1.com".to_string(),
+                    snippet: "Snippet 1".to_string(),
+                },
+                WebSearchResult {
+                    title: "Result 2".to_string(),
+                    url: "https://example2.com".to_string(),
+                    snippet: "Snippet 2".to_string(),
+                },
+                WebSearchResult {
+                    title: "Result 3".to_string(),
+                    url: "https://example3.com".to_string(),
+                    snippet: "Snippet 3".to_string(),
+                },
+            ],
+            query: "test query".to_string(),
+        };
+        assert_eq!(multiple.summary(), "3 result(s) for 'test query'");
+    }
+
+    #[test]
+    fn test_fetch_output_summary() {
+        // Standard URL with valid domain
+        let output = FetchOutput {
+            url: "https://rust-lang.org/learn".to_string(),
+            title: "Rust Learning".to_string(),
+            text: "Learn Rust programming".to_string(),
+            text_length: 22,
+        };
+        assert_eq!(output.summary(), "rust-lang.org: 'Rust Learning' (22 chars)");
+
+        // URL with empty title
+        let empty_title = FetchOutput {
+            url: "https://example.com".to_string(),
+            title: "".to_string(),
+            text: "Some content".to_string(),
+            text_length: 12,
+        };
+        assert_eq!(empty_title.summary(), "example.com: '' (12 chars)");
+
+        // Malformed URL (no domain)
+        let malformed = FetchOutput {
+            url: "".to_string(),
+            title: "Some Page".to_string(),
+            text: "Content".to_string(),
+            text_length: 7,
+        };
+        assert_eq!(malformed.summary(), "URL '': 'Some Page' (7 chars)");
     }
 
     #[test]
