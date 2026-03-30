@@ -36,6 +36,26 @@ pub struct GitLog {
     pub entries: Vec<GitLogEntry>,
 }
 
+impl GitLog {
+    /// Returns an iterator over commit messages in this log.
+    ///
+    /// Useful for quickly scanning recent activity without accessing
+    /// the full entry structure.
+    pub fn messages(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|e| e.message.as_str())
+    }
+
+    /// Returns the number of entries in this log.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns true if this log contains no entries.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// git checkout 回滚
     pub(crate) fn git_revert(&self, file: &str) -> Result<()> {
@@ -583,5 +603,71 @@ mod tests {
         };
         assert_eq!(log.entries.len(), 1);
         assert_eq!(log.entries[0].hash, "a1b2c3d");
+    }
+
+    #[test]
+    fn test_git_log_messages_iterator() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc123".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def456".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Second commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "ghi789".to_string(),
+                    author: "Carol".to_string(),
+                    message: "Third commit".to_string(),
+                },
+            ],
+        };
+
+        let messages: Vec<&str> = log.messages().collect();
+        assert_eq!(messages, vec!["First commit", "Second commit", "Third commit"]);
+    }
+
+    #[test]
+    fn test_git_log_messages_empty() {
+        let log = GitLog { entries: vec![] };
+        let messages: Vec<&str> = log.messages().collect();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_git_log_len_and_is_empty() {
+        let empty_log = GitLog { entries: vec![] };
+        assert!(empty_log.is_empty());
+        assert_eq!(empty_log.len(), 0);
+
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc".to_string(),
+                    author: "Test".to_string(),
+                    message: "Test commit".to_string(),
+                },
+            ],
+        };
+        assert!(!log.is_empty());
+        assert_eq!(log.len(), 1);
+    }
+
+    #[test]
+    fn test_git_log_messages_single() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "single".to_string(),
+                author: "Solo".to_string(),
+                message: "Only commit".to_string(),
+            }],
+        };
+        let messages: Vec<&str> = log.messages().collect();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0], "Only commit");
     }
 }
