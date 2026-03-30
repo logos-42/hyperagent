@@ -137,6 +137,23 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 continue;
             }
 
+            // Renamed files: 'R' status shows as "R  old -> new" or "RM old -> new"
+            // The file_path contains "old_filename -> new_filename", we extract the new filename
+            if index_status == 'R' || work_tree_status == 'R' {
+                let resolved_file = if let Some(pos) = file_path.find(" -> ") {
+                    &file_path[pos + 4..]
+                } else {
+                    &file_path
+                };
+                if index_status == 'R' {
+                    staged.push(resolved_file.to_string());
+                }
+                if work_tree_status == 'R' {
+                    unstaged.push(resolved_file.to_string());
+                }
+                continue;
+            }
+
             // Index status indicates staged changes (unless space or ? or !)
             if index_status != ' ' && index_status != '?' && index_status != '!' {
                 staged.push(file_path.clone());
@@ -326,5 +343,44 @@ mod tests {
         // Same file appears in both lists
         assert!(status.staged.contains(&"src/both.rs".to_string()));
         assert!(status.unstaged.contains(&"src/both.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_renamed_staged() {
+        // Renamed files show as "R  old_file.rs -> new_file.rs"
+        // We should extract the new filename and add to staged
+        let status = GitStatus {
+            staged: vec!["new_file.rs".to_string()],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(status.staged.contains(&"new_file.rs".to_string()));
+        assert!(!status.staged.contains(&"old_file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_renamed_unstaged() {
+        // Unstaged rename: " R old_file.rs -> new_file.rs"
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec!["new_file.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(status.unstaged.contains(&"new_file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_renamed_both() {
+        // Both staged and unstaged rename modifications: "RM old_file.rs -> new_file.rs"
+        let status = GitStatus {
+            staged: vec!["new_file.rs".to_string()],
+            unstaged: vec!["new_file.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(status.staged.contains(&"new_file.rs".to_string()));
+        assert!(status.unstaged.contains(&"new_file.rs".to_string()));
     }
 }
