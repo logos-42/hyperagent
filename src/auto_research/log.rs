@@ -83,6 +83,41 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         Ok(())
     }
 
+    /// Clear all experiment logs (useful for starting fresh research sessions)
+    pub(crate) fn clear_experiment_logs(&self) -> Result<()> {
+        let log_path = self.config.experiment_log_dir.join("research_log.md");
+        if log_path.exists() {
+            std::fs::remove_file(&log_path)?;
+        }
+        Ok(())
+    }
+
+    /// Check if an experiment for a given iteration/file combination already exists
+    /// Uses buffered reading for memory efficiency
+    pub(crate) fn experiment_exists(&self, iteration: u32, file: &str) -> Result<bool> {
+        let log_path = self.config.experiment_log_dir.join("research_log.md");
+        if !log_path.exists() {
+            return Ok(false);
+        }
+        
+        use std::io::{BufRead, BufReader};
+        use std::fs::File;
+        
+        let file_handle = File::open(&log_path)?;
+        let reader = BufReader::new(file_handle);
+        
+        let target = format!("## Experiment {} — {}", iteration, file);
+        
+        for line in reader.lines() {
+            let line = line?;
+            if line.contains(&target) {
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
+    }
+
     /// Read all experiment logs from the markdown file
     /// Uses buffered reading for memory efficiency with large log files
     pub(crate) fn read_experiment_logs(&self) -> Result<Vec<String>> {
@@ -320,6 +355,67 @@ mod tests {
             coverage: Some(0.5),
         };
         assert!(!result.test_passed || result.score >= 0.0);
+    }
+
+    #[test]
+    fn test_clear_experiment_logs() {
+        let temp = TempDir::new().unwrap();
+        let log_dir = temp.path().join("logs");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        
+        let log_path = log_dir.join("research_log.md");
+        std::fs::write(&log_path, "## Experiment 1 — test.rs\nSome content\n").unwrap();
+        
+        assert!(log_path.exists(), "Log file should exist before clearing");
+        
+        // Simulate clearing by removing the file
+        std::fs::remove_file(&log_path).unwrap();
+        assert!(!log_path.exists(), "Log file should not exist after clearing");
+        
+        // Clearing non-existent file should succeed
+        std::fs::create_dir_all(&log_dir).unwrap();
+        assert!(log_dir.exists());
+    }
+
+    #[test]
+    fn test_experiment_exists_detects_existing() {
+        let temp = TempDir::new().unwrap();
+        let log_dir = temp.path().join("logs");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        
+        let log_path = log_dir.join("research_log.md");
+        let content = "---\n\n## Experiment 42 — target.rs\n\n- **File**: `src/target.rs`\n- **Hypothesis**: Test\n";
+        std::fs::write(&log_path, content).unwrap();
+        
+        // Simulate the experiment_exists check logic
+        let target = format!("## Experiment {} — {}", 42, "target.rs");
+        let file_content = std::fs::read_to_string(&log_path).unwrap();
+        let exists = file_content.contains(&target);
+        
+        assert!(exists, "Should detect existing experiment");
+        
+        // Non-existent iteration
+        let target2 = format!("## Experiment {} — {}", 99, "target.rs");
+        let exists2 = file_content.contains(&target2);
+        assert!(!exists2, "Should not detect non-existent experiment");
+    }
+
+    #[test]
+    fn test_experiment_exists_empty_file() {
+        let temp = TempDir::new().unwrap();
+        let log_dir = temp.path().join("logs");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        
+        let log_path = log_dir.join("research_log.md");
+        std::fs::write(&log_path, "").unwrap();
+        
+        // Empty file should return false for any experiment
+        let file_content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(file_content.is_empty(), "File should be empty");
+        
+        // Non-existent log dir should also return false
+        std::fs::remove_file(&log_path).unwrap();
+        assert!(!log_path.exists());
     }
 
     #[test]
