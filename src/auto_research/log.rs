@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crate::llm::LLMClient;
 
-use super::{AutoResearch, Experiment};
+use super::{AutoResearch, Experiment, ExperimentOutcome};
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// 写入实验日志到 markdown 文件（含多维指标 + Phase 3 多文件信息）
@@ -422,7 +422,7 @@ mod tests {
     fn test_newline_handling_prevents_malformed_concatenation() {
         // Simulate two entries being written without proper newline separation
         let entry1 = "---\n\n## Experiment 1 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis**: First\n";
-        let entry2 = "---\n\n## Experiment 2 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis**: Second\n";
+        let entry2 = "---\n\n## Experiment 2 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis`: Second\n";
         
         // If entry1 doesn't end with newline, concatenation would be malformed
         let malformed = if !entry1.ends_with('\n') {
@@ -441,5 +441,100 @@ mod tests {
         // Malformed would have "First---" instead of proper separation
         assert!(malformed.contains("First---"), "Malformed shows improper concatenation");
         assert!(proper.contains("First\n"), "Proper has correct newline separation");
+    }
+
+    #[test]
+    fn test_experiment_stats_default_values() {
+        let stats = ExperimentStats::default();
+        assert_eq!(stats.total, 0);
+        assert_eq!(stats.improved, 0);
+        assert_eq!(stats.failed, 0);
+        assert_eq!(stats.neutral, 0);
+        assert_eq!(stats.regressed, 0);
+        assert_eq!(stats.total_tests_passed, 0);
+        assert_eq!(stats.total_tests_run, 0);
+        assert!(stats.is_empty());
+    }
+
+    #[test]
+    fn test_experiment_stats_success_rate() {
+        let mut stats = ExperimentStats::default();
+        assert_eq!(stats.success_rate(), 0.0);
+        
+        stats.total = 10;
+        stats.improved = 3;
+        assert_eq!(stats.success_rate(), 30.0);
+        
+        stats.improved = 5;
+        assert_eq!(stats.success_rate(), 50.0);
+    }
+
+    #[test]
+    fn test_experiment_stats_test_pass_rate() {
+        let mut stats = ExperimentStats::default();
+        assert_eq!(stats.test_pass_rate(), 0.0);
+        
+        stats.total_tests_run = 100;
+        stats.total_tests_passed = 85;
+        assert_eq!(stats.test_pass_rate(), 85.0);
+    }
+
+    #[test]
+    fn test_parsing_outcome_from_log_entry() {
+        let improved_entry = "## Experiment 1 — test.rs\n- **Outcome**: Improved\n- **Tests**: 5/10 → 7/10\n";
+        let failed_entry = "## Experiment 2 — test.rs\n- **Outcome**: Failed\n- **Tests**: 5/10 → 3/10\n";
+        let neutral_entry = "## Experiment 3 — test.rs\n- **Outcome**: Neutral\n- **Tests**: 5/10 → 5/10\n";
+        let regressed_entry = "## Experiment 4 — test.rs\n- **Outcome**: Regressed\n- **Tests**: 5/10 → 2/10\n";
+        
+        // Test outcome detection
+        assert!(improved_entry.contains("Outcome: Improved"));
+        assert!(failed_entry.contains("Outcome: Failed"));
+        assert!(neutral_entry.contains("Outcome: Neutral"));
+        assert!(regressed_entry.contains("Outcome: Regressed"));
+    }
+
+    #[test]
+    fn test_parsing_tests_from_log_entry() {
+        let entry = "## Experiment 1 — test.rs\n- **Tests**: 5/10 → 8/12\n";
+        
+        // Parse tests line format: "- **Tests**: 5/10 → 8/12"
+        if let Some(tests_line) = entry.lines().find(|l| l.contains("**Tests**:")) {
+            if let Some(after_arrow) = tests_line.split("→").nth(1) {
+                let passed = after_arrow.trim().split('/').next().unwrap().trim();
+                let total_part = after_arrow.trim().split('/').nth(1).unwrap().trim();
+                
+                assert_eq!(passed, "8");
+                // total_part would be "12" followed by newline
+                assert!(total_part.starts_with("12"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_experiment_stats_accumulation() {
+        let entries = vec![
+            "## Experiment 1 — test.rs\n- **Outcome**: Improved\n- **Tests**: 5/10 → 7/10\n".to_string(),
+            "## Experiment 2 — test.rs\n- **Outcome**: Failed\n- **Tests**: 7/10 → 5/10\n".to_string(),
+            "## Experiment 3 — test.rs\n- **Outcome**: Neutral\n- **Tests**: 5/10 → 5/10\n".to_string(),
+        ];
+        
+        let mut stats = ExperimentStats::default();
+        
+        for entry in &entries {
+            if entry.contains("Outcome: Improved") {
+                stats.improved += 1;
+            } else if entry.contains("Outcome: Failed") {
+                stats.failed += 1;
+            } else if entry.contains("Outcome: Neutral") {
+                stats.neutral += 1;
+            }
+        }
+        stats.total = stats.improved + stats.failed + stats.neutral + stats.regressed;
+        
+        assert_eq!(stats.improved, 1);
+        assert_eq!(stats.failed, 1);
+        assert_eq!(stats.neutral, 1);
+        assert_eq!(stats.total, 3);
+        assert!(!stats.is_empty());
     }
 }
