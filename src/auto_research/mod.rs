@@ -35,8 +35,22 @@ mod tests {
     fn test_reflection_includes_multi_file_context() {
         // Verify that multi-file context is properly formatted for reflection
         let files_modified: Vec<&str> = vec!["auto_research/mod.rs", "auto_research/parsers.rs"];
+        let files_changed = vec![
+            FileChange { file: "auto_research/mod.rs".to_string(), old_lines: 100, new_lines: 120 },
+            FileChange { file: "auto_research/parsers.rs".to_string(), old_lines: 50, new_lines: 45 },
+        ];
+        
         let multi_file_note = if files_modified.len() > 1 {
-            format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", files_modified)
+            let file_details: Vec<String> = files_changed.iter().map(|fc| {
+                let delta = fc.new_lines as i32 - fc.old_lines as i32;
+                let delta_str = if delta >= 0 { format!("+{}", delta) } else { format!("{}", delta) };
+                format!("  - {}: {} lines → {} lines ({})", fc.file, fc.old_lines, fc.new_lines, delta_str)
+            }).collect();
+            format!(
+                "\nFiles modified in this attempt ({} files):\n{}\nNote: Changes to multiple files were reverted due to compilation failure. Consider cross-file dependencies.",
+                files_modified.len(),
+                file_details.join("\n")
+            )
         } else {
             String::new()
         };
@@ -44,11 +58,14 @@ mod tests {
         assert!(multi_file_note.contains("auto_research/mod.rs"));
         assert!(multi_file_note.contains("auto_research/parsers.rs"));
         assert!(multi_file_note.contains("reverted"));
+        assert!(multi_file_note.contains("100 lines → 120 lines (+20)"));
+        assert!(multi_file_note.contains("50 lines → 45 lines (-5)"));
+        assert!(multi_file_note.contains("cross-file dependencies"));
         
         // Single file should not add note
         let single_file: Vec<&str> = vec!["lib.rs"];
         let single_note = if single_file.len() > 1 {
-            format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", single_file)
+            String::new()
         } else {
             String::new()
         };
@@ -454,7 +471,17 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                     file, &hypothesis, tests_before, tests_before, false, &compile_output,
                 );
                 let multi_file_note = if files_modified.len() > 1 {
-                    format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", files_modified)
+                    // Include per-file modification details for better diagnosis
+                    let file_details: Vec<String> = files_changed.iter().map(|fc| {
+                        let delta = fc.new_lines as i32 - fc.old_lines as i32;
+                        let delta_str = if delta >= 0 { format!("+{}", delta) } else { format!("{}", delta) };
+                        format!("  - {}: {} lines → {} lines ({})", fc.file, fc.old_lines, fc.new_lines, delta_str)
+                    }).collect();
+                    format!(
+                        "\nFiles modified in this attempt ({} files):\n{}\nNote: Changes to multiple files were reverted due to compilation failure. Consider cross-file dependencies.",
+                        files_modified.len(),
+                        file_details.join("\n")
+                    )
                 } else {
                     String::new()
                 };
