@@ -13,6 +13,40 @@ pub struct GitStatus {
     pub is_clean: bool,
 }
 
+impl GitStatus {
+    /// Returns a human-readable one-line summary of the status.
+    ///
+    /// Format: "clean" or "staged:N, unstaged:M, untracked:K"
+    /// (e.g., "staged:2, unstaged:1, untracked:3" or "clean")
+    pub fn summary(&self) -> String {
+        if self.is_clean {
+            "clean".to_string()
+        } else {
+            let parts: Vec<String> = [
+                if !self.staged.is_empty() {
+                    Some(format!("staged:{}", self.staged.len()))
+                } else {
+                    None
+                },
+                if !self.unstaged.is_empty() {
+                    Some(format!("unstaged:{}", self.unstaged.len()))
+                } else {
+                    None
+                },
+                if !self.untracked.is_empty() {
+                    Some(format!("untracked:{}", self.untracked.len()))
+                } else {
+                    None
+                },
+            ]
+            .iter()
+            .filter_map(|p| p.clone())
+            .collect();
+            parts.join(", ")
+        }
+    }
+}
+
 /// Git diff representation
 #[derive(Debug, Clone)]
 pub struct GitDiff {
@@ -68,6 +102,20 @@ pub struct GitConflicts {
     pub files: Vec<String>,
     /// Whether any conflicts exist
     pub has_conflicts: bool,
+}
+
+impl GitConflicts {
+    /// Returns a human-readable one-line summary of conflicts.
+    ///
+    /// Format: "no conflicts" or "conflicts in: file1, file2, ..."
+    /// (e.g., "conflicts in: src/main.rs, src/lib.rs" or "no conflicts")
+    pub fn summary(&self) -> String {
+        if self.has_conflicts {
+            format!("conflicts in: {}", self.files.join(", "))
+        } else {
+            "no conflicts".to_string()
+        }
+    }
 }
 
 impl GitLog {
@@ -925,5 +973,111 @@ mod tests {
             diff_output: String::new(),
         };
         assert_eq!(diff.summary(), "1 file changed, +0/-50");
+    }
+
+    #[test]
+    fn test_git_status_summary_clean() {
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: true,
+        };
+        assert_eq!(status.summary(), "clean");
+    }
+
+    #[test]
+    fn test_git_status_summary_staged_only() {
+        let status = GitStatus {
+            staged: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert_eq!(status.summary(), "staged:2");
+    }
+
+    #[test]
+    fn test_git_status_summary_unstaged_only() {
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec!["src/util.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert_eq!(status.summary(), "unstaged:1");
+    }
+
+    #[test]
+    fn test_git_status_summary_untracked_only() {
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec![],
+            untracked: vec!["new_file.rs".to_string(), "another.rs".to_string()],
+            is_clean: false,
+        };
+        assert_eq!(status.summary(), "untracked:2");
+    }
+
+    #[test]
+    fn test_git_status_summary_all_types() {
+        let status = GitStatus {
+            staged: vec!["src/a.rs".to_string()],
+            unstaged: vec!["src/b.rs".to_string()],
+            untracked: vec!["c.rs".to_string()],
+            is_clean: false,
+        };
+        assert_eq!(status.summary(), "staged:1, unstaged:1, untracked:1");
+    }
+
+    #[test]
+    fn test_git_status_summary_staged_and_unstaged() {
+        let status = GitStatus {
+            staged: vec!["src/main.rs".to_string()],
+            unstaged: vec!["src/lib.rs".to_string(), "src/util.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert_eq!(status.summary(), "staged:1, unstaged:2");
+    }
+
+    #[test]
+    fn test_git_conflicts_summary_none() {
+        let conflicts = GitConflicts {
+            files: vec![],
+            has_conflicts: false,
+        };
+        assert_eq!(conflicts.summary(), "no conflicts");
+    }
+
+    #[test]
+    fn test_git_conflicts_summary_single() {
+        let conflicts = GitConflicts {
+            files: vec!["src/main.rs".to_string()],
+            has_conflicts: true,
+        };
+        assert_eq!(conflicts.summary(), "conflicts in: src/main.rs");
+    }
+
+    #[test]
+    fn test_git_conflicts_summary_multiple() {
+        let conflicts = GitConflicts {
+            files: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+            has_conflicts: true,
+        };
+        assert_eq!(conflicts.summary(), "conflicts in: src/main.rs, src/lib.rs");
+    }
+
+    #[test]
+    fn test_git_conflicts_summary_three_files() {
+        let conflicts = GitConflicts {
+            files: vec![
+                "src/a.rs".to_string(),
+                "src/b.rs".to_string(),
+                "src/c.rs".to_string(),
+            ],
+            has_conflicts: true,
+        };
+        assert_eq!(conflicts.summary(), "conflicts in: src/a.rs, src/b.rs, src/c.rs");
     }
 }
