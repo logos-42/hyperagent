@@ -39,6 +39,98 @@ impl QualityReport {
         let error_penalty = (self.compilation_errors as f64).min(1.0);
         (test_rate * 0.7 + (1.0 - error_penalty) * 0.3).clamp(0.0, 1.0)
     }
+
+    /// Compare this report against another (typically previous/baseline) report.
+    /// Returns a QualityDelta showing which metrics improved or regressed.
+    /// Positive values indicate improvement, negative values indicate regression.
+    pub fn compare(&self, other: &QualityReport) -> QualityDelta {
+        QualityDelta {
+            tests_passed_delta: self.tests_passed as i64 - other.tests_passed as i64,
+            tests_total_delta: self.tests_total as i64 - other.tests_total as i64,
+            test_pass_rate_delta: self.test_pass_rate() - other.test_pass_rate(),
+            compilation_fixed: other.compilation_errors > 0 && self.compilation_errors == 0,
+            compilation_broken: other.compilation_errors == 0 && self.compilation_errors > 0,
+            compilation_errors_delta: self.compilation_errors as i64 - other.compilation_errors as i64,
+            clippy_warnings_delta: self.clippy_warnings as i64 - other.clippy_warnings as i64,
+            health_score_delta: self.health_score() - other.health_score(),
+        }
+    }
+
+    /// Returns the test pass rate as a percentage (0.0 to 1.0).
+    /// Returns 1.0 if there are no tests (nothing to fail).
+    fn test_pass_rate(&self) -> f64 {
+        if self.tests_total == 0 {
+            1.0
+        } else {
+            self.tests_passed as f64 / self.tests_total as f64
+        }
+    }
+}
+
+/// Delta between two QualityReports, showing what changed.
+/// Positive values generally indicate improvement (except for totals/errors/warnings).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct QualityDelta {
+    /// Change in number of passing tests (positive = more passing)
+    pub tests_passed_delta: i64,
+    /// Change in total test count (positive = more tests added)
+    pub tests_total_delta: i64,
+    /// Change in test pass rate (positive = better rate)
+    pub test_pass_rate_delta: f64,
+    /// Whether compilation errors were fixed (went from errors to no errors)
+    pub compilation_fixed: bool,
+    /// Whether compilation was broken (went from no errors to errors)
+    pub compilation_broken: bool,
+    /// Change in compilation error count (positive = more errors)
+    pub compilation_errors_delta: i64,
+    /// Change in clippy warnings (positive = more warnings)
+    pub clippy_warnings_delta: i64,
+    /// Change in overall health score (positive = healthier)
+    pub health_score_delta: f64,
+}
+
+impl QualityDelta {
+    /// Returns true if the change represents a net improvement.
+    /// An improvement has: no new compilation errors, same or better test pass rate,
+    /// and same or fewer clippy warnings.
+    pub fn is_improvement(&self) -> bool {
+        !self.compilation_broken
+            && self.test_pass_rate_delta >= 0.0
+            && self.clippy_warnings_delta <= 0
+            && self.compilation_errors_delta <= 0
+    }
+
+    /// Returns true if the change represents a clear regression.
+    /// A regression has: new compilation errors, or significantly worse test pass rate.
+    pub fn is_regression(&self) -> bool {
+        self.compilation_broken
+            || self.test_pass_rate_delta < -0.1
+            || self.compilation_errors_delta > 0
+    }
+
+    /// Returns a summary score for this delta (-1.0 to 1.0).
+    /// Positive = improvement, negative = regression.
+    pub fn net_score(&self) -> f64 {
+        let mut score = 0.0;
+
+        // Test pass rate change (weight: 40%)
+        score += self.test_pass_rate_delta * 0.4;
+
+        // Health score change (weight: 30%)
+        score += self.health_score_delta * 0.3;
+
+        // Compilation status (weight: 20%)
+        if self.compilation_fixed {
+            score += 0.2;
+        } else if self.compilation_broken {
+            score -= 0.2;
+        }
+
+        // Clippy warnings change (weight: 10%)
+        score -= (self.clippy_warnings_delta as f64 * 0.01).min(0.1);
+
+        score.clamp(-1.0, 1.0)
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -670,5 +762,190 @@ warning: another issue
             output: String::new(),
         };
         assert!(all_fail.health_score() >= 0.0);
+    }
+
+    #[test]
+    fn test_quality_report_compare_improvement() {
+        let before = QualityReport {
+            tests_passed: 8,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 2,
+            clippy_warnings: 5,
+            output: String::new(),
+        };
+        let after = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+
+        let delta = after.compare(&before);
+        assert_eq!(delta.tests_passed_delta, 2);
+        assert_eq!(delta.tests_total_delta, 0);
+        assert!(delta.test_pass_rate_delta > 0.0);
+        assert!(delta.compilation_fixed);
+        assert!(!delta.compilation_broken);
+        assert_eq!(delta.compilation_errors_delta, -2);
+        assert_eq!(delta.clippy_warnings_delta, -2);
+        assert!(delta.health_score_delta > 0.0);
+        assert!(delta.is_improvement());
+        assert!(!delta.is_regression());
+    }
+
+    #[test]
+    fn test_quality_report_compare_regression() {
+        let before = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 2,
+            output: String::new(),
+        };
+        let after = QualityReport {
+            tests_passed: 7,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 3,
+            clippy_warnings: 5,
+            output: String::new(),
+        };
+
+        let delta = after.compare(&before);
+        assert_eq!(delta.tests_passed_delta, -3);
+        assert!(delta.test_pass_rate_delta < 0.0);
+        assert!(!delta.compilation_fixed);
+        assert!(delta.compilation_broken);
+        assert_eq!(delta.compilation_errors_delta, 3);
+        assert_eq!(delta.clippy_warnings_delta, 3);
+        assert!(delta.health_score_delta < 0.0);
+        assert!(!delta.is_improvement());
+        assert!(delta.is_regression());
+    }
+
+    #[test]
+    fn test_quality_report_compare_neutral() {
+        let before = QualityReport {
+            tests_passed: 5,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+        let after = QualityReport {
+            tests_passed: 5,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+
+        let delta = after.compare(&before);
+        assert_eq!(delta.tests_passed_delta, 0);
+        assert_eq!(delta.test_pass_rate_delta, 0.0);
+        assert!(!delta.compilation_fixed);
+        assert!(!delta.compilation_broken);
+        assert_eq!(delta.compilation_errors_delta, 0);
+        assert_eq!(delta.clippy_warnings_delta, 0);
+        assert_eq!(delta.health_score_delta, 0.0);
+        assert!(delta.is_improvement()); // No regression = acceptable
+        assert!(!delta.is_regression());
+    }
+
+    #[test]
+    fn test_quality_delta_net_score() {
+        // Improvement scenario
+        let improvement = QualityDelta {
+            tests_passed_delta: 2,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.2,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -2,
+            clippy_warnings_delta: -3,
+            health_score_delta: 0.15,
+        };
+        assert!(improvement.net_score() > 0.0);
+
+        // Regression scenario
+        let regression = QualityDelta {
+            tests_passed_delta: -3,
+            tests_total_delta: 0,
+            test_pass_rate_delta: -0.3,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 2,
+            clippy_warnings_delta: 5,
+            health_score_delta: -0.2,
+        };
+        assert!(regression.net_score() < 0.0);
+
+        // Neutral scenario
+        let neutral = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert_eq!(neutral.net_score(), 0.0);
+    }
+
+    #[test]
+    fn test_quality_report_test_pass_rate() {
+        let report = QualityReport {
+            tests_passed: 7,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert!((report.test_pass_rate() - 0.7).abs() < 0.01);
+
+        let no_tests = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert!((no_tests.test_pass_rate() - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_quality_report_compare_more_tests() {
+        let before = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        let after = QualityReport {
+            tests_passed: 15,
+            tests_total: 15,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+
+        let delta = after.compare(&before);
+        assert_eq!(delta.tests_passed_delta, 5);
+        assert_eq!(delta.tests_total_delta, 5);
+        assert_eq!(delta.test_pass_rate_delta, 0.0); // Both have 100% pass rate
+        assert!(delta.is_improvement());
     }
 }
