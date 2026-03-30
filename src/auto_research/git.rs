@@ -305,6 +305,15 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         Ok(GitLog { entries })
     }
 
+    /// Check if the repository is in a clean state (no uncommitted changes)
+    ///
+    /// This is a convenience method for the common pattern of checking
+    /// whether the repository is ready for a new operation.
+    pub(crate) fn git_is_clean(&self) -> Result<bool> {
+        let status = self.git_status()?;
+        Ok(status.is_clean)
+    }
+
     /// Get git commit history for a specific file path
     ///
     /// Returns commits that modified the given file, helping understand
@@ -669,5 +678,61 @@ mod tests {
         let messages: Vec<&str> = log.messages().collect();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], "Only commit");
+    }
+
+    #[test]
+    fn test_git_is_clean_method_exists() {
+        // Test that GitStatus correctly reports clean state
+        let clean_status = GitStatus {
+            staged: vec![],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: true,
+        };
+        assert!(clean_status.is_clean);
+
+        let dirty_status = GitStatus {
+            staged: vec!["src/main.rs".to_string()],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(!dirty_status.is_clean);
+    }
+
+    #[test]
+    fn test_git_is_clean_with_untracked() {
+        // Repository with untracked files is not clean
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec![],
+            untracked: vec!["new_file.rs".to_string()],
+            is_clean: false,
+        };
+        assert!(!status.is_clean);
+    }
+
+    #[test]
+    fn test_git_is_clean_with_staged() {
+        // Repository with staged changes is not clean
+        let status = GitStatus {
+            staged: vec!["src/lib.rs".to_string()],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(!status.is_clean);
+    }
+
+    #[test]
+    fn test_git_is_clean_with_unstaged() {
+        // Repository with unstaged changes is not clean
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec!["src/lib.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(!status.is_clean);
     }
 }
