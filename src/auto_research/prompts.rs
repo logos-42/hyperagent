@@ -5,8 +5,6 @@ use super::{AutoResearch, Experiment};
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Format a single experiment for display in the research prompt
     fn format_experiment_summary(experiment: &Experiment) -> String {
-        let (before_passed, before_total) = experiment.tests_before;
-        let (after_passed, after_total) = experiment.tests_after;
         format!(
             "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}/{} → {}/{}",
             experiment.iteration,
@@ -14,10 +12,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             experiment.hypothesis,
             experiment.outcome,
             experiment.reflection,
-            before_passed,
-            before_total,
-            after_passed,
-            after_total,
+            experiment.tests_before.0,
+            experiment.tests_before.1,
+            experiment.tests_after.0,
+            experiment.tests_after.1,
         )
     }
 
