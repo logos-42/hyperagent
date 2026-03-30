@@ -8,6 +8,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Truncate a string at word boundaries, ensuring it doesn't exceed max_chars
@@ -379,6 +380,48 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
         }
         
         Some(improvements.iter().sum::<i32>() as f32 / improvements.len() as f32)
+    }
+
+    /// Get a frequency map of how many times each file has been experimented on
+    /// Useful for identifying over-explored files and balancing research attention
+    pub fn experiment_frequency(&self) -> HashMap<String, usize> {
+        let mut freq: HashMap<String, usize> = HashMap::new();
+        for result in &self.results {
+            *freq.entry(result.file.clone()).or_insert(0) += 1;
+        }
+        freq
+    }
+
+    /// Get files sorted by experiment frequency (most experimented first)
+    /// Returns a vector of (file, count) tuples
+    pub fn files_by_frequency(&self) -> Vec<(String, usize)> {
+        let freq = self.experiment_frequency();
+        let mut sorted: Vec<_> = freq.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted
+    }
+
+    /// Get the least experimented file(s) from the target list
+    /// Useful for selecting next research targets to ensure balanced exploration
+    pub fn least_experienced_files(&self) -> Vec<String> {
+        let freq = self.experiment_frequency();
+        let target_files = &self.config.target_files;
+        
+        if target_files.is_empty() {
+            return Vec::new();
+        }
+        
+        let min_count = target_files
+            .iter()
+            .map(|f| freq.get(f).copied().unwrap_or(0))
+            .min()
+            .unwrap_or(0);
+        
+        target_files
+            .iter()
+            .filter(|f| freq.get(*f).copied().unwrap_or(0) == min_count)
+            .cloned()
+            .collect()
     }
 }
 
@@ -767,5 +810,104 @@ mod tests {
     fn test_pass_rate_improvement_zero_total() {
         let result = make_result_with_delta(1, "test.rs", SelfEvolutionStatus::Failed, (0, 0), (5, 10));
         assert_eq!(result.pass_rate_improvement(), None);
+    }
+
+    #[test]
+    fn test_experiment_frequency_empty() {
+        let config = SelfEvolutionConfig::default();
+        let engine: SelfEvolutionEngine<crate::llm::LLMClientImpl> = SelfEvolutionEngine::new(
+            crate::llm::LLMClientImpl::ollama(),
+            config,
+        );
+        let freq = engine.experiment_frequency();
+        assert!(freq.is_empty());
+    }
+
+    #[test]
+    fn test_experiment_frequency_counts() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Simulate results for different files
+        engine.results.push(make_result(1, "agent/mod.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(2, "agent/mod.rs", SelfEvolutionStatus::Rejected));
+        engine.results.push(make_result(3, "eval/metrics.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(4, "agent/mod.rs", SelfEvolutionStatus::Failed));
+        engine.results.push(make_result(5, "llm/client.rs", SelfEvolutionStatus::Accepted));
+        
+        let freq = engine.experiment_frequency();
+        assert_eq!(freq.get("agent/mod.rs"), Some(&3));
+        assert_eq!(freq.get("eval/metrics.rs"), Some(&1));
+        assert_eq!(freq.get("llm/client.rs"), Some(&1));
+        assert_eq!(freq.len(), 3);
+    }
+
+    #[test]
+    fn test_files_by_frequency_sorted() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(make_result(1, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(2, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(3, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(4, "b.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(5, "c.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(6, "c.rs", SelfEvolutionStatus::Accepted));
+        
+        let sorted = engine.files_by_frequency();
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(sorted[0], ("a.rs".to_string(), 3));
+        assert_eq!(sorted[1], ("c.rs".to_string(), 2));
+        assert_eq!(sorted[2], ("b.rs".to_string(), 1));
+    }
+
+    #[test]
+    fn test_least_experienced_files() {
+        let config = SelfEvolutionConfig {
+            target_files: vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()],
+            ..Default::default()
+        };
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Only run experiments on a.rs and b.rs
+        engine.results.push(make_result(1, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(2, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(3, "b.rs", SelfEvolutionStatus::Accepted));
+        
+        let least = engine.least_experienced_files();
+        assert_eq!(least.len(), 1);
+        assert_eq!(least[0], "c.rs"); // c.rs has 0 experiments
+    }
+
+    #[test]
+    fn test_least_experienced_files_tie() {
+        let config = SelfEvolutionConfig {
+            target_files: vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()],
+            ..Default::default()
+        };
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // All files have 1 experiment
+        engine.results.push(make_result(1, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(2, "b.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(make_result(3, "c.rs", SelfEvolutionStatus::Accepted));
+        
+        let least = engine.least_experienced_files();
+        assert_eq!(least.len(), 3); // All tied at 1
+    }
+
+    #[test]
+    fn test_least_experienced_files_empty_targets() {
+        let config = SelfEvolutionConfig {
+            target_files: vec![],
+            ..Default::default()
+        };
+        let engine: SelfEvolutionEngine<crate::llm::LLMClientImpl> = SelfEvolutionEngine::new(
+            crate::llm::LLMClientImpl::ollama(),
+            config,
+        );
+        
+        let least = engine.least_experienced_files();
+        assert!(least.is_empty());
     }
 }
