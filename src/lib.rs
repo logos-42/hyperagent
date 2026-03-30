@@ -97,7 +97,13 @@ use std::error::Error as StdError;
 ///
 /// This error type wraps errors from all subsystems into a single type,
 /// enabling consistent error handling across the entire crate.
+///
+/// This enum is marked as `#[non_exhaustive]` to allow adding new variants
+/// without breaking changes to downstream code. Users should not exhaustively
+/// match on this enum; instead, use wildcard patterns or the provided
+/// accessor methods.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// LLM client errors (API failures, rate limits, timeouts)
     LLM(String),
@@ -185,6 +191,18 @@ impl From<String> for Error {
 impl From<&str> for Error {
     fn from(msg: &str) -> Self {
         Error::Other(msg.to_string())
+    }
+}
+
+impl From<Box<dyn StdError + Send + Sync>> for Error {
+    fn from(err: Box<dyn StdError + Send + Sync>) -> Self {
+        Error::Other(err.to_string())
+    }
+}
+
+impl From<Box<dyn StdError>> for Error {
+    fn from(err: Box<dyn StdError>) -> Self {
+        Error::Other(err.to_string())
     }
 }
 
