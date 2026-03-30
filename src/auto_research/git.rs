@@ -98,6 +98,12 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     }
 
     /// Get current git status for observability
+    ///
+    /// Git porcelain format uses XY status codes:
+    /// - X = index status (staged)
+    /// - Y = work tree status (unstaged)
+    /// - ' ' = no change, '?' = untracked, '!' = ignored
+    /// - Other letters indicate merge conflicts, modifications, etc.
     pub(crate) fn git_status(&self) -> Result<GitStatus> {
         let output = std::process::Command::new("git")
             .args(&["status", "--porcelain"])
@@ -110,26 +116,35 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let mut untracked = Vec::new();
 
         for line in stdout.lines() {
-            if line.len() < 2 {
+            if line.len() < 3 {
                 continue;
             }
+            // Porcelain format: XY filename
+            // X = index status (staged), Y = work tree status (unstaged)
             let index_status = line.chars().next().unwrap_or(' ');
             let work_tree_status = line.chars().nth(1).unwrap_or(' ');
+            // Filename starts at position 3 (after XY and a space)
             let file_path = line[3..].to_string();
 
-            match (index_status, work_tree_status) {
-                ('?', '?') => untracked.push(file_path),
-                (' ', ' ') => {} // clean file, not displayed in porcelain
-                (' ', _) | (_, ' ') if index_status != ' ' && work_tree_status == ' ' => {
-                    staged.push(file_path.clone());
-                }
-                (_, ' ') if index_status != ' ' => staged.push(file_path),
-                (' ', _) if work_tree_status != ' ' => unstaged.push(file_path),
-                _ => {
-                    // Both have changes - staged and unstaged portions
-                    staged.push(format!("{} (staged)", file_path));
-                    unstaged.push(format!("{} (unstaged)", file_path));
-                }
+            // Untracked files have '??' status
+            if index_status == '?' && work_tree_status == '?' {
+                untracked.push(file_path);
+                continue;
+            }
+
+            // Ignored files have '!!' status - skip them
+            if index_status == '!' && work_tree_status == '!' {
+                continue;
+            }
+
+            // Index status indicates staged changes (unless space or ? or !)
+            if index_status != ' ' && index_status != '?' && index_status != '!' {
+                staged.push(file_path.clone());
+            }
+
+            // Work tree status indicates unstaged changes (unless space or ? or !)
+            if work_tree_status != ' ' && work_tree_status != '?' && work_tree_status != '!' {
+                unstaged.push(file_path);
             }
         }
 
@@ -261,5 +276,55 @@ mod tests {
         };
 
         assert!(diff.files_changed.is_empty());
+    }
+
+    #[test]
+    fn test_git_status_parsing_untracked() {
+        // Untracked files show as "?? filename"
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec![],
+            untracked: vec!["new_file.rs".to_string()],
+            is_clean: false,
+        };
+        assert!(status.untracked.contains(&"new_file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_staged() {
+        // Staged modifications show as "M filename" (index M, work tree space)
+        let status = GitStatus {
+            staged: vec!["src/main.rs".to_string()],
+            unstaged: vec![],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(status.staged.contains(&"src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_unstaged() {
+        // Unstaged modifications show as " M filename" (index space, work tree M)
+        let status = GitStatus {
+            staged: vec![],
+            unstaged: vec!["src/lib.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        assert!(status.unstaged.contains(&"src/lib.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_status_parsing_both() {
+        // Files with both staged and unstaged changes: "MM filename"
+        let status = GitStatus {
+            staged: vec!["src/both.rs".to_string()],
+            unstaged: vec!["src/both.rs".to_string()],
+            untracked: vec![],
+            is_clean: false,
+        };
+        // Same file appears in both lists
+        assert!(status.staged.contains(&"src/both.rs".to_string()));
+        assert!(status.unstaged.contains(&"src/both.rs".to_string()));
     }
 }
