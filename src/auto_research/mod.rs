@@ -99,6 +99,49 @@ note: `agent::meta_mutator::MetaMutator`"#;
         // Should include notes
         assert!(filtered.iter().any(|l| l.starts_with("note:")));
     }
+
+    #[test]
+    fn test_multi_eval_result_import_resolves() {
+        // Verify that MultiEvalResult can be imported and used
+        // This test ensures the import path fix works correctly
+        use crate::eval::MultiEvalResult;
+        use crate::eval::metrics::IterationMetrics;
+        
+        // Create simple metrics for comparison
+        let before = IterationMetrics {
+            tests_passed: 5,
+            tests_total: 10,
+            code_lines: 100,
+            code_lines_before: 100,
+            lines_delta: 0,
+            warnings: 0,
+            complexity: 1.0,
+            max_nesting: 2,
+            binary_size: 1000,
+            binary_size_before: 1000,
+            binary_delta: 0,
+        };
+        
+        let after = IterationMetrics {
+            tests_passed: 8,
+            tests_total: 10,
+            code_lines: 95,
+            code_lines_before: 100,
+            lines_delta: -5,
+            warnings: 0,
+            complexity: 0.9,
+            max_nesting: 2,
+            binary_size: 950,
+            binary_size_before: 1000,
+            binary_delta: -50,
+        };
+        
+        // This should compile and work correctly
+        let result = MultiEvalResult::compare(&before, &after);
+        
+        // Improved test count should yield positive score contribution
+        assert!(result.score > 0.0, "Score should be positive when tests improve");
+    }
 }
 
 /// Karpathy 风格的自动研究引擎（含全局代码理解 + Web 搜索）
