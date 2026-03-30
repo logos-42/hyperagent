@@ -225,6 +225,35 @@ pub struct WebSearchResult {
     pub snippet: String,
 }
 
+impl WebSearchResult {
+    /// Extract the domain name from the URL.
+    ///
+    /// Returns `None` if the URL is malformed or doesn't have a valid host.
+    /// This is useful for categorizing search results by source without
+    /// requiring external dependencies.
+    pub fn domain(&self) -> Option<&str> {
+        // Find "://" separator
+        let after_scheme = self.url.find("://").map(|i| &self.url[i + 3..])
+            .unwrap_or(&self.url);
+        
+        // Find the start of path/query/fragment
+        let domain_end = after_scheme.find(|c: char| c == '/' || c == '?' || c == '#')
+            .unwrap_or(after_scheme.len());
+        
+        let domain = &after_scheme[..domain_end];
+        
+        // Remove port number if present
+        let domain = domain.split(':').next().unwrap_or(domain);
+        
+        // Handle empty or invalid domains
+        if domain.is_empty() {
+            None
+        } else {
+            Some(domain)
+        }
+    }
+}
+
 /// Error type for web tools.
 #[derive(Debug, thiserror::Error)]
 pub enum WebToolError {
@@ -392,6 +421,35 @@ pub struct FetchOutput {
     pub text: String,
     /// Length of extracted text in characters
     pub text_length: usize,
+}
+
+impl FetchOutput {
+    /// Extract the domain name from the URL.
+    ///
+    /// Returns `None` if the URL is malformed or doesn't have a valid host.
+    /// This is useful for categorizing fetched pages by source without
+    /// requiring external dependencies.
+    pub fn domain(&self) -> Option<&str> {
+        // Find "://" separator
+        let after_scheme = self.url.find("://").map(|i| &self.url[i + 3..])
+            .unwrap_or(&self.url);
+        
+        // Find the start of path/query/fragment
+        let domain_end = after_scheme.find(|c: char| c == '/' || c == '?' || c == '#')
+            .unwrap_or(after_scheme.len());
+        
+        let domain = &after_scheme[..domain_end];
+        
+        // Remove port number if present
+        let domain = domain.split(':').next().unwrap_or(domain);
+        
+        // Handle empty or invalid domains
+        if domain.is_empty() {
+            None
+        } else {
+            Some(domain)
+        }
+    }
 }
 
 /// Web fetch tool (rig Tool trait).
@@ -1226,5 +1284,103 @@ mod tests {
         assert_eq!(find_case_insensitive("hello", "h"), Some(0));
         assert_eq!(find_case_insensitive("hello", "O"), Some(4));
         assert_eq!(find_case_insensitive("hello", "z"), None);
+    }
+
+    #[test]
+    fn test_web_search_result_domain() {
+        // Standard HTTPS URL
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://example.com/path".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.com"));
+
+        // HTTP URL
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "http://example.org/page".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.org"));
+
+        // URL with port
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://localhost:8080/app".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("localhost"));
+
+        // URL with query string
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://docs.rs/crate?version=1.0".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("docs.rs"));
+
+        // URL with fragment
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://example.com/page#section".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.com"));
+
+        // URL without scheme (malformed but handle gracefully)
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "example.com/path".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.com"));
+
+        // Empty URL
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        assert_eq!(result.domain(), None);
+    }
+
+    #[test]
+    fn test_fetch_output_domain() {
+        // Standard HTTPS URL
+        let output = FetchOutput {
+            url: "https://rust-lang.org/learn".to_string(),
+            title: "Rust".to_string(),
+            text: "Learn Rust".to_string(),
+            text_length: 10,
+        };
+        assert_eq!(output.domain(), Some("rust-lang.org"));
+
+        // URL with subdomain
+        let output = FetchOutput {
+            url: "https://doc.rust-lang.org/std".to_string(),
+            title: "Std Docs".to_string(),
+            text: "Standard library".to_string(),
+            text_length: 16,
+        };
+        assert_eq!(output.domain(), Some("doc.rust-lang.org"));
+
+        // URL with port
+        let output = FetchOutput {
+            url: "http://127.0.0.1:3000/api".to_string(),
+            title: "Local API".to_string(),
+            text: "API".to_string(),
+            text_length: 3,
+        };
+        assert_eq!(output.domain(), Some("127.0.0.1"));
+
+        // URL with complex query
+        let output = FetchOutput {
+            url: "https://github.com/user/repo/blob/main/src?query=value#readme".to_string(),
+            title: "GitHub".to_string(),
+            text: "Code".to_string(),
+            text_length: 4,
+        };
+        assert_eq!(output.domain(), Some("github.com"));
     }
 }
