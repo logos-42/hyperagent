@@ -9,7 +9,7 @@
 //! These give the agent full introspection into its own codebase.
 
 use std::future::Future;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -50,6 +50,21 @@ impl Default for ProjectRoot {
 
 fn default_project_root() -> ProjectRoot {
     ProjectRoot::new()
+}
+
+/// Check if a file is binary by sampling the first 8KB.
+/// Returns true if null bytes are found (common in binary files).
+/// This is a heuristic - some binary files may not have nulls in the first 8KB,
+/// but this catches most common cases efficiently.
+fn is_binary_file(path: &Path) -> bool {
+    if let Ok(mut file) = std::fs::File::open(path) {
+        let mut sample = [0u8; 8192];
+        if let Ok(n) = file.read(&mut sample) {
+            // Check for null bytes in the sample
+            return sample[..n].contains(&b'\0');
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -153,14 +168,6 @@ impl CodebaseGrepTool {
                 return;
             }
             
-            // Check for binary files (files containing null bytes)
-            // Binary files can cause regex panics and return garbage matches
-            let is_binary = lines.iter().any(|l| l.contains('\0'));
-            if is_binary {
-                files_searched += 1;
-                return;
-            }
-            
             // Use a rolling window for context extraction
             for (idx, line) in lines.iter().enumerate() {
                 // Find all match ranges in the line
@@ -251,6 +258,12 @@ impl CodebaseGrepTool {
                     if ext != file_ext {
                         continue;
                     }
+                }
+
+                // Skip binary files early (before reading all lines into memory)
+                // This avoids loading large binary files entirely
+                if is_binary_file(&path) {
+                    continue;
                 }
 
                 // Use the original root for consistent relative paths
@@ -1513,7 +1526,8 @@ mod tests {
         // Should find match in normal.rs but skip binary.rs
         assert_eq!(result.matches.len(), 1);
         assert_eq!(result.matches[0].file, "normal.rs");
-        assert_eq!(result.files_searched, 2); // Both files were examined
+        // files_searched only counts text files (binary files are skipped before callback)
+        assert_eq!(result.files_searched, 1);
     }
 
     #[test]
@@ -1529,6 +1543,49 @@ mod tests {
         
         // Binary file should be skipped entirely
         assert_eq!(result.matches.len(), 0);
+        // Binary file is not counted in files_searched since it's skipped early
+        assert_eq!(result.files_searched, 0);
+    }
+
+    #[test]
+    fn test_is_binary_file_detects_nulls() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a text file
+        create_test_file(temp_dir.path(), "text.rs", "fn main() {}");
+        assert!(!is_binary_file(&temp_dir.path().join("text.rs")));
+        
+        // Create a binary file with null bytes at start
+        let binary_content = "\x00\x01\x02\x03".as_bytes();
+        fs::write(temp_dir.path().join("binary1.bin"), binary_content).unwrap();
+        assert!(is_binary_file(&temp_dir.path().join("binary1.bin")));
+        
+        // Create a binary file with null bytes later (within 8KB)
+        let large_binary = format!("{}\x00{}", "x".repeat(100), "y".repeat(100));
+        fs::write(temp_dir.path().join("binary2.bin"), large_binary.as_bytes()).unwrap();
+        assert!(is_binary_file(&temp_dir.path().join("binary2.bin")));
+        
+        // Create a binary file with null bytes beyond 8KB (won't be detected)
+        let large_text = format!("{}\x00{}", "x".repeat(9000), "y".repeat(100));
+        fs::write(temp_dir.path().join("large.bin"), large_text.as_bytes()).unwrap();
+        // This should NOT be detected as binary (null is beyond 8KB sample)
+        assert!(!is_binary_file(&temp_dir.path().join("large.bin")));
+    }
+
+    #[test]
+    fn test_is_binary_file_handles_missing_file() {
+        // Non-existent file should return false (not binary)
+        let non_existent = PathBuf::from("/nonexistent/file/path");
+        assert!(!is_binary_file(&non_existent));
+    }
+
+    #[test]
+    fn test_is_binary_file_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(temp_dir.path(), "empty.txt", "");
+        
+        // Empty file is not binary
+        assert!(!is_binary_file(&temp_dir.path().join("empty.txt")));
     }
 
     #[test]
