@@ -146,6 +146,63 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
         Ok((passed, total, combined))
     }
+
+    /// Run tests for a specific module using cargo test's built-in module filtering.
+    /// This uses `cargo test --lib -- module_name` which filters tests by module path.
+    /// Returns (passed, total, combined_output).
+    pub(crate) async fn run_tests_for_module(&self, module_name: &str) -> Result<(u32, u32, String)> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("cargo")
+                .arg("test")
+                .arg("--lib")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .arg("--")
+                .arg(&format!("{}::", module_name))
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Module test timeout for {}: {}", module_name, e))??;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let (passed, total) = Self::parse_test_result(&combined);
+
+        Ok((passed, total, combined))
+    }
+
+    /// Run tests matching a specific test name pattern.
+    /// Uses `cargo test --lib test_name` to filter tests by name.
+    /// Returns (passed, total, combined_output).
+    pub(crate) async fn run_tests_by_name(&self, test_name: &str) -> Result<(u32, u32, String)> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("cargo")
+                .arg("test")
+                .arg("--lib")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .arg(test_name)
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Test name filter timeout for {}: {}", test_name, e))??;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let (passed, total) = Self::parse_test_result(&combined);
+
+        Ok((passed, total, combined))
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +298,42 @@ mod tests {
         // Verify count_test_fns handles various attribute formats
         let code = "#[test]\nfn test_a() {}\n    #[test]\nfn test_b() {}\n#[test]\n#[should_panic]\nfn test_c() {}";
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code), 3);
+    }
+
+    #[test]
+    fn test_parse_test_result_with_doc_tests() {
+        // Doc tests appear separately in cargo output
+        let output = "running 2 tests\ntest src/lib.rs - (line 10) ... ok\ntest src/lib.rs - (line 20) ... ok\n\ntest result: 2 passed; 0 failed";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (2, 2));
+    }
+
+    #[test]
+    fn test_parse_test_result_with_ignored_count() {
+        // Tests can be marked as ignored
+        let output = "test result: 5 passed; 0 failed; 3 ignored";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (5, 5));
+    }
+
+    #[test]
+    fn test_extract_number_edge_cases() {
+        // Edge cases for number extraction
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("0 passed"), Some(0));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("999999 failed"), Some(999999));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number(""), None);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("   passed"), None);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("passed 5"), None); // number after word, not before
+    }
+
+    #[test]
+    fn test_count_test_fns_with_attributes() {
+        // Test with various attribute configurations
+        let code1 = "#[test]\nfn basic_test() {}";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code1), 1);
+
+        let code2 = "#[test]\n#[ignore]\nfn ignored_test() {}";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code2), 1);
+
+        let code3 = "#[cfg(test)]\nmod tests { #[test]\nfn inner() {} }";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code3), 1);
     }
 }
