@@ -493,6 +493,84 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
             .filter(|f| !recent.contains(f.as_str()))
             .collect()
     }
+
+    /// Get all compilation failures (experiments that didn't compile)
+    /// These typically indicate syntax errors, type mismatches, or missing imports
+    pub fn compilation_failures(&self) -> Vec<&SelfEvolutionResult> {
+        self.results.iter()
+            .filter(|r| r.is_compilation_failure())
+            .collect()
+    }
+
+    /// Get all test failures (experiments that compiled but failed tests)
+    /// These indicate semantically incorrect implementations
+    pub fn test_failures(&self) -> Vec<&SelfEvolutionResult> {
+        self.results.iter()
+            .filter(|r| r.is_test_failure())
+            .collect()
+    }
+
+    /// Get a breakdown of failure categories across all results
+    /// Returns (compilation_failures, test_failures, unknown_failures)
+    pub fn failure_breakdown(&self) -> (usize, usize, usize) {
+        let mut compilation = 0;
+        let mut test = 0;
+        let mut unknown = 0;
+        
+        for result in &self.results {
+            if result.status == SelfEvolutionStatus::Failed {
+                match result.failure_category() {
+                    Some(FailureCategory::Compilation) => compilation += 1,
+                    Some(FailureCategory::Test { .. }) => test += 1,
+                    Some(FailureCategory::Unknown) | None => unknown += 1,
+                }
+            }
+        }
+        
+        (compilation, test, unknown)
+    }
+
+    /// Get files that had compilation failures
+    /// Useful for identifying files with syntax/type issues that need fixing
+    pub fn files_with_compilation_errors(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.results
+            .iter()
+            .filter(|r| r.is_compilation_failure())
+            .map(|r| r.file.clone())
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    }
+
+    /// Get files that had test failures (but compiled successfully)
+    /// Useful for identifying files where the logic needs adjustment
+    pub fn files_with_test_failures(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.results
+            .iter()
+            .filter(|r| r.is_test_failure())
+            .map(|r| r.file.clone())
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    }
+
+    /// Calculate the compilation success rate across all experiments
+    /// Returns (compiled_count, total_count, success_rate)
+    pub fn compilation_rate(&self) -> (usize, usize, f32) {
+        let total = self.results.len();
+        if total == 0 {
+            return (0, 0, 0.0);
+        }
+        
+        let compiled = self.results.iter()
+            .filter(|r| r.compiled_successfully())
+            .count();
+        
+        let rate = compiled as f32 / total as f32;
+        (compiled, total, rate)
+    }
 }
 
 impl SelfEvolutionResult {
@@ -555,6 +633,65 @@ impl SelfEvolutionResult {
             _ => None,
         }
     }
+
+    /// Returns true if this experiment failed to compile
+    /// Only applicable for Failed status - returns false for other statuses
+    pub fn is_compilation_failure(&self) -> bool {
+        if self.status != SelfEvolutionStatus::Failed {
+            return false;
+        }
+        
+        // A compilation failure is a Failed status where the score indicates
+        // the code didn't compile (compiles = false or no score)
+        self.score.as_ref().map_or(true, |s| !s.compiles)
+    }
+
+    /// Returns true if this experiment compiled but tests failed
+    /// Distinguishes from compilation failures - only applicable for Failed status
+    pub fn is_test_failure(&self) -> bool {
+        if self.status != SelfEvolutionStatus::Failed {
+            return false;
+        }
+        
+        // A test failure means code compiled (compiles = true) but tests didn't pass
+        self.score.as_ref().map_or(false, |s| {
+            s.compiles && s.tests_total > 0 && s.tests_passed < s.tests_total
+        })
+    }
+
+    /// Returns true if this experiment compiled successfully
+    /// Useful for quick filtering of syntactically correct code
+    pub fn compiled_successfully(&self) -> bool {
+        self.score.as_ref().map_or(false, |s| s.compiles)
+    }
+
+    /// Get a categorization of the failure type for this result
+    /// Returns None for non-failed results
+    pub fn failure_category(&self) -> Option<FailureCategory> {
+        if self.status != SelfEvolutionStatus::Failed {
+            return None;
+        }
+        
+        match self.score.as_ref() {
+            None => Some(FailureCategory::Unknown),
+            Some(s) if !s.compiles => Some(FailureCategory::Compilation),
+            Some(s) if s.tests_total > 0 && s.tests_passed < s.tests_total => {
+                Some(FailureCategory::Test { passed: s.tests_passed, total: s.tests_total })
+            }
+            Some(_) => Some(FailureCategory::Unknown),
+        }
+    }
+}
+
+/// Categorization of why an experiment failed
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FailureCategory {
+    /// Code failed to compile
+    Compilation,
+    /// Code compiled but tests failed
+    Test { passed: u32, total: u32 },
+    /// Failed for unknown reasons (no score data)
+    Unknown,
 }
 
 /// Summary statistics for self-evolution run
@@ -1136,5 +1273,480 @@ mod tests {
         
         let high_value = engine.high_value_targets();
         assert!(high_value.is_empty());
+    }
+
+    #[test]
+    fn test_is_compilation_failure() {
+        // Failed status with compiles = false
+        let compile_fail = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error[E0433]: failed to resolve".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert!(compile_fail.is_compilation_failure());
+        assert!(!compile_fail.is_test_failure());
+
+        // Failed status with compiles = true but tests failed
+        let test_fail = SelfEvolutionResult {
+            iteration: 2,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 3,
+                tests_total: 10,
+                test_pass_rate: 0.3,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert!(!test_fail.is_compilation_failure());
+        assert!(test_fail.is_test_failure());
+
+        // Accepted status should return false for both
+        let accepted = make_result(3, "test.rs", SelfEvolutionStatus::Accepted);
+        assert!(!accepted.is_compilation_failure());
+        assert!(!accepted.is_test_failure());
+    }
+
+    #[test]
+    fn test_is_test_failure() {
+        // Code compiled but tests failed
+        let test_fail = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 5,
+                tests_total: 10,
+                test_pass_rate: 0.5,
+                compilation_errors: String::new(),
+                test_output: "test failures".to_string(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert!(test_fail.is_test_failure());
+        assert!(!test_fail.is_compilation_failure());
+    }
+
+    #[test]
+    fn test_compiled_successfully() {
+        let compiled = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Accepted,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 10,
+                tests_total: 10,
+                test_pass_rate: 1.0,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Success".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert!(compiled.compiled_successfully());
+
+        let no_score = make_result(2, "test.rs", SelfEvolutionStatus::Accepted);
+        assert!(!no_score.compiled_successfully());
+    }
+
+    #[test]
+    fn test_failure_category() {
+        // Compilation failure
+        let compile_fail = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert_eq!(compile_fail.failure_category(), Some(FailureCategory::Compilation));
+
+        // Test failure
+        let test_fail = SelfEvolutionResult {
+            iteration: 2,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 5,
+                tests_total: 10,
+                test_pass_rate: 0.5,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert_eq!(test_fail.failure_category(), Some(FailureCategory::Test { passed: 5, total: 10 }));
+
+        // Non-failed status returns None
+        let accepted = make_result(3, "test.rs", SelfEvolutionStatus::Accepted);
+        assert_eq!(accepted.failure_category(), None);
+    }
+
+    #[test]
+    fn test_failure_category_unknown() {
+        // Failed with no score
+        let no_score = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: None,
+            error: Some("Unknown error".to_string()),
+            description: "Failed".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        };
+        assert_eq!(no_score.failure_category(), Some(FailureCategory::Unknown));
+    }
+
+    #[test]
+    fn test_compilation_failures() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(make_result(1, "a.rs", SelfEvolutionStatus::Accepted));
+        engine.results.push(SelfEvolutionResult {
+            iteration: 2,
+            file: "b.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Compile fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(SelfEvolutionResult {
+            iteration: 3,
+            file: "c.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 2,
+                tests_total: 10,
+                test_pass_rate: 0.2,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Test fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        
+        let comp_failures = engine.compilation_failures();
+        assert_eq!(comp_failures.len(), 1);
+        assert_eq!(comp_failures[0].file, "b.rs");
+        
+        let test_failures = engine.test_failures();
+        assert_eq!(test_failures.len(), 1);
+        assert_eq!(test_failures[0].file, "c.rs");
+    }
+
+    #[test]
+    fn test_failure_breakdown() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // 2 compilation failures
+        engine.results.push(SelfEvolutionResult {
+            iteration: 1,
+            file: "a.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(SelfEvolutionResult {
+            iteration: 2,
+            file: "b.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        
+        // 1 test failure
+        engine.results.push(SelfEvolutionResult {
+            iteration: 3,
+            file: "c.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 3,
+                tests_total: 10,
+                test_pass_rate: 0.3,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        
+        // 1 unknown failure (no score)
+        engine.results.push(SelfEvolutionResult {
+            iteration: 4,
+            file: "d.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: None,
+            error: Some("Unknown".to_string()),
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        
+        // 1 accepted (not counted)
+        engine.results.push(make_result(5, "e.rs", SelfEvolutionStatus::Accepted));
+        
+        let (comp, test, unknown) = engine.failure_breakdown();
+        assert_eq!(comp, 2);
+        assert_eq!(test, 1);
+        assert_eq!(unknown, 1);
+    }
+
+    #[test]
+    fn test_files_with_compilation_errors() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(SelfEvolutionResult {
+            iteration: 1,
+            file: "a.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(SelfEvolutionResult {
+            iteration: 2,
+            file: "a.rs".to_string(), // Same file again
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(make_result(3, "b.rs", SelfEvolutionStatus::Accepted));
+        
+        let files = engine.files_with_compilation_errors();
+        assert_eq!(files.len(), 1); // Deduplicated
+        assert_eq!(files[0], "a.rs");
+    }
+
+    #[test]
+    fn test_files_with_test_failures() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        engine.results.push(SelfEvolutionResult {
+            iteration: 1,
+            file: "a.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 3,
+                tests_total: 10,
+                test_pass_rate: 0.3,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(SelfEvolutionResult {
+            iteration: 2,
+            file: "b.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 5,
+                tests_total: 10,
+                test_pass_rate: 0.5,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        
+        let files = engine.files_with_test_failures();
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"a.rs".to_string()));
+        assert!(files.contains(&"b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_compilation_rate() {
+        let config = SelfEvolutionConfig::default();
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        
+        // Empty results
+        let (compiled, total, rate) = engine.compilation_rate();
+        assert_eq!(compiled, 0);
+        assert_eq!(total, 0);
+        assert!((rate - 0.0).abs() < 0.01);
+        
+        // Add results
+        engine.results.push(SelfEvolutionResult {
+            iteration: 1,
+            file: "a.rs".to_string(),
+            status: SelfEvolutionStatus::Accepted,
+            score: Some(SelfEvolutionScore {
+                compiles: true,
+                tests_passed: 10,
+                tests_total: 10,
+                test_pass_rate: 1.0,
+                compilation_errors: String::new(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Success".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(SelfEvolutionResult {
+            iteration: 2,
+            file: "b.rs".to_string(),
+            status: SelfEvolutionStatus::Failed,
+            score: Some(SelfEvolutionScore {
+                compiles: false,
+                tests_passed: 0,
+                tests_total: 0,
+                test_pass_rate: 0.0,
+                compilation_errors: "error".to_string(),
+                test_output: String::new(),
+                reflection: String::new(),
+            }),
+            error: None,
+            description: "Fail".to_string(),
+            hypothesis: "Test".to_string(),
+            tests_before: None,
+            tests_after: None,
+        });
+        engine.results.push(make_result(3, "c.rs", SelfEvolutionStatus::Skipped)); // No score
+        
+        let (compiled, total, rate) = engine.compilation_rate();
+        assert_eq!(compiled, 1);
+        assert_eq!(total, 3);
+        assert!((rate - 0.333).abs() < 0.01);
     }
 }
