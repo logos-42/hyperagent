@@ -187,6 +187,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let mut result = original.to_string();
 
         for op in ops {
+            // Try exact match first
             if let Some(idx) = result.find(&op.search) {
                 let before = &result[..idx];
                 let after = &result[idx + op.search.len()..];
@@ -200,13 +201,21 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             }
 
             // Fuzzy matching strategies in order of priority
-            let matched = self.try_fuzzy_match_strategies(&result, op);
-
-            if !matched {
-                tracing::warn!(
-                    "  SEARCH block not found in file ({} chars), all fuzzy match strategies failed — skipping this replacement",
-                    op.search.len()
-                );
+            match self.try_fuzzy_match_strategies(&result, op) {
+                Some(modified) => {
+                    result = modified;
+                    tracing::debug!(
+                        "  Applied fuzzy SEARCH/REPLACE: {} chars → {} chars",
+                        op.search.len(),
+                        op.replace.len()
+                    );
+                }
+                None => {
+                    tracing::warn!(
+                        "  SEARCH block not found in file ({} chars), all fuzzy match strategies failed — skipping this replacement",
+                        op.search.len()
+                    );
+                }
             }
         }
 
@@ -214,68 +223,172 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     }
 
     /// Try multiple fuzzy matching strategies for more robust SEARCH/REPLACE
-    fn try_fuzzy_match_strategies(&self, content: &str, op: &SearchReplace) -> bool {
-        // Strategy 1: Trimmed exact match (original behavior)
+    /// Returns Some(modified_content) if a match was found and applied, None otherwise
+    fn try_fuzzy_match_strategies(&self, content: &str, op: &SearchReplace) -> Option<String> {
+        // Strategy 1: Trimmed exact match
         let trimmed_search = op.search.trim();
         if let Some(idx) = content.find(trimmed_search) {
             let trimmed_replace = op.replace.trim();
             let before = &content[..idx];
             let after = &content[idx + trimmed_search.len()..];
-            // This modifies caller's result via interior mutability pattern
+            let result = format!("{}{}{}", before, trimmed_replace, after);
             tracing::debug!("  Fuzzy match succeeded (trimmed whitespace)");
-            return true;
+            return Some(result);
         }
 
-        // Strategy 2: Normalized whitespace (collapse multiple spaces/tabs into single space)
+        // Strategy 2: Normalized whitespace matching
         let normalized_content = normalize_whitespace(content);
         let normalized_search = normalize_whitespace(&op.search);
+        let normalized_replace = normalize_whitespace(&op.replace);
 
-        if normalized_content.contains(&normalized_search) {
-            tracing::debug!("  Fuzzy match succeeded (normalized whitespace)");
-            // Find the position in original content by finding matching region
-            // This is more complex, so we log success for now
-            return true;
+        if let Some(idx) = normalized_content.find(&normalized_search) {
+            // Map back to original content positions
+            if let Some((start, end)) = find_original_positions(content, &normalized_content, idx, &normalized_search) {
+                let before = &content[..start];
+                let after = &content[end..];
+                // Use original replacement format, not normalized
+                let result = format!("{}{}{}", before, op.replace.trim(), after);
+                tracing::debug!("  Fuzzy match succeeded (normalized whitespace)");
+                return Some(result);
+            }
         }
 
         // Strategy 3: Line-by-line matching (ignores blank line differences)
-        if self.try_line_match(content, op) {
+        if let Some(result) = self.try_line_match_with_replace(content, op) {
             tracing::debug!("  Fuzzy match succeeded (line-by-line matching)");
-            return true;
+            return Some(result);
         }
 
-        false
+        None
     }
 
     /// Try matching line-by-line, ignoring differences in blank lines and trailing whitespace
-    fn try_line_match(&self, content: &str, op: &SearchReplace) -> bool {
-        let content_lines: Vec<&str> = content.lines().map(|l| l.trim_end()).collect();
-        let search_lines: Vec<&str> = op.search.lines().map(|l| l.trim_end()).collect();
+    /// Returns Some(modified_content) if match found and replacement applied, None otherwise
+    fn try_line_match_with_replace(&self, content: &str, op: &SearchReplace) -> Option<String> {
+        let content_lines: Vec<&str> = content.lines().collect();
+        let search_lines: Vec<&str> = op.search.lines().collect();
+        let replace_lines: Vec<&str> = op.replace.lines().collect();
 
-        // Remove empty lines from both for comparison
-        let content_nonempty: Vec<&str> = content_lines.iter().filter(|l| !l.is_empty()).copied().collect();
-        let search_nonempty: Vec<&str> = search_lines.iter().filter(|l| !l.is_empty()).copied().collect();
+        // Trim for comparison but keep originals for reconstruction
+        let content_trimmed: Vec<&str> = content_lines.iter().map(|l| l.trim_end()).collect();
+        let search_trimmed: Vec<&str> = search_lines.iter().map(|l| l.trim_end()).collect();
+
+        // Remove empty lines for matching logic
+        let content_nonempty: Vec<(usize, &str)> = content_trimmed
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !l.is_empty())
+            .map(|(i, l)| (i, *l))
+            .collect();
+        let search_nonempty: Vec<&str> = search_trimmed.iter().filter(|l| !l.is_empty()).copied().collect();
 
         if search_nonempty.is_empty() {
-            return false;
+            return None;
         }
 
-        // Find if search lines are a contiguous subsequence of content lines
-        'outer: for start in 0..content_nonempty.len().saturating_sub(search_nonempty.len() - 1) {
+        // Find if search lines are a contiguous subsequence of content lines (ignoring empty lines)
+        for start in 0..content_nonempty.len().saturating_sub(search_nonempty.len() - 1) {
+            let mut matches = true;
             for (i, search_line) in search_nonempty.iter().enumerate() {
-                if content_nonempty.get(start + i) != Some(search_line) {
-                    continue 'outer;
+                if content_nonempty.get(start + i).map(|(_, l)| *l) != Some(*search_line) {
+                    matches = false;
+                    break;
                 }
             }
-            return true;
+            
+            if matches {
+                // Found a match! Now apply the replacement
+                // Find the line range in original content
+                let first_content_idx = content_nonempty[start].0;
+                let last_content_idx = if search_nonempty.len() > 0 {
+                    content_nonempty[start + search_nonempty.len() - 1].0
+                } else {
+                    first_content_idx
+                };
+
+                // Reconstruct the result by replacing the matched lines
+                let mut result_lines: Vec<String> = Vec::new();
+                
+                // Lines before the match
+                for line in content_lines.iter().take(first_content_idx) {
+                    result_lines.push((*line).to_string());
+                }
+                
+                // Insert replacement (use original indentation from first matched line)
+                let base_indent = content_lines[first_content_idx]
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .collect::<String>();
+                
+                for (i, replace_line) in replace_lines.iter().enumerate() {
+                    if i == 0 || replace_line.is_empty() {
+                        result_lines.push(replace_line.to_string());
+                    } else {
+                        // Preserve base indentation for replacement lines
+                        let trimmed = replace_line.trim_start();
+                        result_lines.push(format!("{}{}", base_indent, trimmed));
+                    }
+                }
+                
+                // Lines after the match
+                for line in content_lines.iter().skip(last_content_idx + 1) {
+                    result_lines.push((*line).to_string());
+                }
+                
+                return Some(result_lines.join("\n"));
+            }
         }
 
-        false
+        None
     }
 }
 
 /// Normalize whitespace in a string by collapsing multiple spaces/tabs into single space
 fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Find the original content positions corresponding to a normalized match
+/// Returns (start_byte, end_byte) in original content, or None if mapping fails
+fn find_original_positions(original: &str, normalized: &str, normalized_idx: usize, normalized_search: &str) -> Option<(usize, usize)> {
+    // Track byte positions in both strings
+    let mut orig_pos = 0;
+    let mut norm_pos = 0;
+    let mut orig_start = None;
+    let mut orig_end = None;
+    let search_end = normalized_idx + normalized_search.len();
+
+    let orig_chars: Vec<char> = original.chars().collect();
+    
+    for (i, ch) in orig_chars.iter().enumerate() {
+        if norm_pos == normalized_idx && orig_start.is_none() {
+            orig_start = Some(orig_pos);
+        }
+        
+        // Track position in original
+        orig_pos += ch.len_utf8();
+        
+        // Track position in normalized (whitespace collapsed)
+        if !ch.is_whitespace() || (i > 0 && !orig_chars[i - 1].is_whitespace()) {
+            // Non-whitespace or first-of-consecutive-whitespace advances normalized position
+            if !ch.is_whitespace() {
+                norm_pos += 1;
+            } else {
+                // Whitespace becomes single space in normalized
+                norm_pos += 1;
+            }
+        }
+        
+        if norm_pos >= search_end && orig_end.is_none() && orig_start.is_some() {
+            orig_end = Some(orig_pos);
+            break;
+        }
+    }
+    
+    match (orig_start, orig_end) {
+        (Some(s), Some(e)) => Some((s, e)),
+        _ => None,
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -382,6 +495,112 @@ mod tests {
             }
             result
         }
+
+        /// Test helper that includes fuzzy matching logic
+        fn apply_search_replaces_with_fuzzy(original: &str, ops: &[SearchReplace]) -> String {
+            let mut result = original.to_string();
+            for op in ops {
+                // Exact match
+                if let Some(idx) = result.find(&op.search) {
+                    let before = &result[..idx];
+                    let after = &result[idx + op.search.len()..];
+                    result = format!("{}{}{}", before, op.replace, after);
+                    continue;
+                }
+                
+                // Fuzzy: trimmed match
+                let trimmed_search = op.search.trim();
+                if let Some(idx) = result.find(trimmed_search) {
+                    let trimmed_replace = op.replace.trim();
+                    let before = &result[..idx];
+                    let after = &result[idx + trimmed_search.len()..];
+                    result = format!("{}{}{}", before, trimmed_replace, after);
+                    continue;
+                }
+                
+                // Fuzzy: normalized whitespace
+                let normalized_content = normalize_whitespace(&result);
+                let normalized_search = normalize_whitespace(&op.search);
+                if let Some(idx) = normalized_content.find(&normalized_search) {
+                    if let Some((start, end)) = find_original_positions(&result, &normalized_content, idx, &normalized_search) {
+                        let before = &result[..start];
+                        let after = &result[end..];
+                        result = format!("{}{}{}", before, op.replace.trim(), after);
+                        continue;
+                    }
+                }
+                
+                // Fuzzy: line-by-line match
+                if let Some(modified) = try_line_match_with_replace_test(&result, op) {
+                    result = modified;
+                }
+            }
+            result
+        }
+    }
+
+    fn try_line_match_with_replace_test(content: &str, op: &SearchReplace) -> Option<String> {
+        let content_lines: Vec<&str> = content.lines().collect();
+        let search_lines: Vec<&str> = op.search.lines().collect();
+        let replace_lines: Vec<&str> = op.replace.lines().collect();
+
+        let content_trimmed: Vec<&str> = content_lines.iter().map(|l| l.trim_end()).collect();
+        let search_trimmed: Vec<&str> = search_lines.iter().map(|l| l.trim_end()).collect();
+
+        let content_nonempty: Vec<(usize, &str)> = content_trimmed
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !l.is_empty())
+            .map(|(i, l)| (i, *l))
+            .collect();
+        let search_nonempty: Vec<&str> = search_trimmed.iter().filter(|l| !l.is_empty()).copied().collect();
+
+        if search_nonempty.is_empty() {
+            return None;
+        }
+
+        for start in 0..content_nonempty.len().saturating_sub(search_nonempty.len() - 1) {
+            let mut matches = true;
+            for (i, search_line) in search_nonempty.iter().enumerate() {
+                if content_nonempty.get(start + i).map(|(_, l)| *l) != Some(*search_line) {
+                    matches = false;
+                    break;
+                }
+            }
+            
+            if matches {
+                let first_content_idx = content_nonempty[start].0;
+                let last_content_idx = content_nonempty[start + search_nonempty.len() - 1].0;
+
+                let mut result_lines: Vec<String> = Vec::new();
+                
+                for line in content_lines.iter().take(first_content_idx) {
+                    result_lines.push((*line).to_string());
+                }
+                
+                let base_indent = content_lines[first_content_idx]
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .collect::<String>();
+                
+                for (i, replace_line) in replace_lines.iter().enumerate() {
+                    if i == 0 || replace_line.is_empty() {
+                        result_lines.push(replace_line.to_string());
+                    } else {
+                        let trimmed = replace_line.trim_start();
+                        result_lines.push(format!("{}{}", base_indent, trimmed));
+                    }
+                }
+                
+                for line in content_lines.iter().skip(last_content_idx + 1) {
+                    result_lines.push((*line).to_string());
+                }
+                
+                return Some(result_lines.join("\n"));
+            }
+        }
+
+        None
     }
 
     #[test]
