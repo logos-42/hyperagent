@@ -10,6 +10,29 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Truncate a string at word boundaries, ensuring it doesn't exceed max_chars
+/// while avoiding cutting words in half. Appends "..." if truncated.
+fn truncate_words(s: &str, max_chars: usize) -> String {
+    if s.len() <= max_chars {
+        return s.to_string();
+    }
+    
+    let truncated = &s[..max_chars];
+    
+    // Find the last space to avoid cutting a word
+    if let Some(last_space) = truncated.rfind(' ') {
+        // Only use word boundary if it's reasonably close to max_chars (at least 60%)
+        if last_space > max_chars / 2 {
+            format!("{}...", &truncated[..last_space])
+        } else {
+            format!("{}...", truncated)
+        }
+    } else {
+        // No spaces found, just truncate at char boundary
+        format!("{}...", truncated)
+    }
+}
+
 use crate::auto_research::{AutoResearch, ExperimentOutcome, ResearchConfig};
 use crate::llm::LLMClient;
 
@@ -153,8 +176,8 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
             let hypothesis = exp.hypothesis.clone();
             let description = format!(
                 "{} — {}",
-                &exp.hypothesis.chars().take(80).collect::<String>(),
-                &exp.reflection.chars().take(80).collect::<String>(),
+                truncate_words(&exp.hypothesis, 80),
+                truncate_words(&exp.reflection, 80),
             );
 
             self.results.push(SelfEvolutionResult {
