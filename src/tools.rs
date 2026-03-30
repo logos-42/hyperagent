@@ -161,10 +161,11 @@ impl CodebaseGrepTool {
         let root_path = self.root.path.clone();
         let mut matches = Vec::new();
         let mut files_searched = 0usize;
+        let mut should_stop = false;
 
         Self::walk_files(&src_dir, &root_path, file_ext, &mut |path, lines| {
             files_searched += 1;
-            if matches.len() >= max_results {
+            if should_stop {
                 return;
             }
             
@@ -199,6 +200,7 @@ impl CodebaseGrepTool {
                         match_ranges,
                     });
                     if matches.len() >= max_results {
+                        should_stop = true;
                         return;
                     }
                 }
@@ -222,17 +224,17 @@ impl CodebaseGrepTool {
         root: &Path,
         file_ext: &str,
         callback: &mut F,
-    ) -> Result<()>
+    ) -> Result<bool>
     where
         F: FnMut(String, Vec<String>),
     {
         if !dir.exists() {
-            return Ok(());
+            return Ok(false);
         }
         Self::walk_dir_recursive(dir, root, file_ext, callback)
     }
 
-    fn walk_dir_recursive<F>(dir: &Path, root: &Path, file_ext: &str, callback: &mut F) -> Result<()>
+    fn walk_dir_recursive<F>(dir: &Path, root: &Path, file_ext: &str, callback: &mut F) -> Result<bool>
     where
         F: FnMut(String, Vec<String>),
     {
@@ -247,7 +249,9 @@ impl CodebaseGrepTool {
                 if file_name == "target" || file_name.starts_with('.') {
                     continue;
                 }
-                Self::walk_dir_recursive(&path, root, file_ext, callback)?;
+                if Self::walk_dir_recursive(&path, root, file_ext, callback)? {
+                    return Ok(true);
+                }
             } else if path.is_file() {
                 // Check extension
                 if !file_ext.is_empty() {
@@ -281,7 +285,7 @@ impl CodebaseGrepTool {
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -1723,5 +1727,60 @@ mod tests {
         assert!(glob_match("*.rs", "файл.rs"));
         assert!(glob_match("test*", "test文字"));
         assert!(glob_match("*测试*", "前置测试后置"));
+    }
+
+    #[test]
+    fn test_grep_files_searched_count_accurate() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create multiple files, only one has match
+        create_test_file(temp_dir.path(), "file1.rs", "fn one() {}");
+        create_test_file(temp_dir.path(), "file2.rs", "fn two() {}");
+        create_test_file(temp_dir.path(), "file3.rs", "fn target() {}");
+        create_test_file(temp_dir.path(), "file4.rs", "fn four() {}");
+        create_test_file(temp_dir.path(), "file5.rs", "fn five() {}");
+
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("target", "rs", 10, 0).unwrap();
+
+        // Should count all 5 files searched, even though only 1 matched
+        assert_eq!(result.files_searched, 5);
+        assert_eq!(result.matches.len(), 1);
+    }
+
+    #[test]
+    fn test_grep_early_termination_saves_work() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create many files with matches
+        for i in 0..100 {
+            create_test_file(temp_dir.path(), &format!("file{}.rs", i), &format!("fn match_{}() {{}}", i));
+        }
+
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("match", "rs", 5, 0).unwrap();
+
+        // Should stop after finding 5 matches
+        assert_eq!(result.matches.len(), 5);
+        assert!(result.truncated);
+        // files_searched should be less than 100 due to early termination
+        assert!(result.files_searched < 100, "Expected early termination but searched {} files", result.files_searched);
+    }
+
+    #[test]
+    fn test_grep_files_searched_includes_non_matching() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create files where only last file has match
+        create_test_file(temp_dir.path(), "a.rs", "fn a() {}");
+        create_test_file(temp_dir.path(), "b.rs", "fn b() {}");
+        create_test_file(temp_dir.path(), "c.rs", "fn found_it() {}");
+
+        let tool = CodebaseGrepTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.grep("found_it", "rs", 10, 0).unwrap();
+
+        // All 3 files should be counted as searched
+        assert_eq!(result.files_searched, 3);
+        assert_eq!(result.matches.len(), 1);
     }
 }
