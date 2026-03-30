@@ -22,6 +22,20 @@ pub struct GitDiff {
     pub diff_output: String,
 }
 
+/// Git log entry for observability
+#[derive(Debug, Clone)]
+pub struct GitLogEntry {
+    pub hash: String,
+    pub author: String,
+    pub message: String,
+}
+
+/// Git log representation for recent commits
+#[derive(Debug, Clone)]
+pub struct GitLog {
+    pub entries: Vec<GitLogEntry>,
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// git checkout 回滚
     pub(crate) fn git_revert(&self, file: &str) -> Result<()> {
@@ -236,6 +250,40 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             diff_output,
         })
     }
+
+    /// Get recent git commit history for observability
+    ///
+    /// Returns the last N commits with abbreviated hash, author, and message.
+    /// Useful for understanding recent changes before proposing new modifications.
+    pub(crate) fn git_log(&self, count: usize) -> Result<GitLog> {
+        let output = std::process::Command::new("git")
+            .args(&[
+                "log",
+                &format!("-{}", count),
+                "--pretty=format:%h|%an|%s",
+            ])
+            .current_dir(&self.config.project_root)
+            .output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut entries = Vec::new();
+
+        for line in stdout.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = line.splitn(3, '|').collect();
+            if parts.len() == 3 {
+                entries.push(GitLogEntry {
+                    hash: parts[0].to_string(),
+                    author: parts[1].to_string(),
+                    message: parts[2].to_string(),
+                });
+            }
+        }
+
+        Ok(GitLog { entries })
+    }
 }
 
 #[cfg(test)]
@@ -417,5 +465,44 @@ mod tests {
         assert_eq!(diff.files_changed.len(), 2);
         assert!(diff.files_changed.contains(&"src/main.rs".to_string()));
         assert!(diff.files_changed.contains(&"src/lib.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_log_entry_construction() {
+        let entry = GitLogEntry {
+            hash: "abc1234".to_string(),
+            author: "Test Author".to_string(),
+            message: "Initial commit".to_string(),
+        };
+        assert_eq!(entry.hash, "abc1234");
+        assert_eq!(entry.author, "Test Author");
+        assert_eq!(entry.message, "Initial commit");
+    }
+
+    #[test]
+    fn test_git_log_construction() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def5678".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Second commit".to_string(),
+                },
+            ],
+        };
+        assert_eq!(log.entries.len(), 2);
+        assert_eq!(log.entries[0].hash, "abc1234");
+        assert_eq!(log.entries[1].hash, "def5678");
+    }
+
+    #[test]
+    fn test_git_log_empty() {
+        let log = GitLog { entries: vec![] };
+        assert!(log.entries.is_empty());
     }
 }
