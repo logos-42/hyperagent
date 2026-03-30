@@ -284,6 +284,17 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
         files.dedup();
         files
     }
+
+    /// Get the most recent result for a specific file
+    /// Returns None if no experiments were run for that file
+    pub fn get_result_by_file(&self, file: &str) -> Option<&SelfEvolutionResult> {
+        self.results.iter().rev().find(|r| r.file == file)
+    }
+
+    /// Get all results for a specific file (in iteration order)
+    pub fn results_for_file(&self, file: &str) -> Vec<&SelfEvolutionResult> {
+        self.results.iter().filter(|r| r.file == file).collect()
+    }
 }
 
 /// Summary statistics for self-evolution run
