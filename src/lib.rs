@@ -159,48 +159,56 @@ impl StdError for Error {
 }
 
 impl From<std::io::Error> for Error {
+    #[cold]
     fn from(err: std::io::Error) -> Self {
         Error::Io(err)
     }
 }
 
 impl From<reqwest::Error> for Error {
+    #[cold]
     fn from(err: reqwest::Error) -> Self {
         Error::Web(err.to_string())
     }
 }
 
 impl From<serde_json::Error> for Error {
+    #[cold]
     fn from(err: serde_json::Error) -> Self {
         Error::Config(err.to_string())
     }
 }
 
 impl From<tokio::task::JoinError> for Error {
+    #[cold]
     fn from(err: tokio::task::JoinError) -> Self {
         Error::Evolution(err.to_string())
     }
 }
 
 impl From<String> for Error {
+    #[cold]
     fn from(msg: String) -> Self {
         Error::Other(msg)
     }
 }
 
 impl From<&str> for Error {
+    #[cold]
     fn from(msg: &str) -> Self {
         Error::Other(msg.to_string())
     }
 }
 
 impl From<Box<dyn StdError + Send + Sync>> for Error {
+    #[cold]
     fn from(err: Box<dyn StdError + Send + Sync>) -> Self {
         Error::Other(err.to_string())
     }
 }
 
 impl From<Box<dyn StdError>> for Error {
+    #[cold]
     fn from(err: Box<dyn StdError>) -> Self {
         Error::Other(err.to_string())
     }
@@ -453,5 +461,73 @@ mod tests {
         // Verify Error implements Send and Sync for thread safety
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Error>();
+    }
+
+    #[test]
+    fn test_from_box_dyn_std_error_send_sync() {
+        // Test conversion from Box<dyn StdError + Send + Sync>
+        use std::io::{self, ErrorKind};
+        
+        let io_err = io::Error::new(ErrorKind::Other, "boxed error");
+        let boxed: Box<dyn StdError + Send + Sync> = Box::new(io_err);
+        let err: Error = boxed.into();
+        
+        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("boxed error"));
+    }
+
+    #[test]
+    fn test_from_box_dyn_std_error() {
+        // Test conversion from Box<dyn StdError> (without Send + Sync)
+        use std::io::{self, ErrorKind};
+        
+        let io_err = io::Error::new(ErrorKind::Other, "non-send boxed error");
+        let boxed: Box<dyn StdError> = Box::new(io_err);
+        let err: Error = boxed.into();
+        
+        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("non-send boxed error"));
+    }
+
+    #[test]
+    fn test_error_chain_with_source() {
+        // Test that error chaining works correctly with nested errors
+        let inner = std::io::Error::new(std::io::ErrorKind::NotFound, "inner error");
+        let err = Error::Io(inner);
+        
+        // Verify source chain
+        let source = err.source();
+        assert!(source.is_some());
+        
+        // Verify we can get the Display of both levels
+        let full_msg = format!("{}", err);
+        assert!(full_msg.contains("I/O error"));
+        assert!(full_msg.contains("inner error"));
+    }
+
+    #[test]
+    fn test_error_variants_have_distinct_prefixes() {
+        // Ensure each error variant has a distinct prefix for easier parsing
+        let variants = vec![
+            (Error::LLM("x".into()), "LLM error:"),
+            (Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")), "I/O error:"),
+            (Error::Evaluation("x".into()), "Evaluation error:"),
+            (Error::Evolution("x".into()), "Evolution error:"),
+            (Error::Memory("x".into()), "Memory error:"),
+            (Error::Codebase("x".into()), "Codebase error:"),
+            (Error::Web("x".into()), "Web error:"),
+            (Error::Config("x".into()), "Config error:"),
+            (Error::Other("x".into()), "Error:"),
+        ];
+        
+        for (err, expected_prefix) in variants {
+            let display = format!("{}", err);
+            assert!(
+                display.starts_with(expected_prefix),
+                "Expected '{}' to start with '{}'",
+                display,
+                expected_prefix
+            );
+        }
     }
 }
