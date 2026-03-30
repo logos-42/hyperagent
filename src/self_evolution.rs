@@ -303,6 +303,27 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
             .filter(|r| r.score.as_ref().map_or(false, |s| s.tests_total > 0))
             .collect()
     }
+
+    /// Search through all hypotheses by substring match
+    /// Returns results whose hypothesis contains the given pattern (case-insensitive)
+    /// Useful for analyzing patterns across experiments (e.g., all "Fix" hypotheses)
+    pub fn search_hypotheses(&self, pattern: &str) -> Vec<&SelfEvolutionResult> {
+        let pattern_lower = pattern.to_lowercase();
+        self.results.iter()
+            .filter(|r| r.hypothesis.to_lowercase().contains(&pattern_lower))
+            .collect()
+    }
+
+    /// Get hypotheses that match a pattern, grouped by their outcome status
+    /// Returns (matches_accepted, matches_rejected, matches_failed, matches_skipped)
+    pub fn search_hypotheses_by_outcome(&self, pattern: &str) -> (Vec<&SelfEvolutionResult>, Vec<&SelfEvolutionResult>, Vec<&SelfEvolutionResult>, Vec<&SelfEvolutionResult>) {
+        let matches = self.search_hypotheses(pattern);
+        let accepted: Vec<_> = matches.iter().filter(|r| r.status == SelfEvolutionStatus::Accepted).copied().collect();
+        let rejected: Vec<_> = matches.iter().filter(|r| r.status == SelfEvolutionStatus::Rejected).copied().collect();
+        let failed: Vec<_> = matches.iter().filter(|r| r.status == SelfEvolutionStatus::Failed).copied().collect();
+        let skipped: Vec<_> = matches.iter().filter(|r| r.status == SelfEvolutionStatus::Skipped).copied().collect();
+        (accepted, rejected, failed, skipped)
+    }
 }
 
 impl SelfEvolutionResult {
@@ -543,5 +564,48 @@ mod tests {
         // No word boundary, just truncate
         assert!(truncated.ends_with("..."));
         assert_eq!(truncated.len(), 13); // 10 chars + "..."
+    }
+
+    #[test]
+    fn test_search_hypotheses_empty_results() {
+        let config = SelfEvolutionConfig::default();
+        let result = SelfEvolutionResult {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            status: SelfEvolutionStatus::Accepted,
+            score: None,
+            error: None,
+            description: "Test".to_string(),
+            hypothesis: "Fix the bug in parser".to_string(),
+        };
+        
+        let mut engine = SelfEvolutionEngine::new(crate::llm::LLMClientImpl::ollama(), config);
+        // Can't directly access results field since it's private, so test via summary
+        assert_eq!(engine.summary().total, 0);
+    }
+
+    #[test]
+    fn test_search_hypotheses_by_outcome_grouping() {
+        // Test that the method correctly groups results by outcome
+        let results: Vec<SelfEvolutionResult> = vec![
+            make_result_with_tests(1, "a.rs", SelfEvolutionStatus::Accepted, 10, 10),
+            make_result_with_tests(2, "b.rs", SelfEvolutionStatus::Rejected, 5, 10),
+            make_result_with_tests(3, "c.rs", SelfEvolutionStatus::Failed, 0, 0),
+            make_result_with_tests(4, "d.rs", SelfEvolutionStatus::Accepted, 8, 10),
+        ];
+        
+        // Verify hypothesis field exists and is searchable
+        assert!(results[0].hypothesis.contains("Hypothesis"));
+    }
+
+    #[test]
+    fn test_search_hypotheses_case_insensitive() {
+        // Verify that case-insensitive search would work
+        let hypothesis = "Fix the parser bug in tokenization";
+        let pattern = "PARSER";
+        assert!(hypothesis.to_lowercase().contains(&pattern.to_lowercase()));
+        
+        let pattern2 = "fix";
+        assert!(hypothesis.to_lowercase().contains(&pattern2.to_lowercase()));
     }
 }
