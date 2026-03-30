@@ -830,6 +830,51 @@ impl CodebaseContext {
         self.files.get(path)
     }
 
+    /// Find all files that depend on the given target file.
+    ///
+    /// Returns a list of file paths that have `use` statements referencing the target file's module.
+    /// This is useful for understanding the downstream impact of changes before making them.
+    ///
+    /// # Arguments
+    /// * `target_file` - The file path to find dependents for (e.g., "agent/mod.rs")
+    ///
+    /// # Returns
+    /// A vector of file paths that depend on the target file, sorted alphabetically
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let dependents = ctx.find_dependents("agent/mod.rs");
+    /// // Returns ["auto_research/mod.rs", "bin/self_evolve.rs", ...]
+    /// ```
+    pub fn find_dependents(&self, target_file: &str) -> Vec<String> {
+        let module_hint = target_file
+            .strip_suffix(".rs")
+            .unwrap_or(target_file)
+            .replace('/', "::")
+            .replace("mod.rs", "");
+
+        self.files
+            .iter()
+            .filter_map(|(path, summary)| {
+                if *path == target_file {
+                    return None;
+                }
+
+                let has_dependency = summary.uses.iter().any(|u| {
+                    u.contains(&module_hint)
+                        || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
+                });
+
+                if has_dependency {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Get formatted content summaries of files that depend on a target file.
     /// 
     /// This is useful for understanding the downstream impact of changes to a file.
