@@ -24,20 +24,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        let mut passed = 0u32;
-        let mut total = 0u32;
-        for line in combined.lines() {
-            if line.contains("test result:") {
-                let nums: Vec<u32> = line
-                    .split(|c: char| !c.is_ascii_digit())
-                    .filter_map(|s| s.parse().ok())
-                    .collect();
-                if !nums.is_empty() {
-                    passed = nums[0];
-                    total = nums.get(1).map(|&n| nums[0] + n).unwrap_or(nums[0]);
-                }
-            }
-        }
+        let (passed, total) = Self::parse_test_result(&combined);
 
         Ok((passed, total, combined))
     }
@@ -93,5 +80,103 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     /// 计算代码中 #[test] 函数的数量
     fn count_test_fns(code: &str) -> usize {
         code.matches("#[test]").count()
+    }
+
+    /// Parse test results from cargo test output.
+    /// Format: "test result: X passed; Y failed; Z ignored; W measured; N filtered out"
+    /// Returns (passed, total) where total = passed + failed
+    fn parse_test_result(output: &str) -> (u32, u32) {
+        for line in output.lines() {
+            if line.contains("test result:") {
+                return Self::parse_test_line(line);
+            }
+        }
+        (0, 0)
+    }
+
+    /// Parse a single "test result:" line to extract passed/failed counts.
+    fn parse_test_line(line: &str) -> (u32, u32) {
+        let mut passed = 0u32;
+        let mut failed = 0u32;
+
+        // Standard format: "test result: X passed; Y failed; ..."
+        for part in line.split(';') {
+            let part = part.trim();
+            if part.ends_with("passed") {
+                passed = Self::extract_number(part).unwrap_or(0);
+            } else if part.ends_with("failed") {
+                failed = Self::extract_number(part).unwrap_or(0);
+            }
+        }
+
+        (passed, passed + failed)
+    }
+
+    /// Extract the leading number from a string like "5 passed" or " 3 failed".
+    fn extract_number(s: &str) -> Option<u32> {
+        s.split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_test_result_all_passed() {
+        let output = "running 3 tests\ntest test_one ... ok\ntest test_two ... ok\ntest test_three ... ok\n\ntest result: 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (3, 3));
+    }
+
+    #[test]
+    fn test_parse_test_result_some_failed() {
+        let output = "running 5 tests\ntest test_one ... ok\ntest test_two ... FAILED\ntest result: 3 passed; 2 failed; 0 ignored";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (3, 5));
+    }
+
+    #[test]
+    fn test_parse_test_result_no_tests() {
+        let output = "running 0 tests\n\ntest result: 0 passed; 0 failed; 0 ignored";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (0, 0));
+    }
+
+    #[test]
+    fn test_parse_test_result_with_ignored() {
+        let output = "test result: 10 passed; 2 failed; 5 ignored; 0 measured; 3 filtered out";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (10, 12));
+    }
+
+    #[test]
+    fn test_parse_test_line_various_formats() {
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_line("test result: 1 passed; 0 failed"), (1, 1));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_line("test result: 0 passed; 5 failed; 3 ignored"), (0, 5));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_line("test result: 100 passed; 50 failed; 0 ignored; 0 measured"), (100, 150));
+    }
+
+    #[test]
+    fn test_extract_number() {
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("5 passed"), Some(5));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("  12 failed"), Some(12));
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("passed"), None);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::extract_number("no tests"), None);
+    }
+
+    #[test]
+    fn test_count_test_fns() {
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(""), 0);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns("#[test]"), 1);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns("#[test]\nfn a() {}\n#[test]\nfn b() {}"), 2);
+    }
+
+    #[test]
+    fn test_detect_new_tests() {
+        let old_code = "#[test]\nfn test_one() {}";
+        let new_code = "#[test]\nfn test_one() {}\n#[test]\nfn test_two() {}";
+        // Note: detect_new_tests is not static, so we can't test it directly here
+        // This test validates the underlying count_test_fns works correctly
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(old_code), 1);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(new_code), 2);
     }
 }
