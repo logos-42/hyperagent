@@ -214,6 +214,76 @@ impl From<Box<dyn StdError>> for Error {
     }
 }
 
+impl Error {
+    /// Returns `true` if this is an `LLM` error.
+    pub fn is_llm(&self) -> bool {
+        matches!(self, Error::LLM(_))
+    }
+
+    /// Returns `true` if this is an `Io` error.
+    pub fn is_io(&self) -> bool {
+        matches!(self, Error::Io(_))
+    }
+
+    /// Returns `true` if this is an `Evaluation` error.
+    pub fn is_evaluation(&self) -> bool {
+        matches!(self, Error::Evaluation(_))
+    }
+
+    /// Returns `true` if this is an `Evolution` error.
+    pub fn is_evolution(&self) -> bool {
+        matches!(self, Error::Evolution(_))
+    }
+
+    /// Returns `true` if this is a `Memory` error.
+    pub fn is_memory(&self) -> bool {
+        matches!(self, Error::Memory(_))
+    }
+
+    /// Returns `true` if this is a `Codebase` error.
+    pub fn is_codebase(&self) -> bool {
+        matches!(self, Error::Codebase(_))
+    }
+
+    /// Returns `true` if this is a `Web` error.
+    pub fn is_web(&self) -> bool {
+        matches!(self, Error::Web(_))
+    }
+
+    /// Returns `true` if this is a `Config` error.
+    pub fn is_config(&self) -> bool {
+        matches!(self, Error::Config(_))
+    }
+
+    /// Returns the inner `std::io::Error` if this is an `Io` error.
+    ///
+    /// This is useful for inspecting the specific I/O error kind
+    /// (e.g., `NotFound`, `PermissionDenied`, `TimedOut`).
+    pub fn as_io(&self) -> Option<&std::io::Error> {
+        match self {
+            Error::Io(err) => Some(err),
+            _ => None,
+        }
+    }
+
+    /// Returns the error message string if this is a string-based variant.
+    ///
+    /// Returns `None` for `Io` errors which have their own display format.
+    pub fn as_message(&self) -> Option<&str> {
+        match self {
+            Error::LLM(msg) => Some(msg),
+            Error::Evaluation(msg) => Some(msg),
+            Error::Evolution(msg) => Some(msg),
+            Error::Memory(msg) => Some(msg),
+            Error::Codebase(msg) => Some(msg),
+            Error::Web(msg) => Some(msg),
+            Error::Config(msg) => Some(msg),
+            Error::Other(msg) => Some(msg),
+            Error::Io(_) => None,
+        }
+    }
+}
+
 /// A specialized Result type for Hyperagent operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -529,5 +599,154 @@ mod tests {
                 expected_prefix
             );
         }
+    }
+
+    #[test]
+    fn test_is_methods_return_correct_values() {
+        // Test all is_* methods
+        assert!(Error::LLM("test".into()).is_llm());
+        assert!(!Error::LLM("test".into()).is_io());
+        
+        assert!(Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).is_io());
+        assert!(!Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).is_llm());
+        
+        assert!(Error::Evaluation("test".into()).is_evaluation());
+        assert!(!Error::Evaluation("test".into()).is_evolution());
+        
+        assert!(Error::Evolution("test".into()).is_evolution());
+        assert!(!Error::Evolution("test".into()).is_memory());
+        
+        assert!(Error::Memory("test".into()).is_memory());
+        assert!(!Error::Memory("test".into()).is_codebase());
+        
+        assert!(Error::Codebase("test".into()).is_codebase());
+        assert!(!Error::Codebase("test".into()).is_web());
+        
+        assert!(Error::Web("test".into()).is_web());
+        assert!(!Error::Web("test".into()).is_config());
+        
+        assert!(Error::Config("test".into()).is_config());
+        assert!(!Error::Config("test".into()).is_other());
+        
+        // Test Other variant - there's no is_other() method, but we can verify it's not any of the others
+        let other_err = Error::Other("test".into());
+        assert!(!other_err.is_llm());
+        assert!(!other_err.is_io());
+        assert!(!other_err.is_evaluation());
+        assert!(!other_err.is_evolution());
+        assert!(!other_err.is_memory());
+        assert!(!other_err.is_codebase());
+        assert!(!other_err.is_web());
+        assert!(!other_err.is_config());
+    }
+
+    #[test]
+    fn test_as_io_returns_correct_value() {
+        // Io variant returns Some
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let err = Error::Io(io_err);
+        let inner = err.as_io();
+        assert!(inner.is_some());
+        assert_eq!(inner.unwrap().kind(), std::io::ErrorKind::NotFound);
+        
+        // Non-Io variants return None
+        let err = Error::LLM("test".into());
+        assert!(err.as_io().is_none());
+        
+        let err = Error::Evaluation("test".into());
+        assert!(err.as_io().is_none());
+        
+        let err = Error::Other("test".into());
+        assert!(err.as_io().is_none());
+    }
+
+    #[test]
+    fn test_as_message_returns_correct_value() {
+        // String-based variants return Some
+        let err = Error::LLM("api timeout".into());
+        assert_eq!(err.as_message(), Some("api timeout"));
+        
+        let err = Error::Evaluation("test failed".into());
+        assert_eq!(err.as_message(), Some("test failed"));
+        
+        let err = Error::Evolution("population collapse".into());
+        assert_eq!(err.as_message(), Some("population collapse"));
+        
+        let err = Error::Memory("archive corrupted".into());
+        assert_eq!(err.as_message(), Some("archive corrupted"));
+        
+        let err = Error::Codebase("scan failed".into());
+        assert_eq!(err.as_message(), Some("scan failed"));
+        
+        let err = Error::Web("timeout".into());
+        assert_eq!(err.as_message(), Some("timeout"));
+        
+        let err = Error::Config("invalid settings".into());
+        assert_eq!(err.as_message(), Some("invalid settings"));
+        
+        let err = Error::Other("unknown".into());
+        assert_eq!(err.as_message(), Some("unknown"));
+        
+        // Io variant returns None
+        let err = Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "io err"));
+        assert!(err.as_message().is_none());
+    }
+
+    #[test]
+    fn test_is_methods_in_pattern_matching_context() {
+        // Simulate practical usage in error handling
+        fn handle_error(err: &Error) -> &'static str {
+            if err.is_io() {
+                "retry_with_backoff"
+            } else if err.is_web() {
+                "retry_with_backoff"
+            } else if err.is_llm() {
+                "retry_with_backoff"
+            } else if err.is_config() {
+                "fail_fast"
+            } else if err.is_evaluation() {
+                "log_and_continue"
+            } else {
+                "unknown"
+            }
+        }
+        
+        assert_eq!(handle_error(&Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "x"))), "retry_with_backoff");
+        assert_eq!(handle_error(&Error::Web("timeout".into())), "retry_with_backoff");
+        assert_eq!(handle_error(&Error::LLM("rate limit".into())), "retry_with_backoff");
+        assert_eq!(handle_error(&Error::Config("invalid".into())), "fail_fast");
+        assert_eq!(handle_error(&Error::Evaluation("assertion failed".into())), "log_and_continue");
+        assert_eq!(handle_error(&Error::Other("misc".into())), "unknown");
+    }
+
+    #[test]
+    fn test_as_io_for_error_kind_inspection() {
+        // Demonstrate practical use case: checking specific Io error kinds
+        use std::io::ErrorKind;
+        
+        fn should_retry(err: &Error) -> bool {
+            match err.as_io() {
+                Some(io_err) => matches!(
+                    io_err.kind(),
+                    ErrorKind::TimedOut | ErrorKind::Interrupted | ErrorKind::WouldBlock
+                ),
+                None => err.is_web() || err.is_llm(),
+            }
+        }
+        
+        let timeout = Error::Io(std::io::Error::new(ErrorKind::TimedOut, "timeout"));
+        assert!(should_retry(&timeout));
+        
+        let interrupted = Error::Io(std::io::Error::new(ErrorKind::Interrupted, "interrupted"));
+        assert!(should_retry(&interrupted));
+        
+        let not_found = Error::Io(std::io::Error::new(ErrorKind::NotFound, "not found"));
+        assert!(!should_retry(&not_found));
+        
+        let web_err = Error::Web("connection failed".into());
+        assert!(should_retry(&web_err));
+        
+        let config_err = Error::Config("invalid".into());
+        assert!(!should_retry(&config_err));
     }
 }
