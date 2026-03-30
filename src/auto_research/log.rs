@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_metrics_section_formats_delta_correctly() {
         use crate::eval::metrics::IterationMetrics;
-        use crate::auto_research::types::MultiEvalResult;
+        use crate::eval::metrics::MultiEvalResult;
         
         let mut exp = make_test_experiment(3);
         exp.metrics_before = Some(IterationMetrics {
@@ -307,6 +307,19 @@ mod tests {
         assert_eq!(entries.len(), 2, "Should parse 2 entries from log content");
         assert!(entries[0].contains("Experiment 1"));
         assert!(entries[1].contains("Experiment 2"));
+    }
+
+    #[test]
+    fn test_import_path_resolves_correctly() {
+        // Verify that MultiEvalResult is accessible from the correct path
+        // This test will fail at compile time if the import path is wrong
+        use crate::eval::metrics::MultiEvalResult;
+        let result = MultiEvalResult {
+            score: 0.5,
+            test_passed: true,
+            coverage: Some(0.5),
+        };
+        assert!(!result.test_passed || result.score >= 0.0);
     }
 
     #[test]
