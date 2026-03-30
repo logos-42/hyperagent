@@ -96,6 +96,41 @@ mod tests {
         // Each Chinese character is typically 1-2 tokens
         assert!(result >= 1);
     }
+
+    #[test]
+    fn test_token_budget_for_content_empty() {
+        // Empty content should return the full budget
+        let budget = AutoResearch::<crate::llm::LLMClientImpl>::token_budget_for_content("", 1000);
+        assert_eq!(budget, 1000);
+    }
+
+    #[test]
+    fn test_token_budget_for_content_partial() {
+        // Content using ~3 tokens should leave ~997 tokens budget
+        let content = "hello world"; // ~2-3 tokens
+        let budget = AutoResearch::<crate::llm::LLMClientImpl>::token_budget_for_content(content, 1000);
+        assert!(budget >= 990);
+        assert!(budget <= 1000);
+    }
+
+    #[test]
+    fn test_token_budget_for_content_exceeded() {
+        // Content exceeding the limit should return 0 (saturating_sub)
+        let content = "a".repeat(5000); // Very long content
+        let budget = AutoResearch::<crate::llm::LLMClientImpl>::token_budget_for_content(&content, 10);
+        assert_eq!(budget, 0);
+    }
+
+    #[test]
+    fn test_token_budget_for_content_exact() {
+        // When content exactly matches budget, budget should be 0
+        // Using a string that estimates to exactly 10 tokens is tricky,
+        // so we just verify the relationship holds
+        let content = "test";
+        let estimated = AutoResearch::<crate::llm::LLMClientImpl>::estimate_token_count(content);
+        let budget = AutoResearch::<crate::llm::LLMClientImpl>::token_budget_for_content(content, estimated);
+        assert_eq!(budget, 0);
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -173,6 +208,14 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         // Using 4 chars per token as our base conversion
         let target_chars = (max_tokens as f64 * 0.9 * 4.0) as usize;
         Self::truncate_output(content, target_chars)
+    }
+
+    /// Calculate the remaining token budget given existing content and a maximum limit.
+    /// Returns the number of tokens available for additional content before truncation is needed.
+    /// Useful for determining how much context (e.g., related files, web search results) can be added.
+    fn token_budget_for_content(content: &str, max_tokens: usize) -> usize {
+        let estimated = Self::estimate_token_count(content);
+        max_tokens.saturating_sub(estimated)
     }
 
     /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文 + 相关文件（Phase 4）
