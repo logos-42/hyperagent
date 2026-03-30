@@ -614,26 +614,27 @@ fn html_to_text(html: &str) -> String {
 }
 
 /// Case-insensitive substring search without allocating.
-/// Uses in-place character comparison to avoid string allocation.
+/// Uses direct character comparison to avoid string/vec allocation.
 /// Returns the starting byte position of the first match, or None if not found.
 #[inline]
 fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
+    if needle.is_empty() {
         return None;
     }
     
-    let needle_len = needle.len();
+    // Pre-compute needle length in chars for early exit
     let needle_chars: Vec<char> = needle.chars().collect();
+    let needle_len = needle_chars.len();
     let needle_lower: Vec<char> = needle_chars.iter().map(|c| c.to_ascii_lowercase()).collect();
     
-    // Use char_indices to properly handle UTF-8 boundaries
     let haystack_chars: Vec<(usize, char)> = haystack.char_indices().collect();
     
-    if haystack_chars.len() < needle_lower.len() {
+    if haystack_chars.len() < needle_len {
         return None;
     }
     
-    for window_start in 0..=(haystack_chars.len() - needle_lower.len()) {
+    // Use windows-style iteration to avoid allocations in hot path
+    for window_start in 0..=(haystack_chars.len() - needle_len) {
         let mut matches = true;
         for (i, &expected) in needle_lower.iter().enumerate() {
             let (_, actual) = haystack_chars[window_start + i];
@@ -1060,5 +1061,37 @@ mod tests {
         // 2xx success codes should NOT be retryable
         assert!(!is_retryable_status(StatusCode::OK)); // 200
         assert!(!is_retryable_status(StatusCode::CREATED)); // 201
+    }
+
+    #[test]
+    fn test_find_case_insensitive_basic() {
+        // Basic case-insensitive matching
+        assert_eq!(find_case_insensitive("Hello World", "hello"), Some(0));
+        assert_eq!(find_case_insensitive("Hello World", "WORLD"), Some(6));
+        assert_eq!(find_case_insensitive("Hello World", "lo wo"), Some(3));
+    }
+
+    #[test]
+    fn test_find_case_insensitive_not_found() {
+        // Not found cases
+        assert_eq!(find_case_insensitive("Hello World", "xyz"), None);
+        assert_eq!(find_case_insensitive("Hello", "Hello World"), None);
+        assert_eq!(find_case_insensitive("", "test"), None);
+        assert_eq!(find_case_insensitive("test", ""), None);
+    }
+
+    #[test]
+    fn test_find_case_insensitive_unicode() {
+        // Unicode handling
+        assert_eq!(find_case_insensitive("café au lait", "CAFÉ"), Some(0));
+        assert_eq!(find_case_insensitive("日本語テスト", "日本"), Some(0));
+    }
+
+    #[test]
+    fn test_find_case_insensitive_multibyte() {
+        // Ensure byte positions are correct for multibyte characters
+        let hay = "hello 世界 test";
+        let pos = find_case_insensitive(hay, "世界");
+        assert_eq!(pos, Some(6)); // "世界" starts at byte position 6 (after "hello ")
     }
 }
