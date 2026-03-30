@@ -176,6 +176,49 @@ pub struct GrepOutput {
     pub truncated: bool,
 }
 
+impl GrepOutput {
+    /// Returns a human-readable one-line summary of the grep results.
+    /// 
+    /// # Example outputs:
+    /// - `"Found 15 matches in 3 files for 'fn main'"`
+    /// - `"Found 5 matches in 1 file for 'TODO' (truncated, showing first 5 of 20)"`
+    /// - `"No matches found for 'nonexistent_pattern' in 10 files"`
+    pub fn summary(&self) -> String {
+        let truncated_note = if self.truncated {
+            format!(" (truncated, showing first {} of {})", self.matches.len(), self.total_matches)
+        } else {
+            String::new()
+        };
+        
+        let files_word = if self.files_searched == 1 { "file" } else { "files" };
+        
+        if self.matches.is_empty() {
+            format!("No matches found for '{}' in {} {}", self.pattern, self.files_searched, files_word)
+        } else {
+            let matches_word = if self.matches.len() == 1 { "match" } else { "matches" };
+            let unique_files: std::collections::HashSet<&str> = self.matches.iter()
+                .map(|m| m.file.as_str())
+                .collect();
+            let files_with_matches = unique_files.len();
+            let files_word2 = if files_with_matches == 1 { "file" } else { "files" };
+            
+            format!("Found {} {} in {} {} for '{}'{}", 
+                self.matches.len(), matches_word, files_with_matches, files_word2, self.pattern, truncated_note)
+        }
+    }
+    
+    /// Returns the unique files that contain matches.
+    /// Useful for quickly identifying which files need attention.
+    pub fn files_with_matches(&self) -> Vec<&str> {
+        let unique_files: std::collections::HashSet<&str> = self.matches.iter()
+            .map(|m| m.file.as_str())
+            .collect();
+        let mut files: Vec<&str> = unique_files.into_iter().collect();
+        files.sort();
+        files
+    }
+}
+
 /// Error type for codebase tools.
 #[derive(Debug, thiserror::Error)]
 pub enum CodebaseToolError {
@@ -2091,5 +2134,197 @@ mod tests {
         assert!(lines[1].starts_with("📁 nested"));   // depth 0, no indent
         assert!(lines[2].starts_with("    📁 inner")); // depth 1, one indent
         assert!(lines[3].starts_with("        📄 deep.txt")); // depth 2, two indents
+    }
+
+    #[test]
+    fn test_grep_output_summary_no_matches() {
+        let output = GrepOutput {
+            pattern: "nonexistent".to_string(),
+            matches: vec![],
+            total_matches: 0,
+            files_searched: 10,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "No matches found for 'nonexistent' in 10 files");
+    }
+
+    #[test]
+    fn test_grep_output_summary_single_match() {
+        let output = GrepOutput {
+            pattern: "fn main".to_string(),
+            matches: vec![
+                GrepMatch {
+                    file: "src/lib.rs".to_string(),
+                    line_number: 1,
+                    line: "fn main() {}".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![(0, 7)],
+                },
+            ],
+            total_matches: 1,
+            files_searched: 5,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "Found 1 match in 1 file for 'fn main'");
+    }
+
+    #[test]
+    fn test_grep_output_summary_multiple_matches() {
+        let output = GrepOutput {
+            pattern: "TODO".to_string(),
+            matches: vec![
+                GrepMatch {
+                    file: "src/a.rs".to_string(),
+                    line_number: 10,
+                    line: "// TODO fix".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![(3, 7)],
+                },
+                GrepMatch {
+                    file: "src/b.rs".to_string(),
+                    line_number: 20,
+                    line: "// TODO refactor".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![(3, 7)],
+                },
+            ],
+            total_matches: 2,
+            files_searched: 3,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "Found 2 matches in 2 files for 'TODO'");
+    }
+
+    #[test]
+    fn test_grep_output_summary_truncated() {
+        let output = GrepOutput {
+            pattern: "fn".to_string(),
+            matches: vec![
+                GrepMatch {
+                    file: "src/a.rs".to_string(),
+                    line_number: 1,
+                    line: "fn one()".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![(0, 2)],
+                },
+                GrepMatch {
+                    file: "src/a.rs".to_string(),
+                    line_number: 5,
+                    line: "fn two()".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![(0, 2)],
+                },
+            ],
+            total_matches: 20,
+            files_searched: 5,
+            truncated: true,
+        };
+        
+        assert_eq!(output.summary(), "Found 2 matches in 1 file for 'fn' (truncated, showing first 2 of 20)");
+    }
+
+    #[test]
+    fn test_grep_output_summary_single_file_searched() {
+        let output = GrepOutput {
+            pattern: "test".to_string(),
+            matches: vec![],
+            total_matches: 0,
+            files_searched: 1,
+            truncated: false,
+        };
+        
+        assert_eq!(output.summary(), "No matches found for 'test' in 1 file");
+    }
+
+    #[test]
+    fn test_grep_output_files_with_matches_empty() {
+        let output = GrepOutput {
+            pattern: "test".to_string(),
+            matches: vec![],
+            total_matches: 0,
+            files_searched: 5,
+            truncated: false,
+        };
+        
+        assert!(output.files_with_matches().is_empty());
+    }
+
+    #[test]
+    fn test_grep_output_files_with_matches_single_file() {
+        let output = GrepOutput {
+            pattern: "fn".to_string(),
+            matches: vec![
+                GrepMatch {
+                    file: "src/lib.rs".to_string(),
+                    line_number: 1,
+                    line: "fn one()".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![],
+                },
+                GrepMatch {
+                    file: "src/lib.rs".to_string(),
+                    line_number: 10,
+                    line: "fn two()".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![],
+                },
+            ],
+            total_matches: 2,
+            files_searched: 3,
+            truncated: false,
+        };
+        
+        let files = output.files_with_matches();
+        assert_eq!(files, vec!["src/lib.rs"]);
+    }
+
+    #[test]
+    fn test_grep_output_files_with_matches_multiple_files() {
+        let output = GrepOutput {
+            pattern: "TODO".to_string(),
+            matches: vec![
+                GrepMatch {
+                    file: "src/c.rs".to_string(),
+                    line_number: 1,
+                    line: "// TODO".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![],
+                },
+                GrepMatch {
+                    file: "src/a.rs".to_string(),
+                    line_number: 5,
+                    line: "// TODO".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![],
+                },
+                GrepMatch {
+                    file: "src/b.rs".to_string(),
+                    line_number: 10,
+                    line: "// TODO".to_string(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    match_ranges: vec![],
+                },
+            ],
+            total_matches: 3,
+            files_searched: 5,
+            truncated: false,
+        };
+        
+        let files = output.files_with_matches();
+        // Should be sorted alphabetically
+        assert_eq!(files, vec!["src/a.rs", "src/b.rs", "src/c.rs"]);
     }
 }
