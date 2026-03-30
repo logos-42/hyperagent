@@ -875,6 +875,60 @@ impl CodebaseContext {
             .collect()
     }
 
+    /// Get all public items across the entire codebase.
+    ///
+    /// Returns a sorted list of all public structs, enums, traits, and functions
+    /// with their file paths, useful for API discovery and LLM context injection.
+    ///
+    /// # Arguments
+    /// * `include_functions` - Whether to include public functions in the result
+    ///
+    /// # Returns
+    /// A vector of tuples containing (file_path, item_type, item_name)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let items = ctx.get_all_public_items(true);
+    /// for (file, kind, name) in items {
+    ///     println!("{} in {} is a {}", name, file, kind);
+    /// }
+    /// ```
+    pub fn get_all_public_items(&self, include_functions: bool) -> Vec<(String, String, String)> {
+        let mut items = Vec::new();
+
+        for (path, summary) in &self.files {
+            // Add structs
+            for name in &summary.structs {
+                items.push((path.clone(), "struct".to_string(), name.clone()));
+            }
+
+            // Add enums
+            for name in &summary.enums {
+                items.push((path.clone(), "enum".to_string(), name.clone()));
+            }
+
+            // Add traits
+            for name in &summary.traits {
+                items.push((path.clone(), "trait".to_string(), name.clone()));
+            }
+
+            // Add functions if requested
+            if include_functions {
+                for name in &summary.functions {
+                    items.push((path.clone(), "fn".to_string(), name.clone()));
+                }
+            }
+        }
+
+        // Sort by file path, then by item type, then by name
+        items.sort_by(|a, b| {
+            (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2))
+        });
+
+        items
+    }
+
     /// Get formatted content summaries of files that depend on a target file.
     /// 
     /// This is useful for understanding the downstream impact of changes to a file.
