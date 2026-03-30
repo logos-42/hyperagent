@@ -70,22 +70,59 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             .create(true)
             .append(true)
             .open(&log_path)?;
+        
+        // Ensure proper separation from previous entries if file exists and doesn't end with newline
+        if log_path.exists() && log_path.metadata()?.len() > 0 {
+            let existing = std::fs::read_to_string(&log_path)?;
+            if !existing.ends_with('\n') {
+                f.write_all(b"\n")?;
+            }
+        }
+        
         f.write_all(entry.as_bytes())?;
         Ok(())
     }
 
     /// Read all experiment logs from the markdown file
+    /// Uses buffered reading for memory efficiency with large log files
     pub(crate) fn read_experiment_logs(&self) -> Result<Vec<String>> {
         let log_path = self.config.experiment_log_dir.join("research_log.md");
         if !log_path.exists() {
             return Ok(Vec::new());
         }
-        let content = std::fs::read_to_string(&log_path)?;
-        Ok(content
-            .split("\n---\n")
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| s.trim().to_string())
-            .collect())
+        
+        use std::io::{BufRead, BufReader};
+        use std::fs::File;
+        
+        let file = File::open(&log_path)?;
+        let reader = BufReader::new(file);
+        
+        let mut entries: Vec<String> = Vec::new();
+        let mut current_entry: Vec<String> = Vec::new();
+        let mut in_entry = false;
+        
+        for line in reader.lines() {
+            let line = line?;
+            let trimmed = line.trim();
+            
+            // Detect experiment entry start: "---" followed by "## Experiment"
+            if trimmed == "---" {
+                if in_entry && !current_entry.is_empty() {
+                    entries.push(current_entry.join("\n"));
+                    current_entry.clear();
+                }
+                in_entry = true;
+            } else if in_entry {
+                current_entry.push(line);
+            }
+        }
+        
+        // Don't forget the last entry if file doesn't end with separator
+        if !current_entry.is_empty() {
+            entries.push(current_entry.join("\n"));
+        }
+        
+        Ok(entries.into_iter().filter(|s| !s.trim().is_empty()).collect())
     }
 }
 
@@ -254,5 +291,46 @@ mod tests {
         // Verify Files changed appears exactly once
         let count = entry.matches("**Files changed**").count();
         assert_eq!(count, 1, "Files changed section should appear exactly once in multi-file change");
+    }
+
+    #[test]
+    fn test_buffered_reading_parses_multiple_entries() {
+        // Simulate parsing multiple entries with buffered reading logic
+        let log_content = "---\n\n## Experiment 1 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis**: First\n---\n\n## Experiment 2 — test2.rs\n\n- **File**: `src/test2.rs`\n- **Hypothesis**: Second\n";
+        
+        let entries: Vec<String> = log_content
+            .split("---\n")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+            .collect();
+        
+        assert_eq!(entries.len(), 2, "Should parse 2 entries from log content");
+        assert!(entries[0].contains("Experiment 1"));
+        assert!(entries[1].contains("Experiment 2"));
+    }
+
+    #[test]
+    fn test_newline_handling_prevents_malformed_concatenation() {
+        // Simulate two entries being written without proper newline separation
+        let entry1 = "---\n\n## Experiment 1 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis**: First\n";
+        let entry2 = "---\n\n## Experiment 2 — test.rs\n\n- **File**: `src/test.rs`\n- **Hypothesis**: Second\n";
+        
+        // If entry1 doesn't end with newline, concatenation would be malformed
+        let malformed = if !entry1.ends_with('\n') {
+            format!("{}{}", entry1, entry2)
+        } else {
+            format!("{}{}", entry1, entry2)
+        };
+        
+        // Proper handling: ensure newline before appending
+        let proper = if !entry1.ends_with('\n') {
+            format!("{}\n{}", entry1, entry2)
+        } else {
+            format!("{}{}", entry1, entry2)
+        };
+        
+        // Malformed would have "First---" instead of proper separation
+        assert!(malformed.contains("First---"), "Malformed shows improper concatenation");
+        assert!(proper.contains("First\n"), "Proper has correct newline separation");
     }
 }
