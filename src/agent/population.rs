@@ -417,6 +417,61 @@ impl MultiAgentSystem {
             messages_by_role,
         }
     }
+
+    /// Calculate how well agents are distributed across roles.
+    /// Returns a score between 0.0 and 1.0, where:
+    /// - 1.0 indicates perfectly even distribution across all roles
+    /// - 0.0 indicates all agents in a single role
+    /// Higher scores indicate better role specialization balance.
+    pub fn role_specialization_score(&self) -> f64 {
+        if self.population.is_empty() {
+            return 0.0;
+        }
+
+        let dist = self.role_distribution();
+        let role_counts = [
+            dist.planners,
+            dist.executors,
+            dist.evaluators,
+            dist.reflectors,
+            dist.synthesizers,
+        ];
+
+        // Count how many roles have at least one agent
+        let active_roles = role_counts.iter().filter(|&&c| c > 0).count();
+        
+        if active_roles == 0 {
+            return 0.0;
+        }
+
+        // Ideal count per role for even distribution
+        let ideal_count = self.population.len() as f64 / AgentRole::all().len() as f64;
+
+        // Calculate variance from ideal distribution
+        let variance: f64 = role_counts
+            .iter()
+            .map(|&c| {
+                let diff = c as f64 - ideal_count;
+                diff * diff
+            })
+            .sum::<f64>()
+            / AgentRole::all().len() as f64;
+
+        // Normalize: perfect balance has variance 0, worst case has max variance
+        // Max variance occurs when all agents are in one role
+        let max_variance = (self.population.len() as f64 - ideal_count).powi(2);
+        
+        if max_variance == 0.0 {
+            return 1.0; // Single agent case
+        }
+
+        // Score is 1 - normalized variance, but also factor in role coverage
+        let balance_score = 1.0 - (variance / max_variance).min(1.0);
+        let coverage_score = active_roles as f64 / AgentRole::all().len() as f64;
+
+        // Weighted combination: 60% balance, 40% coverage
+        0.6 * balance_score + 0.4 * coverage_score
+    }
 }
 
 fn rand_simple(max: f64) -> f64 {
@@ -518,5 +573,71 @@ mod tests {
             let count = dist.count_for_role(role);
             assert!(count <= dist.total);
         }
+    }
+
+    #[test]
+    fn test_role_specialization_score_empty() {
+        let config = PopulationConfig {
+            population_size: 0,
+            ..Default::default()
+        };
+        let system = MultiAgentSystem::new(config);
+        assert_eq!(system.role_specialization_score(), 0.0);
+    }
+
+    #[test]
+    fn test_role_specialization_score_single_agent() {
+        let config = PopulationConfig {
+            population_size: 1,
+            ..Default::default()
+        };
+        let system = MultiAgentSystem::new(config);
+        // Single agent should score high since variance is 0
+        let score = system.role_specialization_score();
+        assert!(score > 0.0 && score <= 1.0);
+    }
+
+    #[test]
+    fn test_role_specialization_score_balanced() {
+        // Create a perfectly balanced population: 5 agents, 5 roles
+        let config = PopulationConfig {
+            population_size: 5,
+            roles: AgentRole::all(),
+            ..Default::default()
+        };
+        let system = MultiAgentSystem::new(config);
+        let score = system.role_specialization_score();
+        // Should be high for balanced distribution (1 agent per role)
+        assert!(score > 0.9, "Expected high score for balanced distribution, got {}", score);
+    }
+
+    #[test]
+    fn test_role_specialization_score_imbalanced() {
+        // Create an imbalanced population: 10 agents with default roles
+        // This will have some roles with more agents than others
+        let config = PopulationConfig {
+            population_size: 10,
+            roles: vec![AgentRole::Planner, AgentRole::Executor], // Only 2 roles
+            ..Default::default()
+        };
+        let system = MultiAgentSystem::new(config);
+        let score = system.role_specialization_score();
+        // Should be lower because only 2 roles are covered out of 5
+        assert!(score < 0.9, "Expected lower score for imbalanced distribution, got {}", score);
+        assert!(score > 0.0, "Score should still be positive");
+    }
+
+    #[test]
+    fn test_role_specialization_score_all_same_role() {
+        // All agents have the same role (extreme imbalance)
+        let config = PopulationConfig {
+            population_size: 5,
+            roles: vec![AgentRole::Planner], // All planners
+            ..Default::default()
+        };
+        let system = MultiAgentSystem::new(config);
+        let score = system.role_specialization_score();
+        // Coverage is low (only 1/5 roles used)
+        assert!(score < 0.5, "Expected low score for single-role population, got {}", score);
     }
 }

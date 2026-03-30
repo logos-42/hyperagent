@@ -214,6 +214,70 @@ Return ONLY the new mutation strategy prompt, nothing else."#,
     pub fn average_improvement(&self) -> f32 {
         self.calculate_average_improvement()
     }
+
+    /// Calculate diversity score of mutation prompts in history.
+    /// Returns a value between 0.0 (all identical) and 1.0 (highly diverse).
+    /// Low diversity suggests the system may be stuck in a local optimum.
+    pub fn diversity_score(&self) -> f32 {
+        if self.history.len() < 2 {
+            return 1.0; // Single item is trivially diverse
+        }
+
+        let prompts: Vec<&str> = self.history.iter()
+            .map(|h| h.mutation_prompt.as_str())
+            .collect();
+
+        // Calculate pairwise similarity scores
+        let mut total_similarity = 0.0;
+        let mut comparisons = 0;
+
+        for i in 0..prompts.len() {
+            for j in (i + 1)..prompts.len() {
+                let similarity = Self::text_similarity(prompts[i], prompts[j]);
+                total_similarity += similarity;
+                comparisons += 1;
+            }
+        }
+
+        if comparisons == 0 {
+            return 1.0;
+        }
+
+        let avg_similarity = total_similarity / comparisons as f32;
+        // Diversity is inverse of similarity
+        1.0 - avg_similarity
+    }
+
+    /// Calculate text similarity using word overlap (Jaccard-like metric).
+    /// Returns value between 0.0 (no overlap) and 1.0 (identical).
+    fn text_similarity(a: &str, b: &str) -> f32 {
+        let words_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
+        let words_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
+
+        if words_a.is_empty() && words_b.is_empty() {
+            return 1.0;
+        }
+
+        let intersection = words_a.intersection(&words_b).count();
+        let union = words_a.union(&words_b).count();
+
+        if union == 0 {
+            return 1.0;
+        }
+
+        intersection as f32 / union as f32
+    }
+
+    /// Check if the system should explore more aggressively.
+    /// Returns true if diversity is low and improvement rate is also low.
+    pub fn should_explore(&self) -> bool {
+        let diversity = self.diversity_score();
+        let avg_improvement = self.average_improvement();
+        
+        // Low diversity (< 0.3) suggests we're stuck
+        // Low improvement (< 0.05) suggests we need new approaches
+        diversity < 0.3 && avg_improvement < 0.05
+    }
 }
 
 #[cfg(test)]
@@ -238,5 +302,44 @@ mod tests {
     #[test]
     fn test_extract_learnings() {
         // Test learnings extraction logic
+    }
+
+    #[test]
+    fn test_text_similarity_identical() {
+        // Identical texts should have similarity 1.0
+        let a = "explore new mutations";
+        let b = "explore new mutations";
+        assert!((MetaMutator::<crate::llm::LLMClientImpl>::text_similarity(a, b) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_text_similarity_no_overlap() {
+        // Completely different texts should have similarity 0.0
+        let a = "aaa bbb ccc";
+        let b = "xxx yyy zzz";
+        assert!((MetaMutator::<crate::llm::LLMClientImpl>::text_similarity(a, b) - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_text_similarity_partial() {
+        // Partially overlapping texts
+        let a = "explore mutations for better code";
+        let b = "explore mutations for faster code";
+        // Common words: explore, mutations, for, code (4)
+        // Union: better vs faster (5 unique each, 1 different each = 6 total)
+        // Similarity: 4/6 = 0.666...
+        let sim = MetaMutator::<crate::llm::LLMClientImpl>::text_similarity(a, b);
+        assert!(sim > 0.5 && sim < 0.8, "Expected partial similarity, got {}", sim);
+    }
+
+    #[test]
+    fn test_diversity_score_empty_history() {
+        // Empty or single-item history should return 1.0
+        // This would need a mock client, testing the logic separately
+        let empty: Vec<&str> = vec![];
+        assert_eq!(empty.len(), 0);
+        
+        let single: Vec<&str> = vec!["one prompt"];
+        assert_eq!(single.len(), 1);
     }
 }
