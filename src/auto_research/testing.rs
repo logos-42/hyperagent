@@ -236,15 +236,54 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
     /// Parse clippy output to count the number of warnings.
     /// Clippy warnings typically appear as "warning: <message>" lines.
+    /// Does NOT count compilation errors (error[E...]) - those should be
+    /// tracked separately as they indicate broken code, not quality issues.
     fn parse_clippy_warnings(output: &str) -> u32 {
         output
             .lines()
             .filter(|line| {
-                line.trim().starts_with("warning:") ||
-                line.contains("error[E") ||
-                (line.contains("warning[") && line.contains("]:"))
+                let trimmed = line.trim();
+                trimmed.starts_with("warning:") ||
+                (trimmed.contains("warning[") && trimmed.contains("]:"))
             })
             .count() as u32
+    }
+
+    /// Count compilation errors from cargo/clippy output.
+    /// These appear as "error[E...]:" lines indicating actual code problems
+    /// that prevent compilation, distinct from lint warnings.
+    fn count_compilation_errors(output: &str) -> u32 {
+        output
+            .lines()
+            .filter(|line| line.contains("error[E") && line.contains("]:"))
+            .count() as u32
+    }
+
+    /// Run tests and capture both test results and compilation status.
+    /// Returns (passed, total, has_compilation_error, combined_output).
+    /// This is more efficient than running compile_check separately.
+    pub(crate) async fn run_tests_with_compile_check(&self) -> Result<(u32, u32, bool, String)> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            tokio::process::Command::new("cargo")
+                .arg("test")
+                .arg("--manifest-path")
+                .arg(self.config.project_root.join("Cargo.toml"))
+                .output(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Test timeout: {}", e))??;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let (passed, total) = Self::parse_test_result(&combined);
+        let has_errors = Self::count_compilation_errors(&combined) > 0;
+
+        Ok((passed, total, has_errors, combined))
     }
 }
 
@@ -388,8 +427,27 @@ mod tests {
 
     #[test]
     fn test_parse_clippy_warnings_with_error_codes() {
+        // Compilation errors should NOT be counted as clippy warnings
         let output = "error[E0277]: the trait bound is not satisfied\nwarning[clippy::unwrap_used]: called unwrap on an Option";
-        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 2);
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_clippy_warnings(output), 1);
+    }
+
+    #[test]
+    fn test_count_compilation_errors_basic() {
+        let output = "error[E0277]: the trait bound is not satisfied\nwarning[clippy::unwrap_used]: called unwrap on an Option";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_compilation_errors(output), 1);
+    }
+
+    #[test]
+    fn test_count_compilation_errors_multiple() {
+        let output = "error[E0277]: trait bound\nerror[E0382]: borrow moved\nwarning: unused variable";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_compilation_errors(output), 2);
+    }
+
+    #[test]
+    fn test_count_compilation_errors_none() {
+        let output = "warning: unused variable\nwarning[clippy::let_unit_value]: unit value";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_compilation_errors(output), 0);
     }
 
     #[test]
