@@ -66,8 +66,13 @@ impl HttpClient {
     ///
     /// Uses "full jitter" strategy: random delay between 0 and the exponential backoff.
     /// This prevents thundering herd problems when multiple clients retry simultaneously.
+    ///
+    /// Retries on:
+    /// - Network errors (timeout, connection refused)
+    /// - HTTP 5xx server errors (500, 502, 503, 504, etc.)
     async fn execute_with_retry(&self, request: reqwest::Request) -> Result<reqwest::Response, WebToolError> {
         let mut last_error = None;
+        let mut last_status = None;
         let mut delay = self.config.retry_base_delay_ms;
         
         for attempt in 0..=self.config.max_retries {
@@ -83,7 +88,18 @@ impl HttpClient {
             };
             
             match req.await {
-                Ok(resp) => return Ok(resp),
+                Ok(resp) => {
+                    let status = resp.status();
+                    if is_retryable_status(status) && attempt < self.config.max_retries {
+                        // Server error - retry with backoff
+                        last_status = Some(status);
+                        let jitter = (delay as f64 * rand_jitter()).floor() as u64;
+                        tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
+                        delay *= 2;
+                        continue;
+                    }
+                    return Ok(resp);
+                }
                 Err(e) if is_retryable(&e, self.config.retry_on_timeout) => {
                     last_error = Some(e);
                     if attempt < self.config.max_retries {
@@ -97,9 +113,16 @@ impl HttpClient {
             }
         }
         
-        Err(WebToolError::Http(
-            last_error.map(|e| e.to_string()).unwrap_or_else(|| "Max retries exceeded".to_string())
-        ))
+        // Construct error message from either status code or network error
+        let error_msg = if let Some(status) = last_status {
+            format!("HTTP {} (max retries exceeded)", status)
+        } else if let Some(ref e) = last_error {
+            e.to_string()
+        } else {
+            "Max retries exceeded".to_string()
+        };
+        
+        Err(WebToolError::Http(error_msg))
     }
 }
 
@@ -108,8 +131,26 @@ fn is_retryable(error: &reqwest::Error, retry_on_timeout: bool) -> bool {
     if error.is_timeout() && !retry_on_timeout {
         return false;
     }
-    // Retry on: timeout, connect errors, and 5xx server errors
+    // Retry on: timeout, connect errors, and request errors
     error.is_timeout() || error.is_connect() || error.is_request()
+}
+
+/// Check if an HTTP status code indicates a retryable server error.
+/// Returns true for 5xx server errors that are typically transient.
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    use reqwest::StatusCode;
+    matches!(
+        status,
+        StatusCode::INTERNAL_SERVER_ERROR |        // 500
+        StatusCode::BAD_GATEWAY |                   // 502
+        StatusCode::SERVICE_UNAVAILABLE |           // 503
+        StatusCode::GATEWAY_TIMEOUT |               // 504
+        StatusCode::VARIANT_ALSO_NEGOTIATES |       // 506
+        StatusCode::INSUFFICIENT_STORAGE |          // 507
+        StatusCode::LOOP_DETECTED |                 // 508
+        StatusCode::NOT_EXTENDED |                  // 510
+        StatusCode::NETWORK_AUTHENTICATION_REQUIRED // 511
+    )
 }
 
 /// Generate a random jitter factor between 0.0 and 1.0 for retry delays.
@@ -999,5 +1040,25 @@ mod tests {
         let prompt = build_web_context_prompt(&[], &pages);
         assert!(prompt.contains("FETCHED WEB PAGES"));
         assert!(prompt.contains("Test Page"));
+    }
+
+    #[test]
+    fn test_is_retryable_status() {
+        use reqwest::StatusCode;
+        
+        // 5xx errors should be retryable
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR)); // 500
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY)); // 502
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE)); // 503
+        assert!(is_retryable_status(StatusCode::GATEWAY_TIMEOUT)); // 504
+        
+        // 4xx errors should NOT be retryable (client errors)
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST)); // 400
+        assert!(!is_retryable_status(StatusCode::NOT_FOUND)); // 404
+        assert!(!is_retryable_status(StatusCode::FORBIDDEN)); // 403
+        
+        // 2xx success codes should NOT be retryable
+        assert!(!is_retryable_status(StatusCode::OK)); // 200
+        assert!(!is_retryable_status(StatusCode::CREATED)); // 201
     }
 }
