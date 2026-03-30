@@ -36,6 +36,15 @@ pub struct GitLog {
     pub entries: Vec<GitLogEntry>,
 }
 
+/// Git conflict detection result
+#[derive(Debug, Clone)]
+pub struct GitConflicts {
+    /// Files containing conflict markers
+    pub files: Vec<String>,
+    /// Whether any conflicts exist
+    pub has_conflicts: bool,
+}
+
 impl GitLog {
     /// Returns an iterator over commit messages in this log.
     ///
@@ -348,6 +357,47 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
 
         Ok(GitLog { entries })
+    }
+
+    /// Detect merge conflict markers in tracked files
+    ///
+    /// Returns a list of files containing conflict markers (<<<<<<<, =======, >>>>>>>).
+    /// Useful for checking repository state before attempting automated operations.
+    pub(crate) fn git_has_conflicts(&self) -> Result<GitConflicts> {
+        // Get list of files that might have conflicts (staged, modified, or unmerged)
+        let status = self.git_status()?;
+        let mut files_to_check = Vec::new();
+        files_to_check.extend(status.staged.iter().cloned());
+        files_to_check.extend(status.unstaged.iter().cloned());
+        // Also check untracked files as they might be result of a failed merge
+        files_to_check.extend(status.untracked.iter().cloned());
+
+        let mut conflicting_files = Vec::new();
+
+        for file_path in &files_to_check {
+            // Build full path
+            let full_path = self.config.project_root.join(file_path);
+
+            // Skip if file doesn't exist (might be deleted)
+            if !full_path.exists() {
+                continue;
+            }
+
+            // Read file content and check for conflict markers
+            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                if content.contains("<<<<<<<") 
+                    && content.contains("=======") 
+                    && content.contains(">>>>>>>") {
+                    conflicting_files.push(file_path.clone());
+                }
+            }
+        }
+
+        let has_conflicts = !conflicting_files.is_empty();
+        Ok(GitConflicts {
+            files: conflicting_files,
+            has_conflicts,
+        })
     }
 }
 
@@ -734,5 +784,36 @@ mod tests {
             is_clean: false,
         };
         assert!(!status.is_clean);
+    }
+
+    #[test]
+    fn test_git_conflicts_construction() {
+        let conflicts = GitConflicts {
+            files: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+            has_conflicts: true,
+        };
+        assert!(conflicts.has_conflicts);
+        assert_eq!(conflicts.files.len(), 2);
+        assert!(conflicts.files.contains(&"src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_git_conflicts_empty() {
+        let conflicts = GitConflicts {
+            files: vec![],
+            has_conflicts: false,
+        };
+        assert!(!conflicts.has_conflicts);
+        assert!(conflicts.files.is_empty());
+    }
+
+    #[test]
+    fn test_git_conflicts_single_file() {
+        let conflicts = GitConflicts {
+            files: vec!["src/conflicted.rs".to_string()],
+            has_conflicts: true,
+        };
+        assert!(conflicts.has_conflicts);
+        assert_eq!(conflicts.files.len(), 1);
     }
 }
