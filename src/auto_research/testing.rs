@@ -173,6 +173,57 @@ impl QualityDelta {
             parts.join(", ")
         }
     }
+
+    /// Merge multiple deltas into a single aggregate delta.
+    /// This is useful for tracking cumulative quality changes across multiple experiments.
+    /// Compilation status is tracked as: fixed if any delta fixed it, broken only if all broke it.
+    /// 
+    /// # Example
+    /// ```
+    /// let delta1 = QualityDelta { tests_passed_delta: 2, ... };
+    /// let delta2 = QualityDelta { tests_passed_delta: 1, ... };
+    /// let merged = QualityDelta::merge(&[delta1, delta2]);
+    /// assert_eq!(merged.tests_passed_delta, 3);
+    /// ```
+    pub fn merge(deltas: &[QualityDelta]) -> QualityDelta {
+        if deltas.is_empty() {
+            return QualityDelta {
+                tests_passed_delta: 0,
+                tests_total_delta: 0,
+                test_pass_rate_delta: 0.0,
+                compilation_fixed: false,
+                compilation_broken: false,
+                compilation_errors_delta: 0,
+                clippy_warnings_delta: 0,
+                health_score_delta: 0.0,
+            };
+        }
+
+        let tests_passed_delta: i64 = deltas.iter().map(|d| d.tests_passed_delta).sum();
+        let tests_total_delta: i64 = deltas.iter().map(|d| d.tests_total_delta).sum();
+        let test_pass_rate_delta: f64 = deltas.iter().map(|d| d.test_pass_rate_delta).sum();
+        let compilation_errors_delta: i64 = deltas.iter().map(|d| d.compilation_errors_delta).sum();
+        let clippy_warnings_delta: i64 = deltas.iter().map(|d| d.clippy_warnings_delta).sum();
+        let health_score_delta: f64 = deltas.iter().map(|d| d.health_score_delta).sum();
+
+        // Compilation is fixed if any delta fixed it
+        let compilation_fixed = deltas.iter().any(|d| d.compilation_fixed);
+        
+        // Compilation is broken only if the final state is broken
+        // (i.e., not fixed and the last delta shows broken)
+        let compilation_broken = !compilation_fixed && deltas.iter().last().map(|d| d.compilation_broken).unwrap_or(false);
+
+        QualityDelta {
+            tests_passed_delta,
+            tests_total_delta,
+            test_pass_rate_delta,
+            compilation_fixed,
+            compilation_broken,
+            compilation_errors_delta,
+            clippy_warnings_delta,
+            health_score_delta,
+        }
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -1076,5 +1127,156 @@ warning: another issue
             health_score_delta: -0.01,
         };
         assert_eq!(warnings_only.summary(), "2 more warnings");
+    }
+
+    #[test]
+    fn test_quality_delta_merge_empty() {
+        let merged = QualityDelta::merge(&[]);
+        assert_eq!(merged.tests_passed_delta, 0);
+        assert_eq!(merged.tests_total_delta, 0);
+        assert_eq!(merged.test_pass_rate_delta, 0.0);
+        assert!(!merged.compilation_fixed);
+        assert!(!merged.compilation_broken);
+        assert_eq!(merged.compilation_errors_delta, 0);
+        assert_eq!(merged.clippy_warnings_delta, 0);
+        assert_eq!(merged.health_score_delta, 0.0);
+    }
+
+    #[test]
+    fn test_quality_delta_merge_single() {
+        let delta = QualityDelta {
+            tests_passed_delta: 5,
+            tests_total_delta: 5,
+            test_pass_rate_delta: 0.1,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -2,
+            clippy_warnings_delta: -3,
+            health_score_delta: 0.15,
+        };
+        let merged = QualityDelta::merge(&[delta]);
+        assert_eq!(merged.tests_passed_delta, 5);
+        assert!(merged.compilation_fixed);
+    }
+
+    #[test]
+    fn test_quality_delta_merge_multiple_improvements() {
+        let delta1 = QualityDelta {
+            tests_passed_delta: 2,
+            tests_total_delta: 2,
+            test_pass_rate_delta: 0.1,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: -1,
+            clippy_warnings_delta: -2,
+            health_score_delta: 0.1,
+        };
+        let delta2 = QualityDelta {
+            tests_passed_delta: 3,
+            tests_total_delta: 3,
+            test_pass_rate_delta: 0.05,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: -1,
+            health_score_delta: 0.05,
+        };
+        let merged = QualityDelta::merge(&[delta1, delta2]);
+        assert_eq!(merged.tests_passed_delta, 5);
+        assert_eq!(merged.tests_total_delta, 5);
+        assert!((merged.test_pass_rate_delta - 0.15).abs() < 0.001);
+        assert!(merged.compilation_fixed); // At least one fixed
+        assert!(!merged.compilation_broken);
+        assert_eq!(merged.compilation_errors_delta, -1);
+        assert_eq!(merged.clippy_warnings_delta, -3);
+        assert!((merged.health_score_delta - 0.15).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_quality_delta_merge_mixed_results() {
+        let improvement = QualityDelta {
+            tests_passed_delta: 5,
+            tests_total_delta: 5,
+            test_pass_rate_delta: 0.2,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -2,
+            clippy_warnings_delta: -5,
+            health_score_delta: 0.3,
+        };
+        let regression = QualityDelta {
+            tests_passed_delta: -2,
+            tests_total_delta: 0,
+            test_pass_rate_delta: -0.1,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 1,
+            clippy_warnings_delta: 3,
+            health_score_delta: -0.15,
+        };
+        let merged = QualityDelta::merge(&[improvement, regression]);
+        assert_eq!(merged.tests_passed_delta, 3); // 5 - 2
+        assert_eq!(merged.tests_total_delta, 5);
+        assert!((merged.test_pass_rate_delta - 0.1).abs() < 0.001); // 0.2 - 0.1
+        assert!(merged.compilation_fixed); // At least one fixed
+        assert!(!merged.compilation_broken); // Last was broken but fixed earlier
+        assert_eq!(merged.compilation_errors_delta, -1); // -2 + 1
+        assert_eq!(merged.clippy_warnings_delta, -2); // -5 + 3
+        assert!((merged.health_score_delta - 0.15).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_quality_delta_merge_compilation_status() {
+        // If compilation was fixed in any delta, it's considered fixed
+        let fixed_once = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -1,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.1,
+        };
+        let no_fix = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        let merged = QualityDelta::merge(&[no_fix, fixed_once, no_fix]);
+        assert!(merged.compilation_fixed);
+        assert!(!merged.compilation_broken);
+    }
+
+    #[test]
+    fn test_quality_delta_merge_all_broken() {
+        let broken1 = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 1,
+            clippy_warnings_delta: 0,
+            health_score_delta: -0.1,
+        };
+        let broken2 = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 2,
+            clippy_warnings_delta: 0,
+            health_score_delta: -0.1,
+        };
+        let merged = QualityDelta::merge(&[broken1, broken2]);
+        assert!(!merged.compilation_fixed);
+        assert!(merged.compilation_broken); // Last delta is broken, none fixed
     }
 }
