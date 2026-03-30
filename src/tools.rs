@@ -105,6 +105,67 @@ pub struct GrepMatch {
     pub match_ranges: Vec<(usize, usize)>,
 }
 
+impl GrepMatch {
+    /// Extract the matched text from the line using match_ranges.
+    /// Returns all matched substrings concatenated together.
+    /// 
+    /// # Example
+    /// ```
+    /// let m = GrepMatch { line: "fn hello() {}".to_string(), match_ranges: vec![(3, 8)], ... };
+    /// assert_eq!(m.matched_text(), vec!["hello"]);
+    /// ```
+    pub fn matched_text(&self) -> Vec<&str> {
+        self.match_ranges
+            .iter()
+            .map(|(start, end)| {
+                self.line.get(*start..*end).unwrap_or("")
+            })
+            .collect()
+    }
+    
+    /// Format the match with full context as a single string.
+    /// Includes context lines before and after with proper indentation.
+    /// 
+    /// # Example output:
+    /// ```text
+    /// src/lib.rs:42:     fn example() {
+    /// src/lib.rs:43: >>> fn target_function() {  <<< MATCH
+    /// src/lib.rs:44:         println!("hello");
+    /// ```
+    pub fn format_context(&self) -> String {
+        let mut result = String::new();
+        
+        // Add context before with file reference
+        for ctx_line in &self.context_before {
+            result.push_str(&format!("{}:{}:   {}\n", self.file, self.line_number.saturating_sub(self.context_before.len()), ctx_line));
+        }
+        
+        // Add the matched line with marker
+        result.push_str(&format!("{}:{}: >>> {} <<< MATCH\n", 
+            self.file, self.line_number, self.line));
+        
+        // Add context after
+        for (i, ctx_line) in self.context_after.iter().enumerate() {
+            result.push_str(&format!("{}:{}:   {}\n", 
+                self.file, 
+                self.line_number + i + 1, 
+                ctx_line));
+        }
+        
+        result
+    }
+    
+    /// Check if this match has any match ranges.
+    pub fn has_matches(&self) -> bool {
+        !self.match_ranges.is_empty()
+    }
+    
+    /// Get the total length of all matched text.
+    pub fn matched_length(&self) -> usize {
+        self.match_ranges.iter().map(|(start, end)| end - start).sum()
+    }
+}
+
 /// Output of the codebase_grep tool.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GrepOutput {
@@ -1843,6 +1904,118 @@ mod tests {
         // All 3 files should be counted as searched
         assert_eq!(result.files_searched, 3);
         assert_eq!(result.matches.len(), 1);
+    }
+
+    #[test]
+    fn test_grep_match_matched_text() {
+        let temp = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 10,
+            line: "fn hello_world() {".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![(3, 8), (9, 14)],
+        };
+        
+        let matched = temp.matched_text();
+        assert_eq!(matched, vec!["hello", "_world"]);
+    }
+
+    #[test]
+    fn test_grep_match_matched_text_empty_ranges() {
+        let temp = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 10,
+            line: "fn hello() {".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![],
+        };
+        
+        let matched = temp.matched_text();
+        assert!(matched.is_empty());
+    }
+
+    #[test]
+    fn test_grep_match_has_matches() {
+        let with_matches = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 1,
+            line: "fn test()".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![(0, 2)],
+        };
+        assert!(with_matches.has_matches());
+        
+        let without_matches = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 1,
+            line: "fn test()".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![],
+        };
+        assert!(!without_matches.has_matches());
+    }
+
+    #[test]
+    fn test_grep_match_matched_length() {
+        let temp = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 1,
+            line: "fn hello_world() {}".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![(3, 8), (9, 14)],
+        };
+        
+        // "hello" is 5 chars, "_world" is 6 chars, total = 11
+        assert_eq!(temp.matched_length(), 11);
+    }
+
+    #[test]
+    fn test_grep_match_format_context() {
+        let temp = GrepMatch {
+            file: "src/lib.rs".to_string(),
+            line_number: 43,
+            line: "fn target_function() {".to_string(),
+            context_before: vec!["41:     fn example() {".to_string(), "42: }".to_string()],
+            context_after: vec!["44:     println!(\"hello\");".to_string()],
+            match_ranges: vec![(3, 19)],
+        };
+        
+        let formatted = temp.format_context();
+        
+        // Should contain file reference
+        assert!(formatted.contains("src/lib.rs"));
+        // Should contain the match marker
+        assert!(formatted.contains(">>>"));
+        assert!(formatted.contains("MATCH"));
+        // Should contain context before
+        assert!(formatted.contains("41:"));
+        assert!(formatted.contains("example"));
+        // Should contain context after
+        assert!(formatted.contains("44:"));
+        assert!(formatted.contains("println"));
+    }
+
+    #[test]
+    fn test_grep_match_format_context_no_context() {
+        let temp = GrepMatch {
+            file: "test.rs".to_string(),
+            line_number: 1,
+            line: "fn main() {}".to_string(),
+            context_before: vec![],
+            context_after: vec![],
+            match_ranges: vec![(3, 7)],
+        };
+        
+        let formatted = temp.format_context();
+        
+        // Should still show the match line
+        assert!(formatted.contains("test.rs:1"));
+        assert!(formatted.contains(">>> fn main() {} <<< MATCH"));
     }
 
     #[test]
