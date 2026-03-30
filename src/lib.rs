@@ -282,6 +282,27 @@ impl Error {
             Error::Io(_) => None,
         }
     }
+
+    /// Consumes the error and returns the message string.
+    ///
+    /// This is useful for error transformation patterns where you want to
+    /// extract the message without cloning.
+    ///
+    /// Returns `None` for `Io` errors which cannot be meaningfully converted
+    /// to a string without losing the error kind information.
+    pub fn into_message(self) -> Option<String> {
+        match self {
+            Error::LLM(msg) => Some(msg),
+            Error::Evaluation(msg) => Some(msg),
+            Error::Evolution(msg) => Some(msg),
+            Error::Memory(msg) => Some(msg),
+            Error::Codebase(msg) => Some(msg),
+            Error::Web(msg) => Some(msg),
+            Error::Config(msg) => Some(msg),
+            Error::Other(msg) => Some(msg),
+            Error::Io(_) => None,
+        }
+    }
 }
 
 /// A specialized Result type for Hyperagent operations.
@@ -748,5 +769,82 @@ mod tests {
         
         let config_err = Error::Config("invalid".into());
         assert!(!should_retry(&config_err));
+    }
+
+    #[test]
+    fn test_into_message_consumes_error() {
+        // String-based variants return Some(message) and consume the error
+        let err = Error::LLM("rate limited".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("rate limited".to_string()));
+        
+        let err = Error::Evaluation("test failed".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("test failed".to_string()));
+        
+        let err = Error::Evolution("population collapse".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("population collapse".to_string()));
+        
+        let err = Error::Memory("archive corrupted".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("archive corrupted".to_string()));
+        
+        let err = Error::Codebase("scan failed".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("scan failed".to_string()));
+        
+        let err = Error::Web("timeout".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("timeout".to_string()));
+        
+        let err = Error::Config("invalid settings".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("invalid settings".to_string()));
+        
+        let err = Error::Other("unknown error".into());
+        let msg = err.into_message();
+        assert_eq!(msg, Some("unknown error".to_string()));
+        
+        // Io variant returns None
+        let err = Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "io err"));
+        let msg = err.into_message();
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_into_message_vs_as_message() {
+        // as_message() borrows, into_message() consumes
+        
+        // as_message returns &str, error is still usable
+        let err = Error::LLM("test message".into());
+        let borrowed = err.as_message();
+        assert_eq!(borrowed, Some("test message"));
+        // err is still valid here
+        
+        // into_message returns String, error is consumed
+        let err = Error::LLM("test message".into());
+        let owned = err.into_message();
+        assert_eq!(owned, Some("test message".to_string()));
+        // err is moved and no longer usable
+    }
+
+    #[test]
+    fn test_into_message_for_error_transformation() {
+        // Practical use case: transforming errors while preserving messages
+        fn transform_to_generic(err: Error) -> Error {
+            match err.into_message() {
+                Some(msg) => Error::Other(format!("transformed: {}", msg)),
+                None => Error::Other("original was I/O error".into()),
+            }
+        }
+        
+        let original = Error::Evaluation("assertion failed".into());
+        let transformed = transform_to_generic(original);
+        assert!(matches!(transformed, Error::Other(m) if m.contains("assertion failed")));
+        
+        let io_err = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file"));
+        let transformed = transform_to_generic(io_err);
+        assert!(matches!(transformed, Error::Other(m) if m.contains("original was I/O")));
     }
 }
