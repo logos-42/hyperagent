@@ -64,6 +64,41 @@ mod tests {
         assert!(complexity >= 1.0); // At least one function
         assert!(nesting >= 1); // At least one level
     }
+
+    #[test]
+    fn test_compilation_error_summary_includes_context() {
+        // Verify that compilation error filtering includes helpful lines
+        let compile_output = r#"error[E0433]: failed to resolve: use of undeclared type `MetaMutator`
+  --> src/auto_research/mod.rs:42:20
+   |
+42 |     let _: crate::MetaMutator<_>;
+   |                    ^^^^^^^^^^^ use of undeclared type `MetaMutator`
+   |
+   = help: perhaps you meant to use one of the following crates:
+           agent_meta_mutator, meta_mutator
+note: the following crates are present but not imported
+note: `agent::meta_mutator::MetaMutator`"#;
+        
+        let filtered: Vec<&str> = compile_output
+            .lines()
+            .filter(|l| {
+                l.contains("error") ||
+                l.starts_with("  --> ") ||
+                l.starts_with("help:") ||
+                l.starts_with("note:")
+            })
+            .take(15)
+            .collect();
+        
+        // Should include error line
+        assert!(filtered.iter().any(|l| l.contains("error[E0433]")));
+        // Should include file location
+        assert!(filtered.iter().any(|l| l.starts_with("  --> ")));
+        // Should include help suggestions
+        assert!(filtered.iter().any(|l| l.starts_with("help:")));
+        // Should include notes
+        assert!(filtered.iter().any(|l| l.starts_with("note:")));
+    }
 }
 
 /// Karpathy 风格的自动研究引擎（含全局代码理解 + Web 搜索）
@@ -320,14 +355,20 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         // 6. 编译检查
         let (compile_ok, compile_output) = self.compile_check().await?;
         if !compile_ok {
-            // 摘要编译错误（最多 5 行）
+            // 摘要编译错误，包含文件路径、错误信息和帮助提示
             let error_summary: String = compile_output
                 .lines()
-                .filter(|l| l.contains("error") || l.starts_with("  --> "))
-                .take(10)
+                .filter(|l| {
+                    l.contains("error") ||
+                    l.starts_with("  --> ") ||
+                    l.starts_with("help:") ||
+                    l.starts_with("note:")
+                })
+                .take(15)
                 .collect::<Vec<_>>()
                 .join("\n");
             tracing::warn!("  Compilation failed, reverting all changed files");
+            tracing::warn!("  Files modified: {:?}", resolved_changes.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>());
             if !error_summary.is_empty() {
                 tracing::warn!("  Errors:\n{}", error_summary);
             }
