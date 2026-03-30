@@ -31,6 +31,11 @@ impl BenchmarkTask {
         self.category = category.to_string();
         self
     }
+
+    /// Returns the expected evaluation criteria for this task
+    pub fn criteria(&self) -> &[String] {
+        &self.expected_criteria
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +144,12 @@ impl Benchmark {
 
     pub fn tasks(&self) -> &[BenchmarkTask] {
         &self.tasks
+    }
+
+    /// Add a single task using the builder pattern
+    pub fn with_task(mut self, task: BenchmarkTask) -> Self {
+        self.tasks.push(task);
+        self
     }
 
     pub fn name(&self) -> &str {
@@ -361,5 +372,51 @@ mod tests {
         let report = benchmark.generate_report(results);
         assert_eq!(report.total_tasks, 0);
         assert_eq!(report.successful_tasks, 2);
+    }
+
+    #[test]
+    fn test_benchmark_with_task_builder() {
+        let task = BenchmarkTask::new(
+            "Custom task".to_string(),
+            "Write a custom function".to_string(),
+        )
+        .with_criteria(vec!["correctness".to_string(), "efficiency".to_string()]);
+
+        let benchmark = Benchmark::new("custom")
+            .with_task(task);
+
+        assert_eq!(benchmark.tasks().len(), 1);
+        assert_eq!(benchmark.tasks()[0].description, "Custom task");
+    }
+
+    #[test]
+    fn test_task_criteria_getter() {
+        let task = BenchmarkTask::new(
+            "Test".to_string(),
+            "Prompt".to_string(),
+        )
+        .with_criteria(vec!["correctness".to_string(), "style".to_string()]);
+
+        let criteria = task.criteria();
+        assert_eq!(criteria.len(), 2);
+        assert_eq!(criteria[0], "correctness");
+        assert_eq!(criteria[1], "style");
+    }
+
+    #[test]
+    fn test_benchmark_fluent_chain() {
+        let benchmark = Benchmark::new("multi")
+            .with_task(
+                BenchmarkTask::new("A".to_string(), "Prompt A".to_string())
+                    .with_category("cat_x"),
+            )
+            .with_task(
+                BenchmarkTask::new("B".to_string(), "Prompt B".to_string())
+                    .with_category("cat_y"),
+            )
+            .with_algorithm_tasks();
+
+        // Should have 2 custom tasks + 3 algorithm tasks = 5 total
+        assert_eq!(benchmark.tasks().len(), 5);
     }
 }
