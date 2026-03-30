@@ -918,6 +918,141 @@ pub struct WriteFileOutput {
     pub appended: bool,
 }
 
+/// Arguments for the codebase_delete tool.
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DeleteFileArgs {
+    /// File path relative to project root (e.g. "src/deprecated.rs")
+    pub path: String,
+}
+
+/// Output of the codebase_delete tool.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeleteFileOutput {
+    pub path: String,
+    pub deleted: bool,
+    pub bytes_freed: u64,
+}
+
+/// Delete a file from the codebase.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct CodebaseDeleteTool {
+    #[serde(skip, default = "default_project_root")]
+    root: ProjectRoot,
+}
+
+impl CodebaseDeleteTool {
+    pub fn new() -> Self {
+        Self {
+            root: ProjectRoot::new(),
+        }
+    }
+
+    pub fn with_root(root: PathBuf) -> Self {
+        Self {
+            root: ProjectRoot::with_root(root),
+        }
+    }
+
+    /// Direct delete (without rig Tool machinery).
+    pub fn delete_file(&self, path: &str) -> Result<DeleteFileOutput> {
+        let full_path = self.root.path.join(path);
+        
+        // Canonicalize both paths for security check
+        let canonical_root = self.root.path.canonicalize()
+            .unwrap_or_else(|_| self.root.path.clone());
+        
+        // Check if file exists before canonicalizing
+        if !full_path.exists() {
+            return Ok(DeleteFileOutput {
+                path: path.to_string(),
+                deleted: false,
+                bytes_freed: 0,
+            });
+        }
+        
+        let canonical_full = full_path.canonicalize()
+            .map_err(|e| CodebaseToolError::PathError(
+                format!("Cannot resolve path '{}': {}", path, e)
+            ))?;
+        
+        // Security check: ensure resolved path is within project root
+        if !canonical_full.starts_with(&canonical_root) {
+            return Err(CodebaseToolError::PathError(
+                format!("Path '{}' resolves outside project root", path)
+            ).into());
+        }
+        
+        // Only allow file deletion, not directories
+        if canonical_full.is_dir() {
+            return Err(CodebaseToolError::FileError(
+                "Cannot delete directories, only files".to_string()
+            ).into());
+        }
+        
+        // Get file size before deletion
+        let metadata = std::fs::metadata(&canonical_full)
+            .with_context(|| format!("Cannot read metadata for {}", path))?;
+        let bytes_freed = metadata.len();
+        
+        // Delete the file
+        std::fs::remove_file(&canonical_full)
+            .with_context(|| format!("Cannot delete {}", path))?;
+        
+        Ok(DeleteFileOutput {
+            path: path.to_string(),
+            deleted: true,
+            bytes_freed,
+        })
+    }
+}
+
+impl Default for CodebaseDeleteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for CodebaseDeleteTool {
+    const NAME: &'static str = "codebase_delete";
+
+    type Error = CodebaseToolError;
+    type Args = DeleteFileArgs;
+    type Output = DeleteFileOutput;
+
+    fn definition(&self, _prompt: String) -> impl Future<Output = ToolDefinition> + Send {
+        let def = ToolDefinition {
+            name: "codebase_delete".to_string(),
+            description: "Delete a file from the codebase. Use this to remove deprecated code, \
+                          clean up dead code, or restructure modules. Only works on files, not \
+                          directories. Paths are relative to project root.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to project root (e.g. 'src/deprecated.rs')"
+                    }
+                },
+                "required": ["path"]
+            }),
+        };
+        async move { def }
+    }
+
+    fn call(
+        &self,
+        args: Self::Args,
+    ) -> impl Future<Output = std::result::Result<Self::Output, Self::Error>> + Send {
+        let path = args.path.clone();
+        let root = self.root.clone();
+        async move {
+            let tool = CodebaseDeleteTool { root };
+            tool.delete_file(&path)
+                .map_err(|e| CodebaseToolError::FileError(e.to_string()))
+        }
+    }
+}
+
 /// Write content to a file in the codebase.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CodebaseWriteTool {
@@ -1390,5 +1525,78 @@ mod tests {
         
         // Binary file should be skipped entirely
         assert_eq!(result.matches.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_existing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(temp_dir.path(), "to_delete.rs", "content to delete");
+        
+        let tool = CodebaseDeleteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.delete_file("to_delete.rs").unwrap();
+        
+        assert!(result.deleted);
+        assert_eq!(result.bytes_freed, 18);
+        assert_eq!(result.path, "to_delete.rs");
+        
+        // Verify file no longer exists
+        assert!(!temp_dir.path().join("to_delete.rs").exists());
+    }
+
+    #[test]
+    fn test_delete_nonexistent_file() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let tool = CodebaseDeleteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.delete_file("nonexistent.rs").unwrap();
+        
+        assert!(!result.deleted);
+        assert_eq!(result.bytes_freed, 0);
+    }
+
+    #[test]
+    fn test_delete_security_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let tool = CodebaseDeleteTool::with_root(temp_dir.path().to_path_buf());
+        
+        // Attempt to delete file outside project root
+        let result = tool.delete_file("../outside.rs");
+        assert!(result.is_err());
+        
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("outside project root") || err.contains("Cannot resolve"));
+    }
+
+    #[test]
+    fn test_delete_directory_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a directory
+        fs::create_dir(temp_dir.path().join("mydir")).unwrap();
+        
+        let tool = CodebaseDeleteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.delete_file("mydir");
+        
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot delete directories"));
+    }
+
+    #[test]
+    fn test_delete_nested_file() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir_all(temp_dir.path().join("deep/nested")).unwrap();
+        create_test_file(temp_dir.path(), "deep/nested/file.rs", "nested content");
+        
+        let tool = CodebaseDeleteTool::with_root(temp_dir.path().to_path_buf());
+        let result = tool.delete_file("deep/nested/file.rs").unwrap();
+        
+        assert!(result.deleted);
+        assert_eq!(result.bytes_freed, 15);
+        
+        // Verify file deleted but parent dirs still exist
+        assert!(!temp_dir.path().join("deep/nested/file.rs").exists());
+        assert!(temp_dir.path().join("deep/nested").exists());
     }
 }
