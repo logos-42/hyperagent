@@ -27,6 +27,45 @@ use crate::web::WebSearchTool;
 
 pub use types::{Experiment, ExperimentOutcome, FileChange, ResearchConfig};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metrics_aggregation_concept() {
+        // Verify that metrics aggregation logic works correctly
+        // When multiple files are modified, total_lines should be sum of all files
+        let code1 = "fn main() {\n    println!(\"hello\");\n}";
+        let code2 = "fn helper() {\n    42\n}";
+        
+        let (lines1, complexity1, nest1) = IterationMetrics::from_code(code1);
+        let (lines2, complexity2, nest2) = IterationMetrics::from_code(code2);
+        
+        // Total lines should be sum
+        let total_lines = lines1 + lines2;
+        assert_eq!(total_lines, 6); // 3 lines + 3 lines
+        
+        // Total complexity should be sum
+        let total_complexity = complexity1 + complexity2;
+        assert!(total_complexity >= 0.0);
+        
+        // Max nesting should be maximum across files
+        let max_nesting = nest1.max(nest2);
+        assert!(max_nesting >= 1);
+    }
+
+    #[test]
+    fn test_single_file_unchanged_behavior() {
+        // Single file should use direct metrics computation
+        let code = "fn test() {\n    assert!(true);\n}";
+        let (lines, complexity, nesting) = IterationMetrics::from_code(code);
+        
+        assert_eq!(lines, 3);
+        assert!(complexity >= 1.0); // At least one function
+        assert!(nesting >= 1); // At least one level
+    }
+}
+
 /// Karpathy 风格的自动研究引擎（含全局代码理解 + Web 搜索）
 pub struct AutoResearch<C: LLMClient> {
     pub(crate) client: C,
@@ -329,8 +368,25 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let (tests_after, total_after, test_output) = self.run_tests().await?;
         tracing::info!("  After: {}/{} tests", tests_after, total_after);
 
-        // Phase 1: 收集修改后指标（主文件）
-        let (after_lines, after_complexity, after_nesting) = IterationMetrics::from_code(&primary_code);
+        // Phase 1: 收集修改后指标（聚合所有修改的文件）
+        let (after_lines, after_complexity, after_nesting) = if resolved_changes.len() == 1 {
+            // 单文件修改：直接使用主文件代码
+            IterationMetrics::from_code(&primary_code)
+        } else {
+            // 多文件修改：聚合所有修改文件的指标
+            let mut total_lines = 0usize;
+            let mut total_complexity = 0.0;
+            let mut max_nest = 0usize;
+            for (target, _) in &resolved_changes {
+                if let Ok(code) = self.read_file(target) {
+                    let (lines, complexity, nesting) = IterationMetrics::from_code(&code);
+                    total_lines += lines;
+                    total_complexity += complexity;
+                    max_nest = max_nest.max(nesting);
+                }
+            }
+            (total_lines, total_complexity, max_nest)
+        };
         let after_binary = IterationMetrics::get_binary_size(&self.config.project_root, "research")
             .unwrap_or(before_binary);
         let after_warnings = self.count_warnings().await;
