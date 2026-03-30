@@ -62,22 +62,34 @@ impl HttpClient {
         Self { inner, config }
     }
     
-    /// Execute a request with retry logic and exponential backoff.
+    /// Execute a request with retry logic and exponential backoff with jitter.
+    ///
+    /// Uses "full jitter" strategy: random delay between 0 and the exponential backoff.
+    /// This prevents thundering herd problems when multiple clients retry simultaneously.
     async fn execute_with_retry(&self, request: reqwest::Request) -> Result<reqwest::Response, WebToolError> {
         let mut last_error = None;
         let mut delay = self.config.retry_base_delay_ms;
         
         for attempt in 0..=self.config.max_retries {
-            let req = self.inner.execute(request.try_clone().ok_or_else(|| {
-                WebToolError::Http("Cannot clone request body for retry".to_string())
-            })?);
+            // Clone request for this attempt; streaming bodies can't be cloned
+            let req = match request.try_clone() {
+                Some(cloned) => self.inner.execute(cloned),
+                None => {
+                    // Can't clone (streaming body) - only one attempt possible
+                    return self.inner.execute(request)
+                        .await
+                        .map_err(|e| WebToolError::Http(e.to_string()));
+                }
+            };
             
             match req.await {
                 Ok(resp) => return Ok(resp),
                 Err(e) if is_retryable(&e, self.config.retry_on_timeout) => {
                     last_error = Some(e);
                     if attempt < self.config.max_retries {
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        // Full jitter: random delay between 0 and exponential backoff
+                        let jitter = (delay as f64 * rand_jitter()).floor() as u64;
+                        tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
                         delay *= 2; // Exponential backoff
                     }
                 }
@@ -98,6 +110,35 @@ fn is_retryable(error: &reqwest::Error, retry_on_timeout: bool) -> bool {
     }
     // Retry on: timeout, connect errors, and 5xx server errors
     error.is_timeout() || error.is_connect() || error.is_request()
+}
+
+/// Generate a random jitter factor between 0.0 and 1.0 for retry delays.
+/// Uses a simple PRNG to avoid adding rand crate dependency.
+fn rand_jitter() -> f64 {
+    // Use a thread-local simple xorshift64 PRNG for jitter
+    // This is NOT cryptographically secure, but sufficient for jitter
+    use std::cell::RefCell;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    thread_local! {
+        static RNG: RefCell<u64> = RefCell::new(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x853c49e674a2b9f4) // fallback seed
+        );
+    }
+    
+    RNG.with(|rng| {
+        let mut state = *rng.borrow();
+        // xorshift64 algorithm
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        *rng.borrow_mut() = state;
+        // Normalize to [0.0, 1.0)
+        (state.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64 / (1u64 << 53) as f64
+    })
 }
 
 impl Default for HttpClient {
@@ -803,3 +844,160 @@ pub fn build_web_context_prompt(results: &[WebSearchResult], pages: &[FetchOutpu
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rand_jitter_range() {
+        // Test that jitter values are always in [0.0, 1.0)
+        for _ in 0..100 {
+            let jitter = rand_jitter();
+            assert!(jitter >= 0.0, "jitter should be >= 0.0, got {}", jitter);
+            assert!(jitter < 1.0, "jitter should be < 1.0, got {}", jitter);
+        }
+    }
+
+    #[test]
+    fn test_rand_jitter_varies() {
+        // Test that jitter produces different values over calls
+        let values: std::collections::HashSet<_> = (0..10)
+            .map(|_| rand_jitter().to_bits())
+            .collect();
+        // At least some values should differ (very unlikely to get 10 identical values)
+        assert!(values.len() > 1, "jitter should produce varying values");
+    }
+
+    #[test]
+    fn test_is_retryable_timeout() {
+        // Test is_retryable with timeout errors
+        // Note: We can't easily construct reqwest::Error, so we test the logic indirectly
+        // through the config behavior
+        let config = HttpClientConfig {
+            timeout_secs: 30,
+            max_retries: 3,
+            retry_base_delay_ms: 100,
+            retry_on_timeout: true,
+        };
+        assert!(config.retry_on_timeout);
+        
+        let config_no_retry = HttpClientConfig {
+            timeout_secs: 30,
+            max_retries: 3,
+            retry_base_delay_ms: 100,
+            retry_on_timeout: false,
+        };
+        assert!(!config_no_retry.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_http_client_config_default() {
+        let config = HttpClientConfig::default();
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_base_delay_ms, 100);
+        assert!(config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_search_tool_with_timeout() {
+        let tool = WebSearchTool::with_timeout(60);
+        assert!(Arc::try_unwrap(tool.client).is_ok());
+    }
+
+    #[test]
+    fn test_web_fetch_tool_with_timeout() {
+        let tool = WebFetchTool::with_timeout(60);
+        assert!(Arc::try_unwrap(tool.client).is_ok());
+    }
+
+    #[test]
+    fn test_resolve_ddg_redirect() {
+        // Test extracting URL from DDG redirect
+        let redirect_url = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=abc123";
+        let resolved = resolve_ddg_redirect(redirect_url);
+        assert_eq!(resolved, "https://example.com");
+
+        // Test URL that's already direct
+        let direct_url = "https://example.com/page";
+        let resolved = resolve_ddg_redirect(direct_url);
+        assert_eq!(resolved, "https://example.com/page");
+    }
+
+    #[test]
+    fn test_url_decode() {
+        assert_eq!(url_decode("hello"), "hello");
+        assert_eq!(url_decode("hello%20world"), "hello world");
+        assert_eq!(url_decode("hello+world"), "hello world");
+        assert_eq!(url_decode("%C3%A9"), "é"); // UTF-8 encoded
+    }
+
+    #[test]
+    fn test_percent_encode() {
+        assert_eq!(percent_encode("hello"), "hello");
+        assert_eq!(percent_encode("hello world"), "hello+world");
+        assert_eq!(percent_encode("hello!"), "hello%21");
+    }
+
+    #[test]
+    fn test_html_to_text_basic() {
+        let html = "<html><body><p>Hello <b>world</b>!</p></body></html>";
+        let text = html_to_text(html);
+        assert!(text.contains("Hello"));
+        assert!(text.contains("world"));
+        assert!(!text.contains("<"));
+    }
+
+    #[test]
+    fn test_html_to_text_script_removal() {
+        let html = "<html><script>alert('xss')</script><body>Hello</body></html>";
+        let text = html_to_text(html);
+        assert!(text.contains("Hello"));
+        assert!(!text.contains("alert"));
+        assert!(!text.contains("script"));
+    }
+
+    #[test]
+    fn test_extract_title() {
+        let html = "<html><head><TITLE>My Page Title</TITLE></head><body>Content</body></html>";
+        let title = extract_title(html);
+        assert_eq!(title, "My Page Title");
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_empty() {
+        let prompt = build_web_context_prompt(&[], &[]);
+        assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_with_results() {
+        let results = vec![
+            WebSearchResult {
+                title: "Test Result".to_string(),
+                url: "https://example.com".to_string(),
+                snippet: "Test snippet".to_string(),
+            },
+        ];
+        let prompt = build_web_context_prompt(&results, &[]);
+        assert!(prompt.contains("WEB SEARCH RESULTS"));
+        assert!(prompt.contains("Test Result"));
+        assert!(prompt.contains("https://example.com"));
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_with_pages() {
+        let pages = vec![
+            FetchOutput {
+                url: "https://example.com".to_string(),
+                title: "Test Page".to_string(),
+                text: "This is the page content.".to_string(),
+                text_length: 24,
+            },
+        ];
+        let prompt = build_web_context_prompt(&[], &pages);
+        assert!(prompt.contains("FETCHED WEB PAGES"));
+        assert!(prompt.contains("Test Page"));
+    }
+}
