@@ -341,16 +341,23 @@ impl CodebaseContext {
             i += 1;
         }
 
-        // 提取文件头部文档注释
-        let doc_summary = content
-            .lines()
-            .take_while(|l| l.trim().starts_with("//!"))
-            .map(|l| l.trim().trim_start_matches("//!").trim())
-            .collect::<Vec<_>>()
-            .join(" ")
-            .chars()
-            .take(200)
-            .collect();
+        // 提取文件头部文档注释，在单词边界截断以避免截断单词
+        let doc_summary = {
+            let full_doc: String = content
+                .lines()
+                .take_while(|l| l.trim().starts_with("//!"))
+                .map(|l| l.trim().trim_start_matches("//!").trim())
+                .collect::<Vec<_>>()
+                .join(" ");
+            
+            if full_doc.len() <= 200 {
+                full_doc
+            } else {
+                // Find the last space before position 200
+                let truncate_pos = full_doc[..200].rfind(' ').unwrap_or(200);
+                format!("{}...", &full_doc[..truncate_pos])
+            }
+        };
 
         FileSummary {
             path: path.to_string(),
