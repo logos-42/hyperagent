@@ -135,7 +135,22 @@ impl fmt::Display for Error {
     }
 }
 
-impl StdError for Error {}
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            // These errors wrap strings, so no underlying source
+            Error::LLM(_)
+            | Error::Io(_)
+            | Error::Evaluation(_)
+            | Error::Evolution(_)
+            | Error::Memory(_)
+            | Error::Codebase(_)
+            | Error::Web(_)
+            | Error::Config(_)
+            | Error::Other(_) => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
@@ -320,5 +335,46 @@ mod tests {
         
         assert!(matches!(err1, Error::Other(_)));
         assert!(matches!(err2, Error::Other(_)));
+    }
+
+    #[test]
+    fn test_error_source_returns_none() {
+        // All Error variants wrap strings, so source() should return None
+        let errors = vec![
+            Error::LLM("test".to_string()),
+            Error::Io("test".to_string()),
+            Error::Evaluation("test".to_string()),
+            Error::Evolution("test".to_string()),
+            Error::Memory("test".to_string()),
+            Error::Codebase("test".to_string()),
+            Error::Web("test".to_string()),
+            Error::Config("test".to_string()),
+            Error::Other("test".to_string()),
+        ];
+        
+        for err in errors {
+            assert!(err.source().is_none(), "Expected source() to return None for {:?}", err);
+        }
+    }
+
+    #[test]
+    fn test_error_chain_debug_format() {
+        let err = Error::LLM("rate limited after 3 retries".to_string());
+        
+        // Verify Debug format includes variant name
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("LLM"));
+        assert!(debug_str.contains("rate limited"));
+        
+        // Verify Display format matches expected output
+        let display_str = format!("{}", err);
+        assert_eq!(display_str, "LLM error: rate limited after 3 retries");
+    }
+
+    #[test]
+    fn test_error_is_send_sync() {
+        // Verify Error implements Send and Sync for thread safety
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Error>();
     }
 }
