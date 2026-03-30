@@ -53,6 +53,29 @@ impl ExperimentStats {
         }
     }
 
+    /// Returns a human-readable one-line summary of the statistics
+    pub fn summary(&self) -> String {
+        if self.is_empty() {
+            return "No experiments recorded".to_string();
+        }
+        
+        let success_pct = self.success_rate();
+        let test_pct = self.test_pass_rate();
+        
+        format!(
+            "{} experiments: {} improved ({:.0}%), {} failed, {} neutral, {} regressed, {:.0}% tests passing ({}/{})",
+            self.total,
+            self.improved,
+            success_pct,
+            self.failed,
+            self.neutral,
+            self.regressed,
+            test_pct,
+            self.total_tests_passed,
+            self.total_tests_run
+        )
+    }
+
     /// Compare this stats snapshot with another, computing the delta
     pub fn compare(&self, other: &ExperimentStats) -> StatsDelta {
         StatsDelta {
@@ -879,5 +902,69 @@ mod tests {
         assert_eq!(delta_ab.total_delta, -delta_ba.total_delta);
         assert_eq!(delta_ab.improved_delta, -delta_ba.improved_delta);
         assert_eq!(delta_ab.failed_delta, -delta_ba.failed_delta);
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_empty() {
+        let stats = ExperimentStats::default();
+        assert_eq!(stats.summary(), "No experiments recorded");
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_typical() {
+        let stats = ExperimentStats {
+            total: 10,
+            improved: 7,
+            failed: 1,
+            neutral: 1,
+            regressed: 1,
+            total_tests_passed: 85,
+            total_tests_run: 100,
+        };
+        
+        let summary = stats.summary();
+        assert!(summary.contains("10 experiments"));
+        assert!(summary.contains("7 improved (70%)"));
+        assert!(summary.contains("1 failed"));
+        assert!(summary.contains("1 neutral"));
+        assert!(summary.contains("1 regressed"));
+        assert!(summary.contains("85% tests passing"));
+        assert!(summary.contains("85/100"));
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_all_improved() {
+        let stats = ExperimentStats {
+            total: 5,
+            improved: 5,
+            failed: 0,
+            neutral: 0,
+            regressed: 0,
+            total_tests_passed: 50,
+            total_tests_run: 50,
+        };
+        
+        let summary = stats.summary();
+        assert!(summary.contains("5 improved (100%)"));
+        assert!(summary.contains("0 failed"));
+        assert!(summary.contains("100% tests passing"));
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_all_failed() {
+        let stats = ExperimentStats {
+            total: 3,
+            improved: 0,
+            failed: 3,
+            neutral: 0,
+            regressed: 0,
+            total_tests_passed: 0,
+            total_tests_run: 30,
+        };
+        
+        let summary = stats.summary();
+        assert!(summary.contains("0 improved (0%)"));
+        assert!(summary.contains("3 failed"));
+        assert!(summary.contains("0% tests passing"));
     }
 }
