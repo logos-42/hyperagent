@@ -2,13 +2,57 @@ use crate::llm::LLMClient;
 
 use super::{AutoResearch, Experiment};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_output_short_string() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("hello", 10);
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_truncate_output_exact_length() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("hello", 5);
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_truncate_output_long_string() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("hello world", 5);
+        assert_eq!(result, "hello...");
+    }
+
+    #[test]
+    fn test_truncate_output_multibyte_utf8() {
+        // Test with Chinese characters (3 bytes each in UTF-8)
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("你好世界", 2);
+        assert_eq!(result, "你好...");
+    }
+
+    #[test]
+    fn test_truncate_output_emoji() {
+        // Test with emoji (4 bytes in UTF-8)
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("hello🎉world", 6);
+        assert_eq!(result, "hello🎉...");
+    }
+
+    #[test]
+    fn test_format_file_header() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::format_file_header("src/main.rs", 100);
+        assert_eq!(result, "src/main.rs (100 lines)");
+    }
+}
+
 impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Truncate a string to a maximum number of characters, appending "..." if truncated.
+    /// Uses char boundaries to safely handle UTF-8 strings with multi-byte characters.
     fn truncate_output(s: &str, max_chars: usize) -> String {
-        if s.len() <= max_chars {
+        if s.chars().count() <= max_chars {
             s.to_string()
         } else {
-            format!("{}...", &s[..max_chars])
+            format!("{}...", s.chars().take(max_chars).collect::<String>())
         }
     }
 
@@ -37,6 +81,11 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             experiment.reflection,
             Self::format_test_transition(experiment.tests_before, experiment.tests_after),
         )
+    }
+
+    /// Format a file path with line count for context display
+    fn format_file_header(path: &str, lines: usize) -> String {
+        format!("{} ({} lines)", path, lines)
     }
 
     /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文 + 相关文件（Phase 4）
@@ -201,8 +250,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                             .collect();
 
                         context.push_str(&format!(
-                            "\n--- {} ({} lines) ---\n",
-                            rel_file, summary.lines
+                            "\n{}\n",
+                            Self::format_file_header(&rel_file, summary.lines)
                         ));
                         if !types.is_empty() {
                             context.push_str(&format!("Types: {}\n", types.join(", ")));
