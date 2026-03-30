@@ -127,10 +127,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             tokio::process::Command::new("cargo")
                 .arg("test")
                 .arg("--lib")
-                .arg("--")
-                .arg(module_name)
                 .arg("--manifest-path")
                 .arg(self.config.project_root.join("Cargo.toml"))
+                .arg("--")
+                .arg(module_name)
                 .output(),
         )
         .await
@@ -220,5 +220,26 @@ mod tests {
         let output = "test result: 2 passed; 0 failed\ntest result: 3 passed; 1 failed";
         // Should parse the first matching line
         assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (2, 2));
+    }
+
+    #[test]
+    fn test_parse_test_result_with_error_format() {
+        // Cargo can output errors before test results
+        let output = "error: could not compile\nnote: try again\ntest result: 5 passed; 1 failed";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (5, 6));
+    }
+
+    #[test]
+    fn test_parse_test_result_doctest_format() {
+        // Doc tests have slightly different output format
+        let output = "test result: 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::parse_test_result(output), (2, 2));
+    }
+
+    #[test]
+    fn test_count_warnings_format() {
+        // Verify count_test_fns handles various attribute formats
+        let code = "#[test]\nfn test_a() {}\n    #[test]\nfn test_b() {}\n#[test]\n#[should_panic]\nfn test_c() {}";
+        assert_eq!(AutoResearch::<crate::llm::LLMClientImpl>::count_test_fns(code), 3);
     }
 }
