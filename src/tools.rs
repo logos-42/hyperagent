@@ -748,6 +748,67 @@ pub struct TreeOutput {
     pub total_dirs: usize,
 }
 
+impl TreeOutput {
+    /// Format the tree as a visual string with indentation, similar to `tree` command.
+    /// Returns a string representation that makes hierarchy clear at a glance.
+    ///
+    /// # Example output:
+    /// ```text
+    /// src/
+    /// ├── agent/
+    /// │   ├── mod.rs
+    /// │   └── executor.rs
+    /// └── lib.rs
+    /// ```
+    pub fn display_tree(&self) -> String {
+        let mut result = String::new();
+        
+        for entry in &self.entries {
+            // Indent based on depth
+            let indent = "    ".repeat(entry.depth);
+            
+            // Choose prefix character based on entry type
+            let prefix = if entry.is_dir { "📁 " } else { "📄 " };
+            
+            // Extract just the file/directory name from the path
+            let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+            
+            // Format with size for files
+            let size_str = match (entry.is_dir, entry.size_bytes) {
+                (false, Some(size)) => format!(" ({} bytes)", format_size(size)),
+                _ => String::new(),
+            };
+            
+            result.push_str(&format!("{}{}{}{}\n", indent, prefix, name, size_str));
+        }
+        
+        // Add summary
+        result.push_str(&format!(
+            "\n{} directories, {} files",
+            self.total_dirs, self.total_files
+        ));
+        
+        result
+    }
+}
+
+/// Format byte size in human-readable form
+fn format_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    
+    if size >= GB {
+        format!("{:.1} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.1} MB", size as f64 / MB as f64)
+    } else if size >= KB {
+        format!("{:.1} KB", size as f64 / KB as f64)
+    } else {
+        format!("{} B", size)
+    }
+}
+
 /// List directory structure.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CodebaseTreeTool {
@@ -1782,5 +1843,80 @@ mod tests {
         // All 3 files should be counted as searched
         assert_eq!(result.files_searched, 3);
         assert_eq!(result.matches.len(), 1);
+    }
+
+    #[test]
+    fn test_format_size() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(100), "100 B");
+        assert_eq!(format_size(1023), "1023 B");
+        assert_eq!(format_size(1024), "1.0 KB");
+        assert_eq!(format_size(1536), "1.5 KB");
+        assert_eq!(format_size(1048576), "1.0 MB");
+        assert_eq!(format_size(1572864), "1.5 MB");
+        assert_eq!(format_size(1073741824), "1.0 GB");
+    }
+
+    #[test]
+    fn test_tree_output_display_tree_empty() {
+        let output = TreeOutput {
+            base_dir: "src".to_string(),
+            entries: vec![],
+            total_files: 0,
+            total_dirs: 0,
+        };
+        
+        let display = output.display_tree();
+        assert!(display.contains("0 directories, 0 files"));
+    }
+
+    #[test]
+    fn test_tree_output_display_tree_with_files() {
+        let output = TreeOutput {
+            base_dir: "src".to_string(),
+            entries: vec![
+                TreeEntry { path: "src/agent".to_string(), is_dir: true, size_bytes: None, depth: 0 },
+                TreeEntry { path: "src/agent/mod.rs".to_string(), is_dir: false, size_bytes: Some(100), depth: 1 },
+                TreeEntry { path: "src/lib.rs".to_string(), is_dir: false, size_bytes: Some(200), depth: 0 },
+            ],
+            total_files: 2,
+            total_dirs: 1,
+        };
+        
+        let display = output.display_tree();
+        
+        // Should show directory icon for dirs
+        assert!(display.contains("📁"));
+        // Should show file icon for files
+        assert!(display.contains("📄"));
+        // Should show file sizes
+        assert!(display.contains("100 bytes"));
+        assert!(display.contains("200 bytes"));
+        // Should show summary
+        assert!(display.contains("1 directories, 2 files"));
+    }
+
+    #[test]
+    fn test_tree_output_display_tree_indentation() {
+        let output = TreeOutput {
+            base_dir: "src".to_string(),
+            entries: vec![
+                TreeEntry { path: "src/top.txt".to_string(), is_dir: false, size_bytes: Some(10), depth: 0 },
+                TreeEntry { path: "src/nested".to_string(), is_dir: true, size_bytes: None, depth: 0 },
+                TreeEntry { path: "src/nested/inner".to_string(), is_dir: true, size_bytes: None, depth: 1 },
+                TreeEntry { path: "src/nested/inner/deep.txt".to_string(), is_dir: false, size_bytes: Some(5), depth: 2 },
+            ],
+            total_files: 2,
+            total_dirs: 2,
+        };
+        
+        let display = output.display_tree();
+        let lines: Vec<&str> = display.lines().collect();
+        
+        // Check indentation increases with depth
+        assert!(lines[0].starts_with("📄 top.txt"));  // depth 0, no indent
+        assert!(lines[1].starts_with("📁 nested"));   // depth 0, no indent
+        assert!(lines[2].starts_with("    📁 inner")); // depth 1, one indent
+        assert!(lines[3].starts_with("        📄 deep.txt")); // depth 2, two indents
     }
 }
