@@ -141,6 +141,27 @@ impl ParsedEdit {
             EditOp::FullFile(_) => Vec::new(),
         }
     }
+
+    /// Returns the percentage of SEARCH blocks that require fuzzy matching (0.0 to 1.0).
+    /// Returns 0.0 for FullFile edits (no SEARCH blocks).
+    /// A lower ratio indicates simpler, more reliable edits that are more likely to succeed.
+    pub fn fuzzy_match_ratio(&self) -> f64 {
+        match &self.op {
+            EditOp::SearchReplace(srs) => {
+                if srs.is_empty() {
+                    return 0.0;
+                }
+                let fuzzy_count = srs.iter().filter(|sr| {
+                    let line_count = sr.search.lines().count();
+                    let has_extra_whitespace = sr.search != sr.search.trim() || sr.search.contains("  ");
+                    let is_multiline = line_count > 1;
+                    has_extra_whitespace || is_multiline
+                }).count();
+                fuzzy_count as f64 / srs.len() as f64
+            }
+            EditOp::FullFile(_) => 0.0,
+        }
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -1279,5 +1300,101 @@ mod tests {
         assert!(FuzzyMatchStrategy::Exact == FuzzyMatchStrategy::Exact);
         assert!(FuzzyMatchStrategy::Trimmed != FuzzyMatchStrategy::Normalized);
         assert!(FuzzyMatchStrategy::LineByLine == FuzzyMatchStrategy::LineByLine);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_all_exact() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo()".to_string(), // No fuzzy needed
+                    replace: "fn bar()".to_string(),
+                },
+                SearchReplace {
+                    search: "let x = 1;".to_string(), // No fuzzy needed
+                    replace: "let x = 2;".to_string(),
+                },
+            ]),
+        };
+        assert_eq!(edit.fuzzy_match_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_all_fuzzy() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo() {\n    bar()\n}".to_string(), // Multi-line
+                    replace: "fn foo() {}".to_string(),
+                },
+                SearchReplace {
+                    search: "  let x = 1;  ".to_string(), // Extra whitespace
+                    replace: "let x = 2;".to_string(),
+                },
+            ]),
+        };
+        assert_eq!(edit.fuzzy_match_ratio(), 1.0);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_mixed() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo()".to_string(), // Exact match (no fuzzy)
+                    replace: "fn bar()".to_string(),
+                },
+                SearchReplace {
+                    search: "fn baz() {\n    qux()\n}".to_string(), // Multi-line (needs fuzzy)
+                    replace: "fn baz() {}".to_string(),
+                },
+                SearchReplace {
+                    search: "let y = 2;".to_string(), // Exact match (no fuzzy)
+                    replace: "let y = 3;".to_string(),
+                },
+            ]),
+        };
+        // 1 out of 3 needs fuzzy matching
+        assert!((edit.fuzzy_match_ratio() - (1.0 / 3.0)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_empty() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![]),
+        };
+        assert_eq!(edit.fuzzy_match_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_full_file() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::FullFile("fn main() {}".to_string()),
+        };
+        assert_eq!(edit.fuzzy_match_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_fuzzy_match_ratio_half_fuzzy() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "exact_match".to_string(), // No fuzzy
+                    replace: "replacement".to_string(),
+                },
+                SearchReplace {
+                    search: "fn multi()\n{\n    body\n}".to_string(), // Multi-line, needs fuzzy
+                    replace: "fn multi() {}".to_string(),
+                },
+            ]),
+        };
+        // 1 out of 2 needs fuzzy = 0.5
+        assert_eq!(edit.fuzzy_match_ratio(), 0.5);
     }
 }
