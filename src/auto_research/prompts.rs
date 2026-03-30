@@ -43,6 +43,59 @@ mod tests {
         let result = AutoResearch::<crate::llm::LLMClientImpl>::format_file_header("src/main.rs", 100);
         assert_eq!(result, "src/main.rs (100 lines)");
     }
+
+    #[test]
+    fn test_estimate_token_count_empty() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::estimate_token_count("");
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_estimate_token_count_simple() {
+        // "hello world" = 2 words, 11 chars
+        // word_estimate = 2, code_estimate = 11/4 = 2
+        // base = max(2, 2) = 2, with 10% overhead = 2
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::estimate_token_count("hello world");
+        assert!(result >= 2);
+        assert!(result <= 4); // Should be close to 2-3 tokens
+    }
+
+    #[test]
+    fn test_estimate_token_count_code() {
+        // Code-like text with lots of symbols
+        let code = "fn main() { let x = 42; }";
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::estimate_token_count(code);
+        // Should estimate based on character count for code
+        assert!(result >= 4); // At least a few tokens
+        assert!(result <= 15); // But not too many
+    }
+
+    #[test]
+    fn test_truncate_to_token_limit_no_change() {
+        // Short content should not be truncated
+        let content = "hello world";
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_to_token_limit(content, 1000);
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_truncate_to_token_limit_with_truncation() {
+        // Long content should be truncated
+        let content = "a".repeat(1000); // 1000 chars
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_to_token_limit(&content, 10);
+        // Should truncate significantly to fit token limit
+        assert!(result.len() < content.len());
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_estimate_token_count_multibyte() {
+        // UTF-8 characters should be counted correctly
+        let chinese = "你好世界"; // 4 Chinese characters
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::estimate_token_count(chinese);
+        // Each Chinese character is typically 1-2 tokens
+        assert!(result >= 1);
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -86,6 +139,40 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Format a file path with line count for context display
     fn format_file_header(path: &str, lines: usize) -> String {
         format!("{} ({} lines)", path, lines)
+    }
+
+    /// Estimate token count for a string using a simple heuristic.
+    /// Uses ~4 characters per token as a rough approximation (works well for English code/text).
+    /// This helps the research loop avoid context window overflow when building prompts.
+    fn estimate_token_count(s: &str) -> usize {
+        // More accurate estimation: count whitespace-separated words and add for punctuation
+        let char_count = s.chars().count();
+        let word_count = s.split_whitespace().count();
+
+        // For code-heavy text: ~4 chars per token
+        // For natural language: ~5 chars per token
+        // Use weighted estimate: word_count for text, char_count/4 for code-like
+        let code_estimate = char_count / 4;
+        let text_estimate = word_count;
+
+        // Take the smaller estimate as a conservative lower bound,
+        // then add 10% overhead for special tokens
+        let base_estimate = std::cmp::max(code_estimate, text_estimate);
+        (base_estimate as f64 * 1.1) as usize
+    }
+
+    /// Check if content exceeds a token limit, returning a truncated version if needed.
+    /// Preserves the original content's structure while fitting within constraints.
+    fn truncate_to_token_limit(content: &str, max_tokens: usize) -> String {
+        let estimated = Self::estimate_token_count(content);
+        if estimated <= max_tokens {
+            return content.to_string();
+        }
+
+        // Calculate approximate character limit from token limit
+        // Using 4 chars per token as our base conversion
+        let target_chars = (max_tokens as f64 * 0.9 * 4.0) as usize;
+        Self::truncate_output(content, target_chars)
     }
 
     /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文 + 相关文件（Phase 4）
