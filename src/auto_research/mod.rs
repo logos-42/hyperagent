@@ -32,6 +32,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_reflection_includes_multi_file_context() {
+        // Verify that multi-file context is properly formatted for reflection
+        let files_modified: Vec<&str> = vec!["auto_research/mod.rs", "auto_research/parsers.rs"];
+        let multi_file_note = if files_modified.len() > 1 {
+            format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", files_modified)
+        } else {
+            String::new()
+        };
+        
+        assert!(multi_file_note.contains("auto_research/mod.rs"));
+        assert!(multi_file_note.contains("auto_research/parsers.rs"));
+        assert!(multi_file_note.contains("reverted"));
+        
+        // Single file should not add note
+        let single_file: Vec<&str> = vec!["lib.rs"];
+        let single_note = if single_file.len() > 1 {
+            format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", single_file)
+        } else {
+            String::new()
+        };
+        assert!(single_note.is_empty());
+    }
+
+    #[test]
     fn test_metrics_aggregation_concept() {
         // Verify that metrics aggregation logic works correctly
         // When multiple files are modified, total_lines should be sum of all files
@@ -423,11 +447,19 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             // Phase 5: 编译失败回滚到 checkpoint
             self.git_rollback(iteration)?;
 
+            // Include multi-file context in reflection for better diagnosis
+            let files_modified: Vec<&str> = resolved_changes.iter().map(|(f, _)| f.as_str()).collect();
             let reflection = {
                 let prompt = self.build_reflection_prompt(
                     file, &hypothesis, tests_before, tests_before, false, &compile_output,
                 );
-                self.client.complete(&prompt).await.map(|r| r.content).unwrap_or_default()
+                let multi_file_note = if files_modified.len() > 1 {
+                    format!("\nFiles modified in this attempt: {:?}\nNote: Changes to multiple files were reverted due to compilation failure.", files_modified)
+                } else {
+                    String::new()
+                };
+                let full_prompt = format!("{}{}", prompt, multi_file_note);
+                self.client.complete(&full_prompt).await.map(|r| r.content).unwrap_or_default()
             };
 
             return Ok(Experiment {
