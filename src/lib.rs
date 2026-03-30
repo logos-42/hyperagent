@@ -161,6 +161,18 @@ impl From<tokio::task::JoinError> for Error {
     }
 }
 
+impl From<String> for Error {
+    fn from(msg: String) -> Self {
+        Error::Other(msg)
+    }
+}
+
+impl From<&str> for Error {
+    fn from(msg: &str) -> Self {
+        Error::Other(msg.to_string())
+    }
+}
+
 /// A specialized Result type for Hyperagent operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -272,5 +284,41 @@ mod tests {
             assert!(matches!(err, Error::Evolution(_)));
             assert!(err.to_string().contains("task") || err.to_string().contains("panic") || err.to_string().contains("Evolution"));
         }
+    }
+
+    #[test]
+    fn test_from_string() {
+        let msg = "something went wrong".to_string();
+        let err: Error = msg.clone().into();
+        assert!(matches!(err, Error::Other(m) if m == msg));
+        assert_eq!(err.to_string(), "Error: something went wrong");
+    }
+
+    #[test]
+    fn test_from_str_ref() {
+        let err: Error = "simple error message".into();
+        assert!(matches!(err, Error::Other(m) if m == "simple error message"));
+        assert_eq!(err.to_string(), "Error: simple error message");
+    }
+
+    #[test]
+    fn test_from_string_in_result_context() {
+        fn returns_error() -> Result<String> {
+            Err("operation failed".into())
+        }
+        
+        fn returns_error_owned() -> Result<String> {
+            let msg = "owned error".to_string();
+            Err(msg.into())
+        }
+        
+        assert!(returns_error().is_err());
+        assert!(returns_error_owned().is_err());
+        
+        let err1 = returns_error().unwrap_err();
+        let err2 = returns_error_owned().unwrap_err();
+        
+        assert!(matches!(err1, Error::Other(_)));
+        assert!(matches!(err2, Error::Other(_)));
     }
 }
