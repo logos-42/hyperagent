@@ -157,6 +157,51 @@ impl GitLog {
 
         format!("{} {} from {}", count, commit_str, authors_str)
     }
+
+    /// Finds a commit by hash prefix (supports abbreviated hashes).
+    ///
+    /// Git often uses abbreviated hashes (e.g., "abc1234" instead of full SHA).
+    /// This method performs a linear search to find a commit whose hash starts
+    /// with the given prefix. Returns `None` if no match or multiple matches exist.
+    ///
+    /// # Examples
+    /// ```
+    /// let log = GitLog { entries: vec![...] };
+    /// if let Some(commit) = log.find_by_hash("abc123") {
+    ///     println!("Found: {}", commit.message);
+    /// }
+    /// ```
+    pub fn find_by_hash(&self, prefix: &str) -> Option<&GitLogEntry> {
+        let prefix = prefix.trim();
+        if prefix.is_empty() {
+            return None;
+        }
+
+        let mut found = None;
+        for entry in &self.entries {
+            if entry.hash.starts_with(prefix) {
+                if found.is_some() {
+                    // Multiple matches - ambiguous prefix
+                    return None;
+                }
+                found = Some(entry);
+            }
+        }
+        found
+    }
+
+    /// Groups commits by author, returning a map from author name to their commit messages.
+    ///
+    /// Useful for understanding who has been active in recent iterations.
+    pub fn by_author(&self) -> std::collections::HashMap<&str, Vec<&str>> {
+        let mut map: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+        for entry in &self.entries {
+            map.entry(entry.author.as_str())
+                .or_default()
+                .push(entry.message.as_str());
+        }
+        map
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -1260,5 +1305,144 @@ mod tests {
         let solo_commits = by_author.get("Solo").unwrap();
         assert_eq!(solo_commits.len(), 1);
         assert_eq!(solo_commits, &vec!["Only commit"]);
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_exact() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def5678".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Second commit".to_string(),
+                },
+            ],
+        };
+        let found = log.find_by_hash("abc1234");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().hash, "abc1234");
+        assert_eq!(found.unwrap().message, "First commit");
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_prefix() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234def5678".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Long hash commit".to_string(),
+                },
+            ],
+        };
+        // Find by abbreviated hash (prefix)
+        let found = log.find_by_hash("abc1234");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().hash, "abc1234def5678");
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_short_prefix() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "a1b2c3d4".to_string(),
+                    author: "Dev".to_string(),
+                    message: "Test commit".to_string(),
+                },
+            ],
+        };
+        // Single character prefix should work
+        let found = log.find_by_hash("a");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().hash, "a1b2c3d4");
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_not_found() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "abc123".to_string(),
+                author: "Alice".to_string(),
+                message: "Test".to_string(),
+            }],
+        };
+        assert!(log.find_by_hash("xyz").is_none());
+        assert!(log.find_by_hash("def").is_none());
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_ambiguous() {
+        // Multiple commits with same prefix should return None
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc111".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First".to_string(),
+                },
+                GitLogEntry {
+                    hash: "abc222".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Second".to_string(),
+                },
+            ],
+        };
+        // "abc" matches both - should return None
+        assert!(log.find_by_hash("abc").is_none());
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_empty_prefix() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "abc123".to_string(),
+                author: "Alice".to_string(),
+                message: "Test".to_string(),
+            }],
+        };
+        // Empty prefix should return None
+        assert!(log.find_by_hash("").is_none());
+        assert!(log.find_by_hash("   ").is_none()); // Whitespace only
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_empty_log() {
+        let log = GitLog { entries: vec![] };
+        assert!(log.find_by_hash("abc").is_none());
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_whitespace() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "abc123".to_string(),
+                author: "Alice".to_string(),
+                message: "Test".to_string(),
+            }],
+        };
+        // Should trim whitespace
+        let found = log.find_by_hash("  abc123  ");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().hash, "abc123");
+    }
+
+    #[test]
+    fn test_git_log_find_by_hash_case_sensitive() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "ABC123".to_string(),
+                author: "Alice".to_string(),
+                message: "Uppercase hash".to_string(),
+            }],
+        };
+        // Git hashes are case-sensitive (lowercase hex)
+        assert!(log.find_by_hash("ABC").is_some());
+        assert!(log.find_by_hash("abc").is_none()); // Different case
     }
 }
