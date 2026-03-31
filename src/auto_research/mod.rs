@@ -42,6 +42,26 @@ pub struct AutoResearch<C: LLMClient> {
 }
 
 impl Experiment {
+    /// Returns true if the experiment improved the codebase.
+    pub fn is_improvement(&self) -> bool {
+        matches!(self.outcome, ExperimentOutcome::Improved)
+    }
+
+    /// Returns true if the experiment had neutral effect.
+    pub fn is_neutral(&self) -> bool {
+        matches!(self.outcome, ExperimentOutcome::Neutral)
+    }
+
+    /// Returns true if the experiment regressed (made things worse).
+    pub fn is_regressed(&self) -> bool {
+        matches!(self.outcome, ExperimentOutcome::Regressed)
+    }
+
+    /// Returns true if the experiment failed to complete.
+    pub fn is_failed(&self) -> bool {
+        matches!(self.outcome, ExperimentOutcome::Failed)
+    }
+
     /// Returns a human-readable one-line summary of the experiment.
     /// Format: "Exp {iteration}: {file} — {outcome} (score={score:.2}, tests {before}→{after})"
     pub fn summary(&self) -> String {
@@ -655,10 +675,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
 
         // 统计
-        let improved = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Improved)).count();
-        let neutral = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Neutral)).count();
-        let regressed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Regressed)).count();
-        let failed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Failed)).count();
+        let improved = self.experiments.iter().filter(|e| e.is_improvement()).count();
+        let neutral = self.experiments.iter().filter(|e| e.is_neutral()).count();
+        let regressed = self.experiments.iter().filter(|e| e.is_regressed()).count();
+        let failed = self.experiments.iter().filter(|e| e.is_failed()).count();
         let tests_gen_count = self.experiments.iter().filter(|e| e.tests_generated).count();
         let total_new_tests: u32 = self.experiments.iter().map(|e| e.new_tests_count).sum();
 
@@ -688,10 +708,10 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Format includes experiment counts, outcome distribution, test generation stats,
     /// and final test status — useful for logging and display.
     pub fn summary(&self) -> String {
-        let improved = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Improved)).count();
-        let neutral = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Neutral)).count();
-        let regressed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Regressed)).count();
-        let failed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Failed)).count();
+        let improved = self.experiments.iter().filter(|e| e.is_improvement()).count();
+        let neutral = self.experiments.iter().filter(|e| e.is_neutral()).count();
+        let regressed = self.experiments.iter().filter(|e| e.is_regressed()).count();
+        let failed = self.experiments.iter().filter(|e| e.is_failed()).count();
         let tests_gen_count = self.experiments.iter().filter(|e| e.tests_generated).count();
         let total_new_tests: u32 = self.experiments.iter().map(|e| e.new_tests_count).sum();
         
@@ -711,5 +731,74 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
         
         lines.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_experiment(outcome: ExperimentOutcome) -> Experiment {
+        Experiment {
+            iteration: 1,
+            file: "test.rs".to_string(),
+            files_changed: vec![],
+            hypothesis: "test".to_string(),
+            outcome,
+            tests_before: (5, 5),
+            tests_after: (5, 5),
+            reflection: String::new(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: None,
+            tests_generated: false,
+            new_tests_count: 0,
+        }
+    }
+
+    #[test]
+    fn test_is_improvement() {
+        let exp = make_experiment(ExperimentOutcome::Improved);
+        assert!(exp.is_improvement());
+        assert!(!exp.is_neutral());
+        assert!(!exp.is_regressed());
+        assert!(!exp.is_failed());
+    }
+
+    #[test]
+    fn test_is_neutral() {
+        let exp = make_experiment(ExperimentOutcome::Neutral);
+        assert!(!exp.is_improvement());
+        assert!(exp.is_neutral());
+        assert!(!exp.is_regressed());
+        assert!(!exp.is_failed());
+    }
+
+    #[test]
+    fn test_is_regressed() {
+        let exp = make_experiment(ExperimentOutcome::Regressed);
+        assert!(!exp.is_improvement());
+        assert!(!exp.is_neutral());
+        assert!(exp.is_regressed());
+        assert!(!exp.is_failed());
+    }
+
+    #[test]
+    fn test_is_failed() {
+        let exp = make_experiment(ExperimentOutcome::Failed);
+        assert!(!exp.is_improvement());
+        assert!(!exp.is_neutral());
+        assert!(!exp.is_regressed());
+        assert!(exp.is_failed());
+    }
+
+    #[test]
+    fn test_summary_format() {
+        let exp = make_experiment(ExperimentOutcome::Improved);
+        let summary = exp.summary();
+        assert!(summary.contains("Exp 1"));
+        assert!(summary.contains("test.rs"));
+        assert!(summary.contains("Improved"));
     }
 }
