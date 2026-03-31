@@ -317,6 +317,27 @@ impl WebSearchResult {
             Some(domain)
         }
     }
+
+    /// Returns a human-readable one-line summary of the search result.
+    ///
+    /// Format: "{domain}: '{title}' — {snippet_preview}" or
+    ///         "'{title}' — {snippet_preview}" if domain extraction fails.
+    /// The snippet is truncated to 50 characters for compact display.
+    /// This is useful for quick logging and displaying results without
+    /// needing to format them manually.
+    pub fn summary(&self) -> String {
+        let snippet_preview = if self.snippet.len() > 50 {
+            let chars: String = self.snippet.chars().take(47).collect();
+            format!("{}...", chars)
+        } else {
+            self.snippet.clone()
+        };
+        
+        match self.domain() {
+            Some(domain) => format!("{}: '{}' — {}", domain, self.title, snippet_preview),
+            None => format!("'{}' — {}", self.title, snippet_preview),
+        }
+    }
 }
 
 /// Error type for web tools.
@@ -1319,6 +1340,57 @@ mod tests {
         };
         // Should still extract something or return None
         assert!(result.domain().is_some() || result.domain().is_none());
+    }
+
+    #[test]
+    fn test_web_search_result_summary_basic() {
+        let result = WebSearchResult {
+            title: "Rust Programming".to_string(),
+            url: "https://rust-lang.org/learn".to_string(),
+            snippet: "A fast and memory-safe systems programming language.".to_string(),
+        };
+        let summary = result.summary();
+        assert!(summary.contains("rust-lang.org"));
+        assert!(summary.contains("Rust Programming"));
+    }
+
+    #[test]
+    fn test_web_search_result_summary_short_snippet() {
+        let result = WebSearchResult {
+            title: "Short".to_string(),
+            url: "https://example.com".to_string(),
+            snippet: "Tiny".to_string(),
+        };
+        let summary = result.summary();
+        assert!(summary.contains("Tiny"));
+        assert!(!summary.contains("..."));
+    }
+
+    #[test]
+    fn test_web_search_result_summary_long_snippet() {
+        let long_snippet = "This is a very long snippet that should be truncated because it exceeds fifty characters limit".to_string();
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://example.com".to_string(),
+            snippet: long_snippet,
+        };
+        let summary = result.summary();
+        assert!(summary.contains("..."));
+        // Snippet portion should be truncated to ~50 chars
+        assert!(summary.len() < 150); // Rough bound check
+    }
+
+    #[test]
+    fn test_web_search_result_summary_no_domain() {
+        let result = WebSearchResult {
+            title: "No Domain".to_string(),
+            url: "invalid-url".to_string(),
+            snippet: "Test snippet".to_string(),
+        };
+        let summary = result.summary();
+        // Should still show title and snippet even without domain
+        assert!(summary.contains("No Domain"));
+        assert!(summary.contains("Test snippet"));
     }
 
     // -------------------------------------------------------------------------
