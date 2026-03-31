@@ -161,6 +161,17 @@ impl<C: LLMClient + Clone> SelfEvolutionEngine<C> {
         }
     }
 
+    /// Create a new engine with pre-populated results (for testing)
+    /// This allows tests to verify analysis methods without running experiments
+    #[cfg(test)]
+    pub fn with_results(config: SelfEvolutionConfig, results: Vec<SelfEvolutionResult>) -> Self {
+        Self {
+            client: crate::llm::OpenAI::default(),
+            config,
+            results,
+        }
+    }
+
     /// 将 SelfEvolutionConfig 转换为 ResearchConfig
     fn to_research_config(&self) -> ResearchConfig {
         ResearchConfig {
@@ -1098,11 +1109,171 @@ mod tests {
             ];
 
             let config = SelfEvolutionConfig::default();
-            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::new_with_results(config, results);
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::with_results(config, results);
             
             let freq = engine.experiment_frequency();
             assert_eq!(freq.get("a.rs"), Some(&2));
             assert_eq!(freq.get("b.rs"), Some(&1));
+        }
+
+        #[test]
+        fn test_least_experienced_files() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+            ];
+
+            let mut config = SelfEvolutionConfig::default();
+            config.target_files = vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()];
+            
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::with_results(config.clone(), results);
+            
+            let least = engine.least_experienced_files();
+            assert_eq!(least.len(), 2);
+            assert!(least.contains(&"b.rs".to_string()));
+            assert!(least.contains(&"c.rs".to_string()));
+        }
+
+        #[test]
+        fn test_high_value_targets() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: Some((5, 10)),
+                    tests_after: Some((8, 10)),
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "b.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: Some((3, 10)),
+                    tests_after: Some((3, 10)),
+                },
+            ];
+
+            let config = SelfEvolutionConfig::default();
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::with_results(config, results);
+            
+            let high_value = engine.high_value_targets();
+            // a.rs has positive improvement, b.rs is neutral
+            assert!(high_value.contains(&"a.rs".to_string()));
+        }
+
+        #[test]
+        fn test_file_impact_summary() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: Some((5, 10)),
+                    tests_after: Some((8, 10)),
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "b.rs".to_string(),
+                    status: SelfEvolutionStatus::Rejected,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: Some((8, 10)),
+                    tests_after: Some((5, 10)),
+                },
+            ];
+
+            let config = SelfEvolutionConfig::default();
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::with_results(config, results);
+            
+            let (improving, neutral, regressing) = engine.file_impact_summary();
+            assert!(improving.contains(&"a.rs".to_string()));
+            assert!(regressing.contains(&"b.rs".to_string()));
+        }
+
+        #[test]
+        fn test_compilation_rate() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Failed,
+                    score: Some(SelfEvolutionScore {
+                        compiles: false,
+                        tests_passed: 0,
+                        tests_total: 0,
+                        test_pass_rate: 0.0,
+                        compilation_errors: "error".to_string(),
+                        test_output: String::new(),
+                        reflection: String::new(),
+                    }),
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "b.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: Some(SelfEvolutionScore {
+                        compiles: true,
+                        tests_passed: 10,
+                        tests_total: 10,
+                        test_pass_rate: 1.0,
+                        compilation_errors: String::new(),
+                        test_output: String::new(),
+                        reflection: String::new(),
+                    }),
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+            ];
+
+            let config = SelfEvolutionConfig::default();
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::with_results(config, results);
+            
+            let (compiled, total, rate) = engine.compilation_rate();
+            assert_eq!(compiled, 1);
+            assert_eq!(total, 2);
+            assert!((rate - 0.5).abs() < 0.001);
         }
     }
 }

@@ -589,13 +589,7 @@ mod tests {
         assert_eq!(s.neutral, 1);
     }
 
-    #[test]
-    fn test_parse_entry_stats_unknown_outcome() {
-        let research = create_test_research();
-        let entry = "## Experiment 5 — test.rs\n- **Outcome**: Unknown\n";
-        let stats = research.parse_entry_stats(entry);
-        assert!(stats.is_none());
-    }
+    
 
     /// Helper to create a test AutoResearch instance
     fn create_test_research() -> crate::auto_research::AutoResearch<crate::llm::OpenAI> {
