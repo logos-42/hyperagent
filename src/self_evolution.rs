@@ -13,12 +13,27 @@ use std::path::PathBuf;
 
 /// Truncate a string at word boundaries, ensuring it doesn't exceed max_chars
 /// while avoiding cutting words in half. Appends "..." if truncated.
+/// 
+/// This function is UTF-8 safe and will not panic on multi-byte characters.
 fn truncate_words(s: &str, max_chars: usize) -> String {
+    // Fast path: if the string is short enough, return as-is
     if s.len() <= max_chars {
         return s.to_string();
     }
     
-    let truncated = &s[..max_chars];
+    // Find the byte index of the char at position max_chars (or the last valid boundary)
+    // This prevents panics on multi-byte UTF-8 characters
+    let truncate_idx = s.char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len());
+    
+    // If we're already within bounds after finding char boundary, return as-is
+    if truncate_idx >= s.len() {
+        return s.to_string();
+    }
+    
+    let truncated = &s[..truncate_idx];
     
     // Find the last space to avoid cutting a word
     if let Some(last_space) = truncated.rfind(' ') {
