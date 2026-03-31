@@ -111,6 +111,36 @@ impl StatsDelta {
             + (self.success_rate_delta * 0.5)
             + (self.test_pass_rate_delta * 0.3)
     }
+
+    /// Returns a human-readable one-line summary of the statistics delta
+    pub fn summary(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if self.total_delta != 0 {
+            parts.push(format!("{:+} experiments", self.total_delta));
+        }
+        if self.improved_delta != 0 {
+            parts.push(format!("{:+} improved", self.improved_delta));
+        }
+        if self.regressed_delta != 0 {
+            parts.push(format!("{:+} regressed", self.regressed_delta));
+        }
+        if self.failed_delta != 0 {
+            parts.push(format!("{:+} failed", self.failed_delta));
+        }
+        if self.success_rate_delta.abs() > 0.01 {
+            parts.push(format!("{:+.1}% success rate", self.success_rate_delta));
+        }
+        if self.test_pass_rate_delta.abs() > 0.01 {
+            parts.push(format!("{:+.1}% test pass rate", self.test_pass_rate_delta));
+        }
+
+        if parts.is_empty() {
+            "no change".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -290,6 +320,156 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 stats.regressed += 1;
             }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stats_delta_summary_no_change() {
+        let delta = StatsDelta {
+            total_delta: 0,
+            improved_delta: 0,
+            failed_delta: 0,
+            neutral_delta: 0,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: 0.0,
+            test_pass_rate_delta: 0.0,
+        };
+        assert_eq!(delta.summary(), "no change");
+    }
+
+    #[test]
+    fn test_stats_delta_summary_with_improvements() {
+        let delta = StatsDelta {
+            total_delta: 5,
+            improved_delta: 3,
+            failed_delta: 0,
+            neutral_delta: 2,
+            regressed_delta: 0,
+            tests_passed_delta: 15,
+            tests_run_delta: 15,
+            success_rate_delta: 12.5,
+            test_pass_rate_delta: 5.0,
+        };
+        assert_eq!(delta.summary(), "+5 experiments, +3 improved, +12.5% success rate, +5.0% test pass rate");
+    }
+
+    #[test]
+    fn test_stats_delta_summary_with_regressions() {
+        let delta = StatsDelta {
+            total_delta: 3,
+            improved_delta: 0,
+            failed_delta: 1,
+            neutral_delta: 1,
+            regressed_delta: 2,
+            tests_passed_delta: -5,
+            tests_run_delta: 0,
+            success_rate_delta: -8.3,
+            test_pass_rate_delta: -3.2,
+        };
+        assert_eq!(delta.summary(), "+3 experiments, +2 regressed, +1 failed, -8.3% success rate, -3.2% test pass rate");
+    }
+
+    #[test]
+    fn test_stats_delta_summary_partial_fields() {
+        let delta = StatsDelta {
+            total_delta: 0,
+            improved_delta: 2,
+            failed_delta: 0,
+            neutral_delta: 0,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: 5.0,
+            test_pass_rate_delta: 0.0,
+        };
+        assert_eq!(delta.summary(), "+2 improved, +5.0% success rate");
+    }
+
+    #[test]
+    fn test_stats_delta_is_improvement() {
+        let improving = StatsDelta {
+            total_delta: 5,
+            improved_delta: 3,
+            failed_delta: 0,
+            neutral_delta: 2,
+            regressed_delta: 0,
+            tests_passed_delta: 10,
+            tests_run_delta: 10,
+            success_rate_delta: 10.0,
+            test_pass_rate_delta: 5.0,
+        };
+        assert!(improving.is_improvement());
+
+        let not_improving = StatsDelta {
+            total_delta: 2,
+            improved_delta: 0,
+            failed_delta: 1,
+            neutral_delta: 1,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: -5.0,
+            test_pass_rate_delta: 0.0,
+        };
+        assert!(!not_improving.is_improvement());
+    }
+
+    #[test]
+    fn test_stats_delta_is_regression() {
+        let regressing = StatsDelta {
+            total_delta: 3,
+            improved_delta: 0,
+            failed_delta: 1,
+            neutral_delta: 1,
+            regressed_delta: 2,
+            tests_passed_delta: -5,
+            tests_run_delta: 0,
+            success_rate_delta: -10.0,
+            test_pass_rate_delta: 0.0,
+        };
+        assert!(regressing.is_regression());
+
+        let not_regressing = StatsDelta {
+            total_delta: 5,
+            improved_delta: 3,
+            failed_delta: 0,
+            neutral_delta: 2,
+            regressed_delta: 0,
+            tests_passed_delta: 10,
+            tests_run_delta: 10,
+            success_rate_delta: 10.0,
+            test_pass_rate_delta: 5.0,
+        };
+        assert!(!not_regressing.is_regression());
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_empty() {
+        let stats = ExperimentStats::default();
+        assert_eq!(stats.summary(), "No experiments recorded");
+    }
+
+    #[test]
+    fn test_experiment_stats_summary_with_data() {
+        let stats = ExperimentStats {
+            total: 10,
+            improved: 4,
+            failed: 2,
+            neutral: 3,
+            regressed: 1,
+            total_tests_passed: 45,
+            total_tests_run: 50,
+        };
+        let summary = stats.summary();
+        assert!(summary.contains("10 experiments"));
+        assert!(summary.contains("4 improved"));
+        assert!(summary.contains("40%")); // success rate
+        assert!(summary.contains("90%")); // test pass rate
+    }
+}
             // Parse tests: "Tests: X/Y → Z/W"
             if let Some(tests_line) = entry.lines().find(|l| l.contains("**Tests**:")) {
                 if let Some(after_arrow) = tests_line.split("→").nth(1) {
