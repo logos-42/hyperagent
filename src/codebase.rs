@@ -826,6 +826,40 @@ impl CodebaseContext {
         self.total_iterations = 0;
     }
 
+    /// Get improvement records within a specific time window.
+    ///
+    /// Filters the improvement history to return only records that fall within
+    /// the specified time range (inclusive on both ends). This enables time-based
+    /// analysis of experiment patterns, complementing the count-based queries.
+    ///
+    /// # Arguments
+    /// * `start` - The start of the time window (inclusive)
+    /// * `end` - The end of the time window (inclusive)
+    ///
+    /// # Returns
+    /// A vector of references to improvement records within the time window,
+    /// in chronological order (oldest first).
+    ///
+    /// # Example
+    /// ```ignore
+    /// use chrono::{Duration, Utc};
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let now = Utc::now();
+    /// let hour_ago = now - Duration::hours(1);
+    /// let recent = ctx.get_improvements_in_time_window(&hour_ago, &now);
+    /// println!("{} experiments in the last hour", recent.len());
+    /// ```
+    pub fn get_improvements_in_time_window(
+        &self,
+        start: &DateTime<Utc>,
+        end: &DateTime<Utc>,
+    ) -> Vec<&ImprovementRecord> {
+        self.improvement_history
+            .iter()
+            .filter(|record| &record.timestamp >= start && &record.timestamp <= end)
+            .collect()
+    }
+
     /// Calculate the success rate for a specific file based on improvement history.
     ///
     /// Returns the percentage of experiments that resulted in "Improved" outcomes
