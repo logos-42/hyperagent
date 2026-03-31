@@ -724,19 +724,6 @@ impl SelfEvolutionSummary {
     /// Generate a human-readable one-line summary of evolution statistics.
     ///
     /// Format: "{total} total: {accepted} accepted, {rejected} rejected, {failed} failed, {skipped} skipped ({success_rate:.1}% success)"
-    ///
-    /// # Example
-    /// ```
-    /// let summary = SelfEvolutionSummary {
-    ///     total: 10,
-    ///     accepted: 6,
-    ///     rejected: 2,
-    ///     failed: 1,
-    ///     skipped: 1,
-    ///     success_rate: 0.6,
-    /// };
-    /// assert_eq!(summary.summary(), "10 total: 6 accepted, 2 rejected, 1 failed, 1 skipped (60.0% success)");
-    /// ```
     pub fn summary(&self) -> String {
         format!(
             "{} total: {} accepted, {} rejected, {} failed, {} skipped ({:.1}% success)",
@@ -747,5 +734,375 @@ impl SelfEvolutionSummary {
             self.skipped,
             self.success_rate * 100.0
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod truncate_words_tests {
+        use super::*;
+
+        #[test]
+        fn test_short_string_unchanged() {
+            assert_eq!(truncate_words("hello", 10), "hello");
+            assert_eq!(truncate_words("short", 100), "short");
+        }
+
+        #[test]
+        fn test_exact_length_unchanged() {
+            assert_eq!(truncate_words("hello", 5), "hello");
+        }
+
+        #[test]
+        fn test_truncation_at_word_boundary() {
+            assert_eq!(truncate_words("hello world test", 10), "hello...");
+            assert_eq!(truncate_words("one two three", 8), "one...");
+        }
+
+        #[test]
+        fn test_truncation_no_spaces() {
+            assert_eq!(truncate_words("helloworld", 5), "hello...");
+        }
+
+        #[test]
+        fn test_utf8_multibyte_characters() {
+            // Chinese characters (each is 3 bytes in UTF-8)
+            assert_eq!(truncate_words("你好世界测试", 4), "你好世界测试...");
+            
+            // Mix of ASCII and multibyte
+            let mixed = "hello 你好 world";
+            let result = truncate_words(mixed, 8);
+            assert!(result.ends_with("..."));
+            assert!(result.len() <= 11); // 8 chars + "..."
+        }
+
+        #[test]
+        fn test_utf8_boundary_safety() {
+            // This test ensures we don't panic on multibyte character boundaries
+            let emoji = "🎉🎊🎈🎁🎀";
+            let result = truncate_words(emoji, 3);
+            assert!(result.ends_with("..."));
+            assert!(!result.is_empty());
+            
+            // Japanese
+            let japanese = "こんにちは世界";
+            let result = truncate_words(japanese, 4);
+            assert!(result.ends_with("..."));
+        }
+
+        #[test]
+        fn test_empty_string() {
+            assert_eq!(truncate_words("", 10), "");
+        }
+
+        #[test]
+        fn test_single_word() {
+            assert_eq!(truncate_words("supercalifragilisticexpialidocious", 10), "supercali...");
+        }
+
+        #[test]
+        fn test_word_boundary_at_reasonable_position() {
+            // Word boundary should be used if it's at least 60% of max_chars
+            let text = "a b c d e f g h i j";
+            let result = truncate_words(text, 10);
+            // Should find a space within the first 10 chars and use that
+            assert!(result.ends_with("..."));
+            assert!(result.contains(" "));
+        }
+
+        #[test]
+        fn test_multiple_spaces() {
+            assert_eq!(truncate_words("hello  world  test", 12), "hello...");
+        }
+    }
+
+    mod self_evolution_summary_tests {
+        use super::*;
+
+        #[test]
+        fn test_summary_basic() {
+            let summary = SelfEvolutionSummary {
+                total: 10,
+                accepted: 6,
+                rejected: 2,
+                failed: 1,
+                skipped: 1,
+                success_rate: 0.6,
+            };
+            assert_eq!(summary.summary(), "10 total: 6 accepted, 2 rejected, 1 failed, 1 skipped (60.0% success)");
+        }
+
+        #[test]
+        fn test_summary_all_accepted() {
+            let summary = SelfEvolutionSummary {
+                total: 5,
+                accepted: 5,
+                rejected: 0,
+                failed: 0,
+                skipped: 0,
+                success_rate: 1.0,
+            };
+            assert_eq!(summary.summary(), "5 total: 5 accepted, 0 rejected, 0 failed, 0 skipped (100.0% success)");
+        }
+
+        #[test]
+        fn test_summary_all_failed() {
+            let summary = SelfEvolutionSummary {
+                total: 3,
+                accepted: 0,
+                rejected: 0,
+                failed: 3,
+                skipped: 0,
+                success_rate: 0.0,
+            };
+            assert_eq!(summary.summary(), "3 total: 0 accepted, 0 rejected, 3 failed, 0 skipped (0.0% success)");
+        }
+
+        #[test]
+        fn test_summary_zero_iterations() {
+            let summary = SelfEvolutionSummary {
+                total: 0,
+                accepted: 0,
+                rejected: 0,
+                failed: 0,
+                skipped: 0,
+                success_rate: 0.0,
+            };
+            assert_eq!(summary.summary(), "0 total: 0 accepted, 0 rejected, 0 failed, 0 skipped (0.0% success)");
+        }
+
+        #[test]
+        fn test_summary_fractional_success_rate() {
+            let summary = SelfEvolutionSummary {
+                total: 3,
+                accepted: 1,
+                rejected: 1,
+                failed: 1,
+                skipped: 0,
+                success_rate: 0.333,
+            };
+            assert_eq!(summary.summary(), "3 total: 1 accepted, 1 rejected, 1 failed, 0 skipped (33.3% success)");
+        }
+    }
+
+    mod self_evolution_result_tests {
+        use super::*;
+
+        fn make_result(status: SelfEvolutionStatus, tests_before: Option<(u32, u32)>, tests_after: Option<(u32, u32)>) -> SelfEvolutionResult {
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "test.rs".to_string(),
+                status,
+                score: None,
+                error: None,
+                description: "test".to_string(),
+                hypothesis: "test hypothesis".to_string(),
+                tests_before,
+                tests_after,
+            }
+        }
+
+        fn make_result_with_score(status: SelfEvolutionStatus, compiles: bool, tests_passed: u32, tests_total: u32) -> SelfEvolutionResult {
+            SelfEvolutionResult {
+                iteration: 1,
+                file: "test.rs".to_string(),
+                status,
+                score: Some(SelfEvolutionScore {
+                    compiles,
+                    tests_passed,
+                    tests_total,
+                    test_pass_rate: if tests_total > 0 { tests_passed as f32 / tests_total as f32 } else { 0.0 },
+                    compilation_errors: String::new(),
+                    test_output: String::new(),
+                    reflection: String::new(),
+                }),
+                error: None,
+                description: "test".to_string(),
+                hypothesis: "test hypothesis".to_string(),
+                tests_before: Some((5, 10)),
+                tests_after: Some((tests_passed, tests_total)),
+            }
+        }
+
+        #[test]
+        fn test_test_improvement_positive() {
+            let result = make_result(SelfEvolutionStatus::Accepted, Some((3, 10)), Some((5, 10)));
+            assert_eq!(result.test_improvement(), Some(2));
+        }
+
+        #[test]
+        fn test_test_improvement_negative() {
+            let result = make_result(SelfEvolutionStatus::Rejected, Some((5, 10)), Some((3, 10)));
+            assert_eq!(result.test_improvement(), Some(-2));
+        }
+
+        #[test]
+        fn test_test_improvement_no_metrics() {
+            let result = make_result(SelfEvolutionStatus::Accepted, None, None);
+            assert_eq!(result.test_improvement(), None);
+        }
+
+        #[test]
+        fn test_is_compilation_failure_true() {
+            let result = make_result_with_score(SelfEvolutionStatus::Failed, false, 0, 0);
+            assert!(result.is_compilation_failure());
+            assert!(!result.is_test_failure());
+        }
+
+        #[test]
+        fn test_is_test_failure_true() {
+            let result = make_result_with_score(SelfEvolutionStatus::Failed, true, 3, 10);
+            assert!(!result.is_compilation_failure());
+            assert!(result.is_test_failure());
+        }
+
+        #[test]
+        fn test_neither_failure_for_accepted() {
+            let result = make_result_with_score(SelfEvolutionStatus::Accepted, true, 10, 10);
+            assert!(!result.is_compilation_failure());
+            assert!(!result.is_test_failure());
+        }
+
+        #[test]
+        fn test_is_code_change() {
+            let accepted = make_result(SelfEvolutionStatus::Accepted, None, None);
+            let rejected = make_result(SelfEvolutionStatus::Rejected, None, None);
+            let failed = make_result(SelfEvolutionStatus::Failed, None, None);
+            let skipped = make_result(SelfEvolutionStatus::Skipped, None, None);
+
+            assert!(accepted.is_code_change());
+            assert!(rejected.is_code_change());
+            assert!(!failed.is_code_change());
+            assert!(!skipped.is_code_change());
+        }
+
+        #[test]
+        fn test_failure_category_compilation() {
+            let result = make_result_with_score(SelfEvolutionStatus::Failed, false, 0, 0);
+            assert_eq!(result.failure_category(), Some(FailureCategory::Compilation));
+        }
+
+        #[test]
+        fn test_failure_category_test() {
+            let result = make_result_with_score(SelfEvolutionStatus::Failed, true, 3, 10);
+            assert_eq!(result.failure_category(), Some(FailureCategory::Test { passed: 3, total: 10 }));
+        }
+
+        #[test]
+        fn test_failure_category_none_for_non_failed() {
+            let result = make_result_with_score(SelfEvolutionStatus::Accepted, true, 10, 10);
+            assert_eq!(result.failure_category(), None);
+        }
+
+        #[test]
+        fn test_pass_rate_improvement() {
+            let result = make_result(SelfEvolutionStatus::Accepted, Some((5, 10)), Some((8, 10)));
+            assert_eq!(result.pass_rate_improvement(), Some(0.3));
+        }
+
+        #[test]
+        fn test_pass_rate_improvement_zero_total() {
+            let result = make_result(SelfEvolutionStatus::Accepted, Some((0, 0)), Some((5, 10)));
+            assert_eq!(result.pass_rate_improvement(), None);
+        }
+    }
+
+    mod self_evolution_engine_tests {
+        use super::*;
+
+        #[test]
+        fn test_modified_files_deduplication() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Rejected,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 3,
+                    file: "b.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+            ];
+
+            let config = SelfEvolutionConfig::default();
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::new_with_results(config, results);
+            
+            let modified = engine.modified_files();
+            assert_eq!(modified.len(), 2);
+            assert!(modified.contains(&"a.rs".to_string()));
+            assert!(modified.contains(&"b.rs".to_string()));
+        }
+
+        #[test]
+        fn test_experiment_frequency() {
+            let results = vec![
+                SelfEvolutionResult {
+                    iteration: 1,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 2,
+                    file: "a.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+                SelfEvolutionResult {
+                    iteration: 3,
+                    file: "b.rs".to_string(),
+                    status: SelfEvolutionStatus::Accepted,
+                    score: None,
+                    error: None,
+                    description: "test".to_string(),
+                    hypothesis: "test".to_string(),
+                    tests_before: None,
+                    tests_after: None,
+                },
+            ];
+
+            let config = SelfEvolutionConfig::default();
+            let engine = SelfEvolutionEngine::<crate::llm::OpenAI>::new_with_results(config, results);
+            
+            let freq = engine.experiment_frequency();
+            assert_eq!(freq.get("a.rs"), Some(&2));
+            assert_eq!(freq.get("b.rs"), Some(&1));
+        }
     }
 }
