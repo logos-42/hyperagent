@@ -52,6 +52,22 @@ pub struct FuzzyRequirement {
     pub has_extra_whitespace: bool,
 }
 
+impl FuzzyRequirement {
+    /// Returns a human-readable one-line summary of the fuzzy requirement.
+    /// Format: "FuzzyRequirement: exact, 1 line" or "FuzzyRequirement: needs LineByLine, 3 lines, extra whitespace"
+    pub fn summary(&self) -> String {
+        let strategy_name = format!("{:?}", self.suggested_strategy);
+        let line_word = if self.line_count == 1 { "line" } else { "lines" };
+        
+        if self.needs_fuzzy {
+            let whitespace_note = if self.has_extra_whitespace { ", extra whitespace" } else { "" };
+            format!("FuzzyRequirement: needs {}, {} {}{}", strategy_name, self.line_count, line_word, whitespace_note)
+        } else {
+            format!("FuzzyRequirement: {}, {} {}", strategy_name, self.line_count, line_word)
+        }
+    }
+}
+
 /// 编辑操作的统计信息
 #[derive(Debug, Clone, Default)]
 pub struct EditStats {
@@ -1604,5 +1620,60 @@ mod tests {
             chars_removed: 75,
         };
         assert_eq!(stats.summary(), "-75 chars");
+    }
+
+    #[test]
+    fn test_fuzzy_requirement_summary_exact() {
+        let req = FuzzyRequirement {
+            needs_fuzzy: false,
+            suggested_strategy: FuzzyMatchStrategy::Exact,
+            line_count: 1,
+            has_extra_whitespace: false,
+        };
+        assert_eq!(req.summary(), "FuzzyRequirement: Exact, 1 line");
+    }
+
+    #[test]
+    fn test_fuzzy_requirement_summary_exact_multiline() {
+        let req = FuzzyRequirement {
+            needs_fuzzy: false,
+            suggested_strategy: FuzzyMatchStrategy::Exact,
+            line_count: 5,
+            has_extra_whitespace: false,
+        };
+        assert_eq!(req.summary(), "FuzzyRequirement: Exact, 5 lines");
+    }
+
+    #[test]
+    fn test_fuzzy_requirement_summary_needs_trimmed() {
+        let req = FuzzyRequirement {
+            needs_fuzzy: true,
+            suggested_strategy: FuzzyMatchStrategy::Trimmed,
+            line_count: 1,
+            has_extra_whitespace: true,
+        };
+        assert_eq!(req.summary(), "FuzzyRequirement: needs Trimmed, 1 line, extra whitespace");
+    }
+
+    #[test]
+    fn test_fuzzy_requirement_summary_needs_line_by_line() {
+        let req = FuzzyRequirement {
+            needs_fuzzy: true,
+            suggested_strategy: FuzzyMatchStrategy::LineByLine,
+            line_count: 3,
+            has_extra_whitespace: false,
+        };
+        assert_eq!(req.summary(), "FuzzyRequirement: needs LineByLine, 3 lines");
+    }
+
+    #[test]
+    fn test_fuzzy_requirement_summary_needs_normalized() {
+        let req = FuzzyRequirement {
+            needs_fuzzy: true,
+            suggested_strategy: FuzzyMatchStrategy::Normalized,
+            line_count: 10,
+            has_extra_whitespace: true,
+        };
+        assert_eq!(req.summary(), "FuzzyRequirement: needs Normalized, 10 lines, extra whitespace");
     }
 }
