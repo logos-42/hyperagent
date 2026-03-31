@@ -1,6 +1,6 @@
 [package]
 name = "hyperagent"
-version = "0.1.200"
+version = "0.1.205"
 edition = "2021"
 
 [dependencies]

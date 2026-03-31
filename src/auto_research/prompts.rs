@@ -129,6 +129,36 @@ mod tests {
         let budget = AutoResearch::<crate::llm::LLMClientImpl>::token_budget_for_content(content, estimated);
         assert_eq!(budget, 0);
     }
+
+    #[test]
+    fn test_format_history_summary_empty() {
+        let result = AutoResearch::<crate::llm::LLMClientImpl>::format_history_summary(&[]);
+        assert_eq!(result, "(no experiments yet)");
+    }
+
+    #[test]
+    fn test_is_code_like_code() {
+        let code = "fn main() { let x = 42; }";
+        assert!(AutoResearch::<crate::llm::LLMClientImpl>::is_code_like(code));
+    }
+
+    #[test]
+    fn test_is_code_like_natural_language() {
+        let text = "This is a natural language sentence with normal words.";
+        assert!(!AutoResearch::<crate::llm::LLMClientImpl>::is_code_like(text));
+    }
+
+    #[test]
+    fn test_is_code_like_mixed() {
+        // Mixed content with some code characters but mostly text
+        let mixed = "hello world this is mostly text with one (paren)";
+        assert!(!AutoResearch::<crate::llm::LLMClientImpl>::is_code_like(mixed));
+    }
+
+    #[test]
+    fn test_is_code_like_empty() {
+        assert!(!AutoResearch::<crate::llm::LLMClientImpl>::is_code_like(""));
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -166,6 +196,43 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             experiment.reflection,
             Self::format_test_transition(experiment.tests_before, experiment.tests_after),
         )
+    }
+
+    /// Format multiple experiments as a summary table, useful for compact history display.
+    /// Returns a condensed view showing only key metrics per experiment.
+    fn format_history_summary(experiments: &[Experiment]) -> String {
+        if experiments.is_empty() {
+            return "(no experiments yet)".to_string();
+        }
+
+        let mut result = String::from("Recent experiments:\n");
+        for (i, exp) in experiments.iter().enumerate().take(5) {
+            let outcome_icon = match exp.outcome {
+                crate::auto_research::ExperimentOutcome::Improved => "✓",
+                crate::auto_research::ExperimentOutcome::Regressed => "✗",
+                crate::auto_research::ExperimentOutcome::Neutral => "○",
+                crate::auto_research::ExperimentOutcome::Failed => "⚠",
+            };
+            result.push_str(&format!(
+                "  {}. {} {} ({})\n",
+                i + 1,
+                outcome_icon,
+                exp.hypothesis.chars().take(50).collect::<String>().trim_end(),
+                Self::format_test_transition(exp.tests_before, exp.tests_after)
+            ));
+        }
+        result
+    }
+
+    /// Check if a string is likely code (vs natural language) based on character patterns.
+    /// Useful for choosing appropriate token estimation strategies.
+    fn is_code_like(s: &str) -> bool {
+        let code_indicators = ['{', '}', '(', ')', ';', '=', '<', '>', '&', '|', ':'];
+        let code_char_count = s.chars().filter(|c| code_indicators.contains(c)).count();
+        let total_chars = s.chars().count();
+        
+        // If >15% of characters are code indicators, treat as code
+        total_chars > 0 && (code_char_count as f64 / total_chars as f64) > 0.15
     }
 
     /// Format a file path with line count for context display
