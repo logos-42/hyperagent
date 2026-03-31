@@ -564,6 +564,39 @@ impl ErrorContext {
             if self.retryable { "retry" } else { "fail" }
         )
     }
+
+    /// Returns a structured action hint for programmatic error handling.
+    ///
+    /// This converts the string-based `action` field into a structured
+    /// [`ErrorAction`] enum with concrete parameters (e.g., retry delays,
+    /// max attempts) for automated recovery logic.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::Error;
+    ///
+    /// let err = Error::LLM("rate limited".into());
+    /// let action = err.context().action_hint();
+    /// assert!(action.is_retryable());
+    /// assert_eq!(action.max_attempts(), Some(3));
+    /// ```
+    pub fn action_hint(&self) -> ErrorAction {
+        match self.action {
+            "retry_with_backoff" => ErrorAction::RetryWithBackoff {
+                initial_delay_ms: 100,
+                max_attempts: 3,
+            },
+            "fail_fast" => ErrorAction::FailFast,
+            "log_and_continue" => ErrorAction::LogAndContinue,
+            "restore_from_backup" => ErrorAction::RestoreFromBackup,
+            "rescan" => ErrorAction::Rescan,
+            "fix_configuration" => ErrorAction::FixConfiguration,
+            "investigate" => ErrorAction::Investigate,
+            // Fallback for unknown actions
+            _ => ErrorAction::Investigate,
+        }
+    }
 }
 
 /// Recommended action for error recovery.
@@ -711,5 +744,55 @@ mod tests {
         let summary = ctx.summary();
         assert!(summary.contains("short"));
         assert!(summary.contains("[fail]"));
+    }
+
+    #[test]
+    fn test_error_context_action_hint_retryable() {
+        let ctx = ErrorContext {
+            category: "llm",
+            message: "rate limited".into(),
+            retryable: true,
+            action: "retry_with_backoff",
+        };
+        let hint = ctx.action_hint();
+        assert!(hint.is_retryable());
+        assert_eq!(hint.initial_delay_ms(), Some(100));
+        assert_eq!(hint.max_attempts(), Some(3));
+    }
+
+    #[test]
+    fn test_error_context_action_hint_fail_fast() {
+        let ctx = ErrorContext {
+            category: "evolution",
+            message: "constraint violated".into(),
+            retryable: false,
+            action: "fail_fast",
+        };
+        let hint = ctx.action_hint();
+        assert!(!hint.is_retryable());
+        assert!(hint.initial_delay_ms().is_none());
+    }
+
+    #[test]
+    fn test_error_context_action_hint_unknown() {
+        let ctx = ErrorContext {
+            category: "test",
+            message: "test".into(),
+            retryable: false,
+            action: "unknown_action",
+        };
+        let hint = ctx.action_hint();
+        assert!(!hint.is_retryable());
+    }
+
+    #[test]
+    fn test_error_action_hint_from_error() {
+        let err = Error::LLM("timeout".into());
+        let action = err.context().action_hint();
+        assert!(matches!(action, ErrorAction::RetryWithBackoff { .. }));
+
+        let err = Error::Config("invalid".into());
+        let action = err.context().action_hint();
+        assert!(matches!(action, ErrorAction::FixConfiguration));
     }
 }
