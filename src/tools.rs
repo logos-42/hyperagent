@@ -1182,6 +1182,27 @@ pub struct WriteFileOutput {
     pub appended: bool,
 }
 
+impl WriteFileOutput {
+    /// Returns a human-readable one-line summary of the write operation.
+    /// 
+    /// # Example outputs:
+    /// - `"Created src/new.rs: 150 bytes written"`
+    /// - `"Appended to src/log.txt: 50 bytes added"`
+    /// - `"Overwrote src/existing.rs: 200 bytes written"`
+    pub fn summary(&self) -> String {
+        let action = if self.appended {
+            "Appended to"
+        } else if self.created {
+            "Created"
+        } else {
+            "Overwrote"
+        };
+        
+        format!("{} {}: {} bytes {}", action, self.path, self.bytes_written, 
+            if self.appended { "added" } else { "written" })
+    }
+}
+
 /// Arguments for the codebase_delete tool.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DeleteFileArgs {
@@ -1195,6 +1216,21 @@ pub struct DeleteFileOutput {
     pub path: String,
     pub deleted: bool,
     pub bytes_freed: u64,
+}
+
+impl DeleteFileOutput {
+    /// Returns a human-readable one-line summary of the delete operation.
+    /// 
+    /// # Example outputs:
+    /// - `"Deleted src/old.rs: freed 500 bytes"`
+    /// - `"File src/nonexistent.rs not found"`
+    pub fn summary(&self) -> String {
+        if self.deleted {
+            format!("Deleted {}: freed {} bytes", self.path, self.bytes_freed)
+        } else {
+            format!("File {} not found", self.path)
+        }
+    }
 }
 
 /// Delete a file from the codebase.
@@ -2614,5 +2650,111 @@ mod tests {
         };
         
         assert_eq!(output.summary(), "Read single.txt: 1 lines");
+    }
+
+    #[test]
+    fn test_write_file_output_summary_created() {
+        let output = WriteFileOutput {
+            path: "src/new.rs".to_string(),
+            bytes_written: 150,
+            created: true,
+            appended: false,
+        };
+        
+        assert_eq!(output.summary(), "Created src/new.rs: 150 bytes written");
+    }
+
+    #[test]
+    fn test_write_file_output_summary_overwritten() {
+        let output = WriteFileOutput {
+            path: "src/existing.rs".to_string(),
+            bytes_written: 200,
+            created: false,
+            appended: false,
+        };
+        
+        assert_eq!(output.summary(), "Overwrote src/existing.rs: 200 bytes written");
+    }
+
+    #[test]
+    fn test_write_file_output_summary_appended() {
+        let output = WriteFileOutput {
+            path: "src/log.txt".to_string(),
+            bytes_written: 50,
+            created: false,
+            appended: true,
+        };
+        
+        assert_eq!(output.summary(), "Appended to src/log.txt: 50 bytes added");
+    }
+
+    #[test]
+    fn test_write_file_output_summary_created_and_appended() {
+        // Edge case: file created via append (append to non-existent file)
+        let output = WriteFileOutput {
+            path: "src/new.txt".to_string(),
+            bytes_written: 100,
+            created: true,
+            appended: true,
+        };
+        
+        // Appended takes precedence in the logic
+        assert_eq!(output.summary(), "Appended to src/new.txt: 100 bytes added");
+    }
+
+    #[test]
+    fn test_write_file_output_summary_zero_bytes() {
+        let output = WriteFileOutput {
+            path: "empty.txt".to_string(),
+            bytes_written: 0,
+            created: true,
+            appended: false,
+        };
+        
+        assert_eq!(output.summary(), "Created empty.txt: 0 bytes written");
+    }
+
+    #[test]
+    fn test_delete_file_output_summary_deleted() {
+        let output = DeleteFileOutput {
+            path: "src/old.rs".to_string(),
+            deleted: true,
+            bytes_freed: 500,
+        };
+        
+        assert_eq!(output.summary(), "Deleted src/old.rs: freed 500 bytes");
+    }
+
+    #[test]
+    fn test_delete_file_output_summary_not_found() {
+        let output = DeleteFileOutput {
+            path: "src/nonexistent.rs".to_string(),
+            deleted: false,
+            bytes_freed: 0,
+        };
+        
+        assert_eq!(output.summary(), "File src/nonexistent.rs not found");
+    }
+
+    #[test]
+    fn test_delete_file_output_summary_large_file() {
+        let output = DeleteFileOutput {
+            path: "large_backup.bin".to_string(),
+            deleted: true,
+            bytes_freed: 1048576, // 1 MB
+        };
+        
+        assert_eq!(output.summary(), "Deleted large_backup.bin: freed 1048576 bytes");
+    }
+
+    #[test]
+    fn test_delete_file_output_summary_zero_bytes_freed() {
+        let output = DeleteFileOutput {
+            path: "empty.txt".to_string(),
+            deleted: true,
+            bytes_freed: 0,
+        };
+        
+        assert_eq!(output.summary(), "Deleted empty.txt: freed 0 bytes");
     }
 }
