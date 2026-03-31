@@ -336,6 +336,40 @@ impl From<anyhow::Error> for WebToolError {
     }
 }
 
+impl WebToolError {
+    /// Returns a human-readable one-line summary of the error.
+    ///
+    /// This is useful for quick logging and displaying errors in LLM context
+    /// without exposing internal implementation details.
+    pub fn summary(&self) -> String {
+        match self {
+            WebToolError::Http(msg) => format!("HTTP error: {}", msg),
+            WebToolError::Parse(msg) => format!("Parse error: {}", msg),
+            WebToolError::Timeout(msg) => format!("Timeout: {}", msg),
+        }
+    }
+
+    /// Returns actionable context for resolving the error.
+    ///
+    /// Provides hints about what the caller can do to address the error,
+    /// useful for LLM agents to self-correct their web tool usage.
+    pub fn context(&self) -> &'static str {
+        match self {
+            WebToolError::Http(_) => "Check if the URL is reachable and the service is available. Consider retrying with exponential backoff.",
+            WebToolError::Parse(_) => "The response format was unexpected. Try fetching a different URL or using web_search to find alternative sources.",
+            WebToolError::Timeout(_) => "The request timed out. Try increasing the timeout or reducing max_response_size for faster results.",
+        }
+    }
+
+    /// Returns `true` if this error is potentially recoverable by retrying.
+    ///
+    /// Network errors and timeouts are often transient, while parse errors
+    /// indicate permanent issues with the response format.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, WebToolError::Http(_) | WebToolError::Timeout(_))
+    }
+}
+
 /// Web search tool (rig Tool trait).
 ///
 /// Searches DuckDuckGo HTML endpoint — no API key required.
@@ -1722,5 +1756,54 @@ mod tests {
         assert!(tag_starts_with("<script type='text/javascript'>", "script"));
         assert!(tag_starts_with("<div class='container'>", "div"));
         assert!(tag_starts_with("<style media='screen'>", "style"));
+    }
+
+    #[test]
+    fn test_web_tool_error_summary() {
+        let http_err = WebToolError::Http("Connection refused".to_string());
+        assert!(http_err.summary().contains("HTTP error"));
+        assert!(http_err.summary().contains("Connection refused"));
+
+        let parse_err = WebToolError::Parse("Invalid JSON".to_string());
+        assert!(parse_err.summary().contains("Parse error"));
+        assert!(parse_err.summary().contains("Invalid JSON"));
+
+        let timeout_err = WebToolError::Timeout("30s exceeded".to_string());
+        assert!(timeout_err.summary().contains("Timeout"));
+        assert!(timeout_err.summary().contains("30s exceeded"));
+    }
+
+    #[test]
+    fn test_web_tool_error_context() {
+        // Each error type should have actionable context
+        let http_err = WebToolError::Http("test".to_string());
+        assert!(!http_err.context().is_empty());
+        assert!(http_err.context().contains("URL"));
+
+        let parse_err = WebToolError::Parse("test".to_string());
+        assert!(!parse_err.context().is_empty());
+        assert!(parse_err.context().contains("format"));
+
+        let timeout_err = WebToolError::Timeout("test".to_string());
+        assert!(!timeout_err.context().is_empty());
+        assert!(timeout_err.context().contains("timeout"));
+    }
+
+    #[test]
+    fn test_web_tool_error_is_retryable() {
+        // HTTP and Timeout errors should be retryable
+        assert!(WebToolError::Http("test".to_string()).is_retryable());
+        assert!(WebToolError::Timeout("test".to_string()).is_retryable());
+
+        // Parse errors should not be retryable
+        assert!(!WebToolError::Parse("test".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn test_web_tool_error_from_anyhow() {
+        let anyhow_err = anyhow::anyhow!("Something went wrong");
+        let web_err: WebToolError = anyhow_err.into();
+        assert!(matches!(web_err, WebToolError::Http(_)));
+        assert!(web_err.summary().contains("Something went wrong"));
     }
 }
