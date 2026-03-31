@@ -146,7 +146,7 @@ impl GitLog {
             return "empty log".to_string();
         }
 
-        use std::collections::HashSet;
+        use std::collections::{HashMap, HashSet};
         let authors: HashSet<&str> = self.entries.iter().map(|e| e.author.as_str()).collect();
         let count = self.entries.len();
         let commit_str = if count == 1 { "commit" } else { "commits" };
@@ -1181,5 +1181,84 @@ mod tests {
             ],
         };
         assert_eq!(log.summary(), "3 commits from Alice, Bob, Zoe");
+    }
+
+    #[test]
+    fn test_git_log_by_author_empty() {
+        let log = GitLog { entries: vec![] };
+        let by_author = log.by_author();
+        assert!(by_author.is_empty());
+    }
+
+    #[test]
+    fn test_git_log_by_author_single_author() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "a1".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "a2".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Second commit".to_string(),
+                },
+            ],
+        };
+        let by_author = log.by_author();
+        assert_eq!(by_author.len(), 1);
+        let alice_commits = by_author.get("Alice").unwrap();
+        assert_eq!(alice_commits.len(), 2);
+        assert_eq!(alice_commits, &vec!["First commit", "Second commit"]);
+    }
+
+    #[test]
+    fn test_git_log_by_author_multiple_authors() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "a1".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Alice's commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "b1".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Bob's commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "a2".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Alice's second".to_string(),
+                },
+            ],
+        };
+        let by_author = log.by_author();
+        assert_eq!(by_author.len(), 2);
+
+        let alice_commits = by_author.get("Alice").unwrap();
+        assert_eq!(alice_commits.len(), 2);
+        assert_eq!(alice_commits, &vec!["Alice's commit", "Alice's second"]);
+
+        let bob_commits = by_author.get("Bob").unwrap();
+        assert_eq!(bob_commits.len(), 1);
+        assert_eq!(bob_commits, &vec!["Bob's commit"]);
+    }
+
+    #[test]
+    fn test_git_log_by_author_single_commit() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "abc".to_string(),
+                author: "Solo".to_string(),
+                message: "Only commit".to_string(),
+            }],
+        };
+        let by_author = log.by_author();
+        assert_eq!(by_author.len(), 1);
+        let solo_commits = by_author.get("Solo").unwrap();
+        assert_eq!(solo_commits.len(), 1);
+        assert_eq!(solo_commits, &vec!["Only commit"]);
     }
 }
