@@ -423,6 +423,24 @@ impl WebSearchTool {
         Self::with_config(config)
     }
 
+    /// Create a new WebSearchTool with custom retry configuration.
+    ///
+    /// # Arguments
+    /// * `max_retries` - Maximum number of retry attempts for transient failures
+    /// * `base_delay_ms` - Base delay in milliseconds for exponential backoff
+    /// * `retry_on_timeout` - Whether to retry on timeout errors
+    ///
+    /// This is useful for tuning retry behavior for different network conditions.
+    pub fn with_retry_config(max_retries: u32, base_delay_ms: u64, retry_on_timeout: bool) -> Self {
+        let config = HttpClientConfig {
+            max_retries,
+            retry_base_delay_ms: base_delay_ms,
+            retry_on_timeout,
+            ..Default::default()
+        };
+        Self::with_config(config)
+    }
+
     /// Direct search (without rig Tool machinery).
     pub async fn search(&self, query: &str, max_results: usize) -> Result<Vec<WebSearchResult>> {
         let max = max_results.min(10).max(1);
@@ -612,6 +630,24 @@ impl WebFetchTool {
     pub fn with_timeout(timeout_secs: u64) -> Self {
         let config = HttpClientConfig {
             timeout_secs,
+            ..Default::default()
+        };
+        Self::with_config(config)
+    }
+
+    /// Create a new WebFetchTool with custom retry configuration.
+    ///
+    /// # Arguments
+    /// * `max_retries` - Maximum number of retry attempts for transient failures
+    /// * `base_delay_ms` - Base delay in milliseconds for exponential backoff
+    /// * `retry_on_timeout` - Whether to retry on timeout errors
+    ///
+    /// This is useful for tuning retry behavior for different network conditions.
+    pub fn with_retry_config(max_retries: u32, base_delay_ms: u64, retry_on_timeout: bool) -> Self {
+        let config = HttpClientConfig {
+            max_retries,
+            retry_base_delay_ms: base_delay_ms,
+            retry_on_timeout,
             ..Default::default()
         };
         Self::with_config(config)
@@ -1523,6 +1559,77 @@ mod tests {
         assert!(summary.contains("timeout=60s"));
         assert!(summary.contains("retries=5"));
         assert!(summary.contains("20.0MB"));
+    }
+
+    #[test]
+    fn test_http_client_config_has_retry_budget() {
+        let with_retries = HttpClientConfig {
+            max_retries: 3,
+            ..Default::default()
+        };
+        let client = HttpClient::with_config(with_retries);
+        assert!(client.has_retry_budget());
+
+        let no_retries = HttpClientConfig {
+            max_retries: 0,
+            ..Default::default()
+        };
+        let client_no_retry = HttpClient::with_config(no_retries);
+        assert!(!client_no_retry.has_retry_budget());
+    }
+
+    // -------------------------------------------------------------------------
+    // WebSearchTool builder method tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_web_search_tool_with_retry_config() {
+        let tool = WebSearchTool::with_retry_config(5, 250, false);
+        // Verify the config is set correctly by checking the client config
+        assert_eq!(tool.client.config.max_retries, 5);
+        assert_eq!(tool.client.config.retry_base_delay_ms, 250);
+        assert!(!tool.client.config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_search_tool_with_timeout() {
+        let tool = WebSearchTool::with_timeout(60);
+        assert_eq!(tool.client.config.timeout_secs, 60);
+        // Should use defaults for other fields
+        assert_eq!(tool.client.config.max_retries, 3);
+    }
+
+    #[test]
+    fn test_web_search_tool_default_config() {
+        let tool = WebSearchTool::new();
+        assert_eq!(tool.client.config.timeout_secs, 30);
+        assert_eq!(tool.client.config.max_retries, 3);
+        assert!(tool.client.config.retry_on_timeout);
+    }
+
+    // -------------------------------------------------------------------------
+    // WebFetchTool builder method tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_web_fetch_tool_with_retry_config() {
+        let tool = WebFetchTool::with_retry_config(10, 500, true);
+        assert_eq!(tool.client.config.max_retries, 10);
+        assert_eq!(tool.client.config.retry_base_delay_ms, 500);
+        assert!(tool.client.config.retry_on_timeout);
+    }
+
+    #[test]
+    fn test_web_fetch_tool_with_timeout() {
+        let tool = WebFetchTool::with_timeout(120);
+        assert_eq!(tool.client.config.timeout_secs, 120);
+    }
+
+    #[test]
+    fn test_web_fetch_tool_default_config() {
+        let tool = WebFetchTool::new();
+        assert_eq!(tool.client.config.timeout_secs, 30);
+        assert_eq!(tool.client.config.max_retries, 3);
     }
 
     // -------------------------------------------------------------------------
