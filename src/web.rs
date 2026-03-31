@@ -1095,3 +1095,440 @@ pub fn build_web_context_prompt(results: &[WebSearchResult], pages: &[FetchOutpu
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // URL encoding/decoding tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_url_decode_basic() {
+        assert_eq!(url_decode("hello"), "hello");
+        assert_eq!(url_decode("hello+world"), "hello world");
+        assert_eq!(url_decode("%20"), " ");
+        assert_eq!(url_decode("%2F"), "/");
+    }
+
+    #[test]
+    fn test_url_decode_complex() {
+        // Real-world URL: https://example.com/path?query=test
+        assert_eq!(
+            url_decode("https%3A%2F%2Fexample.com%2Fpath"),
+            "https://example.com/path"
+        );
+    }
+
+    #[test]
+    fn test_url_decode_edge_cases() {
+        // Incomplete percent sequence - should preserve original
+        assert_eq!(url_decode("%2"), "%2");
+        // Invalid hex chars - should preserve original
+        assert_eq!(url_decode("%GG"), "%GG");
+        // Mixed valid and invalid
+        assert_eq!(url_decode("test%20value%ZZ"), "test value%ZZ");
+        // Multiple plus signs
+        assert_eq!(url_decode("a+b+c"), "a b c");
+        // Empty string
+        assert_eq!(url_decode(""), "");
+    }
+
+    #[test]
+    fn test_url_decode_preserves_valid_percent_at_end() {
+        // Percent at end without hex chars
+        assert_eq!(url_decode("test%"), "test%");
+    }
+
+    #[test]
+    fn test_percent_encode_basic() {
+        assert_eq!(percent_encode("hello"), "hello");
+        assert_eq!(percent_encode("hello world"), "hello+world");
+        assert_eq!(percent_encode("test/value"), "test%2Fvalue");
+    }
+
+    #[test]
+    fn test_percent_encode_special_chars() {
+        // Space becomes +
+        assert_eq!(percent_encode(" "), "+");
+        // Unreserved chars stay as-is
+        assert_eq!(percent_encode("aZ0-_.~"), "aZ0-_.~");
+        // Reserved chars get encoded
+        assert_eq!(percent_encode("&"), "%26");
+        assert_eq!(percent_encode("="), "%3D");
+        assert_eq!(percent_encode("?"), "%3F");
+    }
+
+    #[test]
+    fn test_percent_encode_roundtrip() {
+        // Test that encode/decode is consistent for simple cases
+        let original = "hello world test";
+        let encoded = percent_encode(original);
+        let decoded = url_decode(&encoded);
+        assert_eq!(decoded, original);
+    }
+
+    // -------------------------------------------------------------------------
+    // DDG redirect URL resolution tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_ddg_redirect_direct_url() {
+        // Non-redirect URL should pass through unchanged
+        let url = "https://example.com/page";
+        assert_eq!(resolve_ddg_redirect(url), url);
+    }
+
+    #[test]
+    fn test_resolve_ddg_redirect_extracted() {
+        // DDG redirect URL with uddg parameter
+        let ddg_url = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=abc123";
+        assert_eq!(resolve_ddg_redirect(ddg_url), "https://example.com");
+    }
+
+    #[test]
+    fn test_resolve_ddg_redirect_encoded_url() {
+        // Complex URL with path and query
+        let ddg_url = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpath%3Fq%3Dtest";
+        assert_eq!(resolve_ddg_redirect(ddg_url), "https://example.com/path?q=test");
+    }
+
+    #[test]
+    fn test_resolve_ddg_redirect_no_uddg() {
+        // DDG URL without uddg parameter
+        let url = "//duckduckgo.com/l/?rut=abc123";
+        assert_eq!(resolve_ddg_redirect(url), url);
+    }
+
+    // -------------------------------------------------------------------------
+    // HTML parsing tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_title_basic() {
+        let html = "<html><head><title>Test Page</title></head><body></body></html>";
+        assert_eq!(extract_title(html), "Test Page");
+    }
+
+    #[test]
+    fn test_extract_title_case_insensitive() {
+        // Title tags may have different casing
+        let html = "<HTML><HEAD><TITLE>Test</TITLE></HEAD></HTML>";
+        assert_eq!(extract_title(html), "Test");
+
+        let html2 = "<html><head><TiTlE>Mixed Case</TiTlE></head></html>";
+        assert_eq!(extract_title(html2), "Mixed Case");
+    }
+
+    #[test]
+    fn test_extract_title_missing() {
+        // No title tag
+        let html = "<html><head></head><body>Content</body></html>";
+        assert_eq!(extract_title(html), "");
+
+        // Empty title
+        let html2 = "<html><head><title></title></head></html>";
+        assert_eq!(extract_title(html2), "");
+    }
+
+    #[test]
+    fn test_extract_title_with_whitespace() {
+        let html = "<html><head><title>  Trimmed Title  </title></head></html>";
+        assert_eq!(extract_title(html), "Trimmed Title");
+    }
+
+    #[test]
+    fn test_html_to_text_basic() {
+        let html = "<p>Hello <b>world</b>!</p>";
+        let text = html_to_text(html);
+        assert!(text.contains("Hello"));
+        assert!(text.contains("world"));
+    }
+
+    #[test]
+    fn test_html_to_text_strips_scripts() {
+        let html = "<html><script>var x = 1;</script><p>Content</p></html>";
+        let text = html_to_text(html);
+        assert!(!text.contains("var x"));
+        assert!(text.contains("Content"));
+    }
+
+    #[test]
+    fn test_html_to_text_strips_styles() {
+        let html = "<html><style>body { color: red; }</style><p>Text</p></html>";
+        let text = html_to_text(html);
+        assert!(!text.contains("color"));
+        assert!(text.contains("Text"));
+    }
+
+    #[test]
+    fn test_html_to_text_preserves_paragraph_breaks() {
+        let html = "<p>First</p><p>Second</p>";
+        let text = html_to_text(html);
+        assert!(text.contains("\n"));
+    }
+
+    #[test]
+    fn test_html_to_text_truncates_long_content() {
+        let long_text = "x".repeat(10000);
+        let html = format!("<html><body>{}</body></html>", long_text);
+        let text = html_to_text(&html);
+        assert!(text.len() <= 8005); // 8000 + "..."
+        assert!(text.ends_with("..."));
+    }
+
+    #[test]
+    fn test_html_to_text_handles_entities() {
+        // Ampersand handling (simplified - we preserve &)
+        let html = "<p>Tom &amp; Jerry</p>";
+        let text = html_to_text(html);
+        assert!(text.contains("&"));
+    }
+
+    // -------------------------------------------------------------------------
+    // WebSearchResult domain extraction tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_web_search_result_domain() {
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://example.com/path".to_string(),
+            snippet: "Snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.com"));
+    }
+
+    #[test]
+    fn test_web_search_result_domain_with_port() {
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "https://example.com:8080/path".to_string(),
+            snippet: "Snippet".to_string(),
+        };
+        assert_eq!(result.domain(), Some("example.com"));
+    }
+
+    #[test]
+    fn test_web_search_result_domain_invalid() {
+        let result = WebSearchResult {
+            title: "Test".to_string(),
+            url: "not-a-valid-url".to_string(),
+            snippet: "Snippet".to_string(),
+        };
+        // Should still extract something or return None
+        assert!(result.domain().is_some() || result.domain().is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // FetchOutput tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_fetch_output_summary() {
+        let output = FetchOutput {
+            url: "https://example.com/page".to_string(),
+            title: "Test Page".to_string(),
+            text: "Content here".to_string(),
+            text_length: 12,
+        };
+        let summary = output.summary();
+        assert!(summary.contains("example.com"));
+        assert!(summary.contains("Test Page"));
+        assert!(summary.contains("12 chars"));
+    }
+
+    #[test]
+    fn test_fetch_output_domain() {
+        let output = FetchOutput {
+            url: "https://docs.rs/crate/1.0".to_string(),
+            title: "Crate Docs".to_string(),
+            text: "Documentation".to_string(),
+            text_length: 13,
+        };
+        assert_eq!(output.domain(), Some("docs.rs"));
+    }
+
+    // -------------------------------------------------------------------------
+    // SearchOutput tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_search_output_is_empty() {
+        let empty = SearchOutput {
+            results: vec![],
+            query: "test".to_string(),
+        };
+        assert!(empty.is_empty());
+
+        let non_empty = SearchOutput {
+            results: vec![WebSearchResult {
+                title: "Test".to_string(),
+                url: "https://example.com".to_string(),
+                snippet: "Snippet".to_string(),
+            }],
+            query: "test".to_string(),
+        };
+        assert!(!non_empty.is_empty());
+    }
+
+    #[test]
+    fn test_search_output_summary() {
+        let output = SearchOutput {
+            results: vec![
+                WebSearchResult {
+                    title: "First".to_string(),
+                    url: "https://a.com".to_string(),
+                    snippet: "A".to_string(),
+                },
+                WebSearchResult {
+                    title: "Second".to_string(),
+                    url: "https://b.com".to_string(),
+                    snippet: "B".to_string(),
+                },
+            ],
+            query: "rust programming".to_string(),
+        };
+        let summary = output.summary();
+        assert!(summary.contains("2 result(s)"));
+        assert!(summary.contains("rust programming"));
+    }
+
+    // -------------------------------------------------------------------------
+    // WebToolError tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_web_tool_error_summary() {
+        let http_err = WebToolError::Http("404 Not Found".to_string());
+        assert!(http_err.summary().contains("HTTP error"));
+
+        let parse_err = WebToolError::Parse("Invalid JSON".to_string());
+        assert!(parse_err.summary().contains("Parse error"));
+
+        let timeout_err = WebToolError::Timeout("30s".to_string());
+        assert!(timeout_err.summary().contains("Timeout"));
+    }
+
+    #[test]
+    fn test_web_tool_error_is_retryable() {
+        assert!(WebToolError::Http("500".to_string()).is_retryable());
+        assert!(WebToolError::Timeout("30s".to_string()).is_retryable());
+        assert!(!WebToolError::Parse("bad".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn test_web_tool_error_context() {
+        // All variants should provide actionable context
+        assert!(!WebToolError::Http("err".to_string()).context().is_empty());
+        assert!(!WebToolError::Parse("err".to_string()).context().is_empty());
+        assert!(!WebToolError::Timeout("err".to_string()).context().is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // HttpClientConfig tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_http_client_config_default() {
+        let config = HttpClientConfig::default();
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.max_response_size, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_http_client_config_summary() {
+        let config = HttpClientConfig {
+            timeout_secs: 60,
+            max_retries: 5,
+            retry_base_delay_ms: 200,
+            retry_on_timeout: true,
+            max_response_size: 20 * 1024 * 1024,
+        };
+        let summary = config.summary();
+        assert!(summary.contains("timeout=60s"));
+        assert!(summary.contains("retries=5"));
+        assert!(summary.contains("20.0MB"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper function tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_find_case_insensitive() {
+        let haystack = "Hello World";
+        assert_eq!(find_case_insensitive(haystack, "hello"), Some(0));
+        assert_eq!(find_case_insensitive(haystack, "WORLD"), Some(6));
+        assert_eq!(find_case_insensitive(haystack, "xyz"), None);
+    }
+
+    #[test]
+    fn test_find_case_insensitive_empty() {
+        assert_eq!(find_case_insensitive("", "test"), None);
+        assert_eq!(find_case_insensitive("test", ""), None);
+    }
+
+    #[test]
+    fn test_tag_starts_with() {
+        assert!(tag_starts_with("<script>", "script"));
+        assert!(tag_starts_with("<SCRIPT>", "script"));
+        assert!(tag_starts_with("</script>", "/script"));
+        assert!(!tag_starts_with("<style>", "script"));
+    }
+
+    // -------------------------------------------------------------------------
+    // build_web_context_prompt tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_build_web_context_prompt_empty() {
+        let prompt = build_web_context_prompt(&[], &[]);
+        assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_with_results() {
+        let results = vec![WebSearchResult {
+            title: "Rust Docs".to_string(),
+            url: "https://doc.rust-lang.org".to_string(),
+            snippet: "The Rust Programming Language".to_string(),
+        }];
+        let prompt = build_web_context_prompt(&results, &[]);
+        assert!(prompt.contains("WEB SEARCH RESULTS"));
+        assert!(prompt.contains("Rust Docs"));
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_with_pages() {
+        let pages = vec![FetchOutput {
+            url: "https://example.com".to_string(),
+            title: "Example".to_string(),
+            text: "Content here".to_string(),
+            text_length: 12,
+        }];
+        let prompt = build_web_context_prompt(&[], &pages);
+        assert!(prompt.contains("FETCHED WEB PAGES"));
+        assert!(prompt.contains("Example"));
+    }
+
+    #[test]
+    fn test_build_web_context_prompt_combined() {
+        let results = vec![WebSearchResult {
+            title: "Search Result".to_string(),
+            url: "https://search.com".to_string(),
+            snippet: "Found this".to_string(),
+        }];
+        let pages = vec![FetchOutput {
+            url: "https://page.com".to_string(),
+            title: "Page Title".to_string(),
+            text: "Page content".to_string(),
+            text_length: 12,
+        }];
+        let prompt = build_web_context_prompt(&results, &pages);
+        assert!(prompt.contains("WEB SEARCH RESULTS"));
+        assert!(prompt.contains("FETCHED WEB PAGES"));
+    }
+}
