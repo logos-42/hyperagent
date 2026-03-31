@@ -610,19 +610,27 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 None => break,
             };
 
+            // 使用字节索引查找，但确保在提取子串时验证 UTF-8 边界
             let file_line_end = response[file_start..].find('\n').map(|i| file_start + i).unwrap_or(response.len());
-            let file_path = response[file_start + 5..file_line_end].trim().to_string();
+            // 使用 strip_prefix 和 split 来安全提取文件路径，避免直接字节切片
+            let file_path = if let Some(suffix) = response.get(file_start + 5..file_line_end) {
+                suffix.trim().to_string()
+            } else {
+                pos = file_start + 5;
+                continue;
+            };
 
-            let code_region = &response[file_line_end..];
+            // 安全获取代码区域，使用 get() 避免越界
+            let code_region = response.get(file_line_end..).unwrap_or("");
 
             let (code_start, code_end) = if let Some(block_start) = code_region.find("```") {
                 let actual_start = block_start + 3;
-                let content_start = if code_region[actual_start..].starts_with("rust") {
+                let content_start = if code_region.get(actual_start..).map_or(false, |s| s.starts_with("rust")) {
                     actual_start + 4
                 } else {
                     actual_start
                 };
-                let close_pos = match code_region[content_start..].find("```") {
+                let close_pos = match code_region.get(content_start..).and_then(|s| s.find("```")) {
                     Some(p) => content_start + p,
                     None => continue,
                 };
@@ -633,7 +641,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
                 continue;
             };
 
-            let code = response[code_start..code_end].trim().to_string();
+            // 使用 get() 安全提取代码，避免 UTF-8 边界问题
+            let code = response.get(code_start..code_end).map(|s| s.trim().to_string()).unwrap_or_default();
             if !code.is_empty() {
                 changes.push((file_path, code));
             }

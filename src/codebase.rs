@@ -7,10 +7,10 @@
 //! 4. 每次研究迭代时注入上下文，让 LLM "看见全局"
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use chrono::{DateTime, Utc};
 
 /// A single improvement record with structured data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,7 +212,7 @@ impl CodebaseContext {
         // Process content as a single string for multi-line handling
         let lines: Vec<&str> = content.lines().collect();
         let mut i = 0;
-        
+
         while i < lines.len() {
             let line = lines[i].trim();
             let _full_line = lines[i];
@@ -225,7 +225,10 @@ impl CodebaseContext {
 
             // Handle derive attributes - collect them for the next item
             if line.starts_with("#[derive(") {
-                if let Some(inner) = line.strip_prefix("#[derive(").and_then(|s| s.strip_suffix(")]")) {
+                if let Some(inner) = line
+                    .strip_prefix("#[derive(")
+                    .and_then(|s| s.strip_suffix(")]"))
+                {
                     for derive in inner.split(',') {
                         derives.push(derive.trim().to_string());
                     }
@@ -254,14 +257,18 @@ impl CodebaseContext {
                     name
                 } else {
                     // Multi-line struct - look for name with generics
-                    let next_line = if i + 1 < lines.len() { lines[i + 1].trim() } else { "" };
+                    let next_line = if i + 1 < lines.len() {
+                        lines[i + 1].trim()
+                    } else {
+                        ""
+                    };
                     if next_line.starts_with('<') {
                         // Collect generic parameters
                         let mut generic_str = String::new();
                         let _j = i;
                         let mut depth = 0;
                         let mut started = false;
-                        
+
                         // Look backwards and forwards for generic params
                         for ch in line.chars() {
                             if ch == '<' {
@@ -278,7 +285,7 @@ impl CodebaseContext {
                                 }
                             }
                         }
-                        
+
                         if !generic_str.is_empty() {
                             format!("{}{}", name, generic_str)
                         } else {
@@ -323,7 +330,7 @@ impl CodebaseContext {
                 } else {
                     line.strip_prefix("impl ").unwrap_or(line).to_string()
                 };
-                
+
                 // Extract the primary type name
                 let name = if let Some(stripped) = impl_content.strip_prefix("impl<") {
                     // Generic impl - find the main type after >
@@ -343,7 +350,11 @@ impl CodebaseContext {
                             .unwrap_or(type_str)
                             .to_string()
                     } else {
-                        stripped.split_whitespace().next().unwrap_or(stripped).to_string()
+                        stripped
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or(stripped)
+                            .to_string()
                     }
                 } else {
                     impl_content
@@ -352,7 +363,7 @@ impl CodebaseContext {
                         .map(|s| s.split('<').next().unwrap_or(s).to_string())
                         .unwrap_or_default()
                 };
-                
+
                 if !name.is_empty() && !name.starts_with('{') {
                     impls.push(name);
                 }
@@ -369,15 +380,13 @@ impl CodebaseContext {
 
             // mod xxx
             if line.starts_with("pub mod ") || line.starts_with("mod ") {
-                let prefix = if line.starts_with("pub mod ") { "pub mod " } else { "mod " };
+                let prefix = if line.starts_with("pub mod ") {
+                    "pub mod "
+                } else {
+                    "mod "
+                };
                 if let Some(rest) = line.strip_prefix(prefix) {
-                    mods.push(
-                        rest.split(';')
-                            .next()
-                            .unwrap_or(rest)
-                            .trim()
-                            .to_string(),
-                    );
+                    mods.push(rest.split(';').next().unwrap_or(rest).trim().to_string());
                 }
                 i += 1;
                 continue;
@@ -386,7 +395,7 @@ impl CodebaseContext {
             i += 1;
         }
 
-        // 提取文件头部文档注释，在单词边界截断以避免截断单词
+        // 提取文件头部文档注释，在字符边界截断以避免截断多字节字符（如中文）
         let doc_summary = {
             let full_doc: String = content
                 .lines()
@@ -394,13 +403,13 @@ impl CodebaseContext {
                 .map(|l| l.trim().trim_start_matches("//!").trim())
                 .collect::<Vec<_>>()
                 .join(" ");
-            
+
             if full_doc.len() <= 200 {
                 full_doc
             } else {
-                // Find the last space before position 200
-                let truncate_pos = full_doc[..200].rfind(' ').unwrap_or(200);
-                format!("{}...", &full_doc[..truncate_pos])
+                // 按字符截断，确保在字符边界而非字节边界截断
+                let chars: String = full_doc.chars().take(180).collect();
+                format!("{}...", chars)
             }
         };
 
@@ -425,9 +434,9 @@ impl CodebaseContext {
         if !trimmed.starts_with(keyword) {
             return None;
         }
-        
+
         let rest = trimmed.strip_prefix(keyword)?.trim();
-        
+
         // Skip derive attributes that might be inline like #[derive(Debug)]
         let rest = if rest.starts_with("#[derive(") {
             // Find the end of derive
@@ -439,7 +448,7 @@ impl CodebaseContext {
         } else {
             rest
         };
-        
+
         // Skip other attributes
         let rest = if rest.starts_with("#[") {
             if let Some(end) = rest.find(']') {
@@ -450,30 +459,30 @@ impl CodebaseContext {
         } else {
             rest
         };
-        
+
         // Skip 'pub' if present (for nested visibility)
         let rest = rest.strip_prefix("pub ").unwrap_or(rest).trim();
-        
+
         // Extract name, stopping at generics, braces, or parens
         let name: String = rest
             .chars()
             .take_while(|&c| c.is_alphanumeric() || c == '_')
             .collect();
-        
+
         if name.is_empty() {
             return None;
         }
-        
+
         // Check if there are generic parameters on the same line
         let after_name = rest.strip_prefix(&name)?;
         let after_name = after_name.trim();
-        
+
         if after_name.starts_with('<') {
             // Extract generic parameters
             let mut generics = String::new();
             let mut depth = 0;
             let mut started = false;
-            
+
             for ch in after_name.chars() {
                 if ch == '<' {
                     depth += 1;
@@ -489,19 +498,19 @@ impl CodebaseContext {
                     }
                 }
             }
-            
+
             if !generics.is_empty() {
                 return Some(format!("{}{}", name, generics));
             }
         }
-        
+
         Some(name)
     }
 
     /// 提取 pub fn / pub async fn 名称
     fn extract_fn_name(line: &str) -> Option<String> {
         let trimmed = line.trim();
-        
+
         // Skip attributes
         let trimmed = if trimmed.starts_with("#[") {
             if let Some(pos) = trimmed.find(']') {
@@ -512,7 +521,7 @@ impl CodebaseContext {
         } else {
             trimmed
         };
-        
+
         let rest = if trimmed.starts_with("pub async fn ") {
             Some(trimmed.strip_prefix("pub async fn ").unwrap())
         } else if trimmed.starts_with("pub fn ") {
@@ -552,7 +561,10 @@ impl CodebaseContext {
             } else {
                 format!(" → {}", items.join(", "))
             };
-            tree.push_str(&format!("{}{} ({} lines){}\n", indent, path, summary.lines, items_str));
+            tree.push_str(&format!(
+                "{}{} ({} lines){}\n",
+                indent, path, summary.lines, items_str
+            ));
         }
 
         tree
@@ -608,8 +620,16 @@ impl CodebaseContext {
                     s.path,
                     doc,
                     s.lines,
-                    if types.is_empty() { "—".to_string() } else { types.join(", ") },
-                    if fns_str.is_empty() { "—".to_string() } else { fns_str },
+                    if types.is_empty() {
+                        "—".to_string()
+                    } else {
+                        types.join(", ")
+                    },
+                    if fns_str.is_empty() {
+                        "—".to_string()
+                    } else {
+                        fns_str
+                    },
                 ));
             }
 
@@ -656,7 +676,9 @@ impl CodebaseContext {
         self.improvement_history.push(record);
         // 只保留最近 50 条
         if self.improvement_history.len() > 50 {
-            self.improvement_history = self.improvement_history.split_off(self.improvement_history.len() - 50);
+            self.improvement_history = self
+                .improvement_history
+                .split_off(self.improvement_history.len() - 50);
         }
         self.total_iterations += 1;
     }
@@ -728,8 +750,13 @@ impl CodebaseContext {
     /// // Get last 5 regressions
     /// let regressions = ctx.improvements_by_outcome("Regressed", Some(5));
     /// ```
-    pub fn improvements_by_outcome(&self, outcome: &str, limit: Option<usize>) -> Vec<&ImprovementRecord> {
-        let filtered: Vec<&ImprovementRecord> = self.improvement_history
+    pub fn improvements_by_outcome(
+        &self,
+        outcome: &str,
+        limit: Option<usize>,
+    ) -> Vec<&ImprovementRecord> {
+        let filtered: Vec<&ImprovementRecord> = self
+            .improvement_history
             .iter()
             .rev()
             .filter(|record| record.outcome == outcome)
@@ -946,19 +973,37 @@ impl CodebaseContext {
             if !target_summary.enums.is_empty() {
                 prompt.push_str(&format!(
                     "Enums: {}\n",
-                    target_summary.enums.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                    target_summary
+                        .enums
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             if !target_summary.traits.is_empty() {
                 prompt.push_str(&format!(
                     "Traits: {}\n",
-                    target_summary.traits.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                    target_summary
+                        .traits
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             if !target_summary.impls.is_empty() {
                 prompt.push_str(&format!(
                     "Impls: {}\n",
-                    target_summary.impls.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                    target_summary
+                        .impls
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             if !target_summary.derives.is_empty() {
@@ -973,10 +1018,7 @@ impl CodebaseContext {
                     .take(8)
                     .collect();
                 if !unique_derives.is_empty() {
-                    prompt.push_str(&format!(
-                        "Derives: {}\n",
-                        unique_derives.join(", ")
-                    ));
+                    prompt.push_str(&format!("Derives: {}\n", unique_derives.join(", ")));
                 }
             }
             if !target_uses.is_empty() {
@@ -991,7 +1033,8 @@ impl CodebaseContext {
         // 3. 改进历史
         if !self.improvement_history.is_empty() {
             prompt.push_str("\n=== RECENT IMPROVEMENTS ===\n");
-            let recent: Vec<&ImprovementRecord> = self.improvement_history.iter().rev().take(10).collect();
+            let recent: Vec<&ImprovementRecord> =
+                self.improvement_history.iter().rev().take(10).collect();
             for record in recent.into_iter().rev() {
                 prompt.push_str(&record.to_display_string());
                 prompt.push('\n');
@@ -1002,13 +1045,16 @@ impl CodebaseContext {
         let recent_files = self.recent_modified_files(5);
         if !recent_files.is_empty() {
             prompt.push_str("\n=== RECENTLY MODIFIED FILES ===\n");
-            prompt.push_str(&format!("Consider other files: {}\n", recent_files.join(", ")));
+            prompt.push_str(&format!(
+                "Consider other files: {}\n",
+                recent_files.join(", ")
+            ));
         }
 
         // 5. Related files context (files that use this file's items)
         if let Some(target_summary) = self.files.get(target_file) {
             prompt.push_str("\n=== RELATED FILES ===\n");
-            
+
             // This file depends on these modules via use statements
             let target_uses: Vec<String> = target_summary
                 .uses
@@ -1016,11 +1062,11 @@ impl CodebaseContext {
                 .filter(|u| u.contains("crate::"))
                 .cloned()
                 .collect();
-            
+
             if !target_uses.is_empty() {
                 prompt.push_str(&format!("Uses: {}\n", target_uses.join(", ")));
             }
-            
+
             // Include detailed content of dependent files (max 3 for context window)
             let related_content = self.get_related_files_content(target_file, 3);
             if !related_content.is_empty() {
@@ -1042,17 +1088,17 @@ impl CodebaseContext {
     }
 
     /// Get a reference to the file summary for a given path, if it exists.
-    /// 
+    ///
     /// This provides convenient access to individual file metadata without
     /// requiring callers to handle Option<&String> key lookups.
-    /// 
+    ///
     /// # Arguments
     /// * `path` - The file path relative to src/ (e.g., "agent/mutator.rs")
-    /// 
+    ///
     /// # Returns
     /// * `Some(&FileSummary)` if the file exists in the context
     /// * `None` if the file is not found
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// let ctx = CodebaseContext::scan(project_root)?;
@@ -1156,26 +1202,24 @@ impl CodebaseContext {
         }
 
         // Sort by file path, then by item type, then by name
-        items.sort_by(|a, b| {
-            (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2))
-        });
+        items.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
 
         items
     }
 
     /// Get formatted content summaries of files that depend on a target file.
-    /// 
+    ///
     /// This is useful for understanding the downstream impact of changes to a file.
     /// Returns a formatted string with each dependent file's summary, limited to
     /// the top N dependents by line count (larger files first as heuristic for importance).
-    /// 
+    ///
     /// # Arguments
     /// * `target_file` - The file path to find dependents for
     /// * `max_files` - Maximum number of dependent files to include
-    /// 
+    ///
     /// # Returns
     /// A formatted string with dependent file summaries, or empty string if none found
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// let ctx = CodebaseContext::scan(project_root)?;
@@ -1190,19 +1234,19 @@ impl CodebaseContext {
                 if *path == target_file {
                     return None;
                 }
-                
+
                 // Find which items from target file are used by this dependent
                 let module_hint = target_file
                     .strip_suffix(".rs")
                     .unwrap_or(target_file)
                     .replace('/', "::")
                     .replace("mod.rs", "");
-                
+
                 let used_items: Vec<String> = summary
                     .uses
                     .iter()
                     .filter(|u| {
-                        u.contains(&module_hint) 
+                        u.contains(&module_hint)
                             || u.contains(&target_file.replace('/', "::").replace(".rs", ""))
                     })
                     .filter_map(|u| {
@@ -1212,7 +1256,9 @@ impl CodebaseContext {
                         if let Some(stripped) = u.strip_prefix("use crate::") {
                             let rest = stripped.trim_end_matches(';');
                             // Check if this use statement references our module
-                            if rest.starts_with(&module_hint) || rest.contains(&format!("{}::", module_hint)) {
+                            if rest.starts_with(&module_hint)
+                                || rest.contains(&format!("{}::", module_hint))
+                            {
                                 // Extract the item name(s)
                                 if let Some(after_module) = rest.strip_prefix(&module_hint) {
                                     let after_module = after_module.trim_start_matches(':');
@@ -1262,23 +1308,29 @@ impl CodebaseContext {
                 "\n--- {} ({} lines) ---\n",
                 summary.path, summary.lines
             ));
-            
+
             // Include doc summary if available
             if !summary.doc_summary.is_empty() {
                 result.push_str(&format!("Doc: {}\n", summary.doc_summary));
             }
-            
+
             // Show which items from target are used
             result.push_str(&format!("Uses from target: {}\n", used_items.join(", ")));
-            
+
             // Include key types
             if !summary.structs.is_empty() {
                 result.push_str(&format!(
                     "Types: {}\n",
-                    summary.structs.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+                    summary
+                        .structs
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
-            
+
             // Include derives for understanding type capabilities
             if !summary.derives.is_empty() {
                 let unique_derives: Vec<String> = summary
@@ -1294,12 +1346,18 @@ impl CodebaseContext {
                     result.push_str(&format!("Derives: {}\n", unique_derives.join(", ")));
                 }
             }
-            
+
             // Include key functions
             if !summary.functions.is_empty() {
                 result.push_str(&format!(
                     "Functions: {}\n",
-                    summary.functions.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
+                    summary
+                        .functions
+                        .iter()
+                        .take(8)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
         }

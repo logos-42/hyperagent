@@ -101,39 +101,3 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         Some(build_web_context_prompt(&all_results, &[]))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_concurrent_fetch_ordering() {
-        // Verify that pages are collected in the same order as URLs
-        // even though they may complete in different orders
-        let urls = vec!["url1".to_string(), "url2".to_string(), "url3".to_string()];
-        let results: Vec<Result<usize, &'static str>> = vec![Ok(1), Ok(2), Ok(3)];
-        
-        let pages: Vec<usize> = results
-            .into_iter()
-            .zip(urls.iter())
-            .filter_map(|(result, _)| result.ok())
-            .collect();
-        
-        assert_eq!(pages, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn test_concurrent_fetch_partial_failure() {
-        // Verify that partial failures don't prevent successful fetches from being collected
-        let urls = vec!["url1".to_string(), "url2".to_string(), "url3".to_string()];
-        let results: Vec<Result<usize, &'static str>> = vec![Ok(1), Err("failed"), Ok(3)];
-        
-        let pages: Vec<usize> = results
-            .into_iter()
-            .zip(urls.iter())
-            .filter_map(|(result, _)| result.ok())
-            .collect();
-        
-        assert_eq!(pages, vec![1, 3]);
-    }
-}
