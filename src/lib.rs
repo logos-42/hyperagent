@@ -652,6 +652,74 @@ impl ErrorAction {
     pub fn is_retryable(&self) -> bool {
         matches!(self, ErrorAction::RetryWithBackoff { .. })
     }
+
+    /// Returns a new `RetryWithBackoff` action with customized retry parameters.
+    ///
+    /// This allows callers to adjust retry behavior based on specific error
+    /// contexts (e.g., longer delays for rate limits vs. shorter for timeouts).
+    ///
+    /// Returns `None` for non-retryable actions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::ErrorAction;
+    ///
+    /// let action = ErrorAction::RetryWithBackoff {
+    ///     initial_delay_ms: 100,
+    ///     max_attempts: 3,
+    /// };
+    /// let custom = action.with_retry_params(500, 5).unwrap();
+    /// assert_eq!(custom.initial_delay_ms(), Some(500));
+    /// assert_eq!(custom.max_attempts(), Some(5));
+    /// ```
+    pub fn with_retry_params(self, initial_delay_ms: u64, max_attempts: u8) -> Option<Self> {
+        match self {
+            ErrorAction::RetryWithBackoff { .. } => Some(ErrorAction::RetryWithBackoff {
+                initial_delay_ms,
+                max_attempts,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Returns a new `RetryWithBackoff` action with exponential backoff scaling.
+    ///
+    /// Scales the initial delay by 2^attempt, useful for computing the delay
+    /// at a specific retry attempt.
+    ///
+    /// Returns `None` for non-retryable actions or if attempt >= max_attempts.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::ErrorAction;
+    ///
+    /// let action = ErrorAction::RetryWithBackoff {
+    ///     initial_delay_ms: 100,
+    ///     max_attempts: 3,
+    /// };
+    /// assert_eq!(action.delay_for_attempt(0), Some(100)); // 100 * 2^0
+    /// assert_eq!(action.delay_for_attempt(1), Some(200)); // 100 * 2^1
+    /// assert_eq!(action.delay_for_attempt(2), Some(400)); // 100 * 2^2
+    /// assert_eq!(action.delay_for_attempt(3), None);      // at max
+    /// ```
+    pub fn delay_for_attempt(&self, attempt: u8) -> Option<u64> {
+        match self {
+            ErrorAction::RetryWithBackoff {
+                initial_delay_ms,
+                max_attempts,
+            } => {
+                if attempt < *max_attempts {
+                    // Exponential backoff: delay = initial * 2^attempt
+                    Some(initial_delay_ms.saturating_mul(1 << attempt))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for ErrorAction {
@@ -794,5 +862,75 @@ mod tests {
         let err = Error::Config("invalid".into());
         let action = err.context().action_hint();
         assert!(matches!(action, ErrorAction::FixConfiguration));
+    }
+
+    #[test]
+    fn test_error_action_with_retry_params() {
+        let action = ErrorAction::RetryWithBackoff {
+            initial_delay_ms: 100,
+            max_attempts: 3,
+        };
+
+        // Test customization
+        let custom = action.with_retry_params(500, 5).unwrap();
+        assert_eq!(custom.initial_delay_ms(), Some(500));
+        assert_eq!(custom.max_attempts(), Some(5));
+
+        // Original should be unchanged (Copy trait)
+        assert_eq!(action.initial_delay_ms(), Some(100));
+        assert_eq!(action.max_attempts(), Some(3));
+    }
+
+    #[test]
+    fn test_error_action_with_retry_params_non_retryable() {
+        let actions = [
+            ErrorAction::FailFast,
+            ErrorAction::LogAndContinue,
+            ErrorAction::RestoreFromBackup,
+            ErrorAction::Rescan,
+            ErrorAction::FixConfiguration,
+            ErrorAction::Investigate,
+        ];
+
+        for action in actions {
+            assert!(action.with_retry_params(100, 3).is_none());
+        }
+    }
+
+    #[test]
+    fn test_error_action_delay_for_attempt() {
+        let action = ErrorAction::RetryWithBackoff {
+            initial_delay_ms: 100,
+            max_attempts: 3,
+        };
+
+        // Exponential backoff: 100 * 2^attempt
+        assert_eq!(action.delay_for_attempt(0), Some(100));
+        assert_eq!(action.delay_for_attempt(1), Some(200));
+        assert_eq!(action.delay_for_attempt(2), Some(400));
+
+        // At max attempts, should return None
+        assert_eq!(action.delay_for_attempt(3), None);
+        assert_eq!(action.delay_for_attempt(4), None);
+    }
+
+    #[test]
+    fn test_error_action_delay_for_attempt_non_retryable() {
+        let action = ErrorAction::FailFast;
+        assert_eq!(action.delay_for_attempt(0), None);
+        assert_eq!(action.delay_for_attempt(1), None);
+    }
+
+    #[test]
+    fn test_error_action_delay_for_attempt_overflow_protection() {
+        // Test that saturating_mul prevents overflow
+        let action = ErrorAction::RetryWithBackoff {
+            initial_delay_ms: u64::MAX / 2,
+            max_attempts: 64,
+        };
+
+        // Should saturate rather than overflow
+        let delay = action.delay_for_attempt(0);
+        assert!(delay.is_some());
     }
 }
