@@ -7,6 +7,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_experiment_summary() {
+        let experiment = Experiment {
+            iteration: 5,
+            file: "auto_research/mod.rs".to_string(),
+            hypothesis: "Add summary method".to_string(),
+            outcome: ExperimentOutcome::Success,
+            reflection: "Worked well".to_string(),
+            tests_before: (3, 5),
+            tests_after: (5, 5),
+        };
+        assert_eq!(experiment.summary(), "Exp 5: auto_research/mod.rs — Success");
+    }
+
+    #[test]
+    fn test_experiment_summary_neutral_outcome() {
+        let experiment = Experiment {
+            iteration: 18,
+            file: "parsers.rs".to_string(),
+            hypothesis: "Test hypothesis".to_string(),
+            outcome: ExperimentOutcome::Neutral,
+            reflection: "No change".to_string(),
+            tests_before: (0, 0),
+            tests_after: (0, 0),
+        };
+        assert_eq!(experiment.summary(), "Exp 18: parsers.rs — Neutral");
+    }
+
+    #[test]
     fn test_truncate_output_short_string() {
         let result = AutoResearch::<crate::llm::LLMClientImpl>::truncate_output("hello", 10);
         assert_eq!(result, "hello");
@@ -161,9 +189,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     /// Format a single experiment for display in the research prompt
     fn format_experiment_summary(experiment: &Experiment) -> String {
         format!(
-            "---\nExp {}: {}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}",
-            experiment.iteration,
-            experiment.file,
+            "---\n{}\nHypothesis: {}\nOutcome: {:?}\nReflection: {}\nTests: {}",
+            experiment.summary(),
             experiment.hypothesis,
             experiment.outcome,
             experiment.reflection,
