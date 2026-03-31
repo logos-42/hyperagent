@@ -683,4 +683,149 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
     pub fn experiments(&self) -> &[Experiment] {
         &self.experiments
     }
+
+    /// Returns a compact multi-line summary of the research session.
+    /// Format includes experiment counts, outcome distribution, test generation stats,
+    /// and final test status — useful for logging and display.
+    pub fn summary(&self) -> String {
+        let improved = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Improved)).count();
+        let neutral = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Neutral)).count();
+        let regressed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Regressed)).count();
+        let failed = self.experiments.iter().filter(|e| matches!(e.outcome, ExperimentOutcome::Failed)).count();
+        let tests_gen_count = self.experiments.iter().filter(|e| e.tests_generated).count();
+        let total_new_tests: u32 = self.experiments.iter().map(|e| e.new_tests_count).sum();
+        
+        let mut lines = vec![
+            format!("AutoResearch: {} experiments", self.experiments.len()),
+            format!("  Outcomes: {} improved, {} neutral, {} regressed, {} failed", 
+                improved, neutral, regressed, failed),
+        ];
+        
+        if tests_gen_count > 0 {
+            lines.push(format!("  Tests: {} rounds generated +{} new tests", 
+                tests_gen_count, total_new_tests));
+        }
+        
+        if let Some(last) = self.experiments.last() {
+            lines.push(format!("  Last: {}", last.summary()));
+        }
+        
+        lines.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::LLMClient;
+    use async_trait::async_trait;
+
+    // Mock LLM client for testing
+    #[derive(Clone)]
+    struct MockClient;
+
+    #[async_trait]
+    impl LLMClient for MockClient {
+        async fn complete(&self, _prompt: &str) -> anyhow::Result<crate::llm::LLMResponse> {
+            Ok(crate::llm::LLMResponse {
+                content: String::new(),
+                usage: crate::llm::TokenUsage::default(),
+            })
+        }
+    }
+
+    fn create_test_experiment(iteration: u32, outcome: ExperimentOutcome) -> Experiment {
+        Experiment {
+            iteration,
+            file: format!("test_{}.rs", iteration),
+            files_changed: vec![],
+            hypothesis: format!("Test hypothesis {}", iteration),
+            outcome,
+            tests_before: (5, 10),
+            tests_after: (6, 10),
+            reflection: String::new(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            metrics_before: None,
+            metrics_after: None,
+            multi_eval: None,
+            tests_generated: iteration % 2 == 0,
+            new_tests_count: if iteration % 2 == 0 { iteration } else { 0 },
+        }
+    }
+
+    #[test]
+    fn test_autoresearch_summary_empty() {
+        let config = ResearchConfig::default();
+        let research = AutoResearch::new(MockClient, config);
+        let summary = research.summary();
+        
+        assert!(summary.contains("0 experiments"));
+        assert!(summary.contains("0 improved"));
+        assert!(summary.contains("0 neutral"));
+        assert!(summary.contains("0 regressed"));
+        assert!(summary.contains("0 failed"));
+    }
+
+    #[test]
+    fn test_autoresearch_summary_with_experiments() {
+        let config = ResearchConfig::default();
+        let mut research = AutoResearch::new(MockClient, config);
+        
+        research.experiments.push(create_test_experiment(1, ExperimentOutcome::Improved));
+        research.experiments.push(create_test_experiment(2, ExperimentOutcome::Neutral));
+        research.experiments.push(create_test_experiment(3, ExperimentOutcome::Regressed));
+        research.experiments.push(create_test_experiment(4, ExperimentOutcome::Failed));
+        
+        let summary = research.summary();
+        
+        assert!(summary.contains("4 experiments"));
+        assert!(summary.contains("1 improved"));
+        assert!(summary.contains("1 neutral"));
+        assert!(summary.contains("1 regressed"));
+        assert!(summary.contains("1 failed"));
+    }
+
+    #[test]
+    fn test_autoresearch_summary_tests_generated() {
+        let config = ResearchConfig::default();
+        let mut research = AutoResearch::new(MockClient, config);
+        
+        // Even iterations have tests_generated=true
+        research.experiments.push(create_test_experiment(2, ExperimentOutcome::Improved));
+        research.experiments.push(create_test_experiment(4, ExperimentOutcome::Improved));
+        
+        let summary = research.summary();
+        
+        assert!(summary.contains("2 rounds generated"));
+        assert!(summary.contains("+6 new tests")); // 2 + 4 = 6
+    }
+
+    #[test]
+    fn test_autoresearch_summary_last_experiment() {
+        let config = ResearchConfig::default();
+        let mut research = AutoResearch::new(MockClient, config);
+        
+        research.experiments.push(create_test_experiment(1, ExperimentOutcome::Improved));
+        research.experiments.push(create_test_experiment(2, ExperimentOutcome::Neutral));
+        
+        let summary = research.summary();
+        
+        assert!(summary.contains("Last:"));
+        assert!(summary.contains("Exp 2"));
+    }
+
+    #[test]
+    fn test_autoresearch_summary_format_multiline() {
+        let config = ResearchConfig::default();
+        let mut research = AutoResearch::new(MockClient, config);
+        
+        research.experiments.push(create_test_experiment(1, ExperimentOutcome::Improved));
+        
+        let summary = research.summary();
+        let lines: Vec<&str> = summary.lines().collect();
+        
+        // Should have multiple lines
+        assert!(lines.len() >= 3);
+        assert!(lines[0].starts_with("AutoResearch:"));
+    }
 }
