@@ -209,6 +209,23 @@ impl QualityDelta {
         }
     }
 
+    /// Check if this delta represents a significant change worth acting on.
+    /// Filters out noise from trivial changes (e.g., 1 more warning, tiny score delta).
+    /// A significant change has:
+    /// - Test pass rate change > 0.05 (5% or more)
+    /// - OR compilation status changed (fixed or broken)
+    /// - OR more than 2 tests changed
+    /// - OR more than 3 warnings changed
+    /// - OR health score change > 0.1
+    pub fn is_significant(&self) -> bool {
+        self.test_pass_rate_delta.abs() > 0.05
+            || self.compilation_fixed
+            || self.compilation_broken
+            || self.tests_passed_delta.abs() > 2
+            || self.clippy_warnings_delta.abs() > 3
+            || self.health_score_delta.abs() > 0.1
+    }
+
     /// Merge multiple deltas into a single aggregate delta.
     /// This is useful for tracking cumulative quality changes across multiple experiments.
     /// Compilation status is tracked as: fixed if any delta fixed it, broken only if all broke it.
@@ -1430,5 +1447,223 @@ warning: another issue
             output: String::new(),
         };
         assert_eq!(report.summary(), "0/10 tests passing, 3 compilation errors, 7 warnings");
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_trivial() {
+        // Trivial changes - not significant
+        let trivial = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(!trivial.is_significant());
+
+        // Small test change - not significant
+        let small_test = QualityDelta {
+            tests_passed_delta: 1,
+            tests_total_delta: 1,
+            test_pass_rate_delta: 0.02,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.02,
+        };
+        assert!(!small_test.is_significant());
+
+        // Small warning change - not significant
+        let small_warning = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 2,
+            health_score_delta: 0.0,
+        };
+        assert!(!small_warning.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_pass_rate() {
+        // Pass rate change > 5% is significant
+        let significant_rate = QualityDelta {
+            tests_passed_delta: 1,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.1, // 10% improvement
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.05,
+        };
+        assert!(significant_rate.is_significant());
+
+        // Negative pass rate change is also significant
+        let significant_regression = QualityDelta {
+            tests_passed_delta: -1,
+            tests_total_delta: 0,
+            test_pass_rate_delta: -0.08, // 8% regression
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: -0.05,
+        };
+        assert!(significant_regression.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_compilation() {
+        // Compilation fixed is always significant
+        let fixed = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: true,
+            compilation_broken: false,
+            compilation_errors_delta: -1,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(fixed.is_significant());
+
+        // Compilation broken is always significant
+        let broken = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: true,
+            compilation_errors_delta: 1,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(broken.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_tests() {
+        // More than 2 tests changed is significant
+        let many_tests = QualityDelta {
+            tests_passed_delta: 3,
+            tests_total_delta: 3,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(many_tests.is_significant());
+
+        // Negative test change is also significant
+        let tests_lost = QualityDelta {
+            tests_passed_delta: -3,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(tests_lost.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_warnings() {
+        // More than 3 warnings changed is significant
+        let many_warnings = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 4,
+            health_score_delta: 0.0,
+        };
+        assert!(many_warnings.is_significant());
+
+        // Negative warning change (improvement) is also significant
+        let warnings_fixed = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: -5,
+            health_score_delta: 0.0,
+        };
+        assert!(warnings_fixed.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_health_score() {
+        // Health score change > 0.1 is significant
+        let big_improvement = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.15,
+        };
+        assert!(big_improvement.is_significant());
+
+        // Negative health score change is also significant
+        let big_regression = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.0,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: -0.12,
+        };
+        assert!(big_regression.is_significant());
+    }
+
+    #[test]
+    fn test_quality_delta_is_significant_combined() {
+        // Multiple small changes combined may still not be significant individually
+        let marginal = QualityDelta {
+            tests_passed_delta: 2,
+            tests_total_delta: 2,
+            test_pass_rate_delta: 0.04,
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 2,
+            health_score_delta: 0.08,
+        };
+        // Individual thresholds not met, but combined shows real change
+        // However, is_significant checks individual fields
+        assert!(!marginal.is_significant());
+
+        // One significant field makes whole delta significant
+        let mixed = QualityDelta {
+            tests_passed_delta: 0,
+            tests_total_delta: 0,
+            test_pass_rate_delta: 0.06, // Significant on its own
+            compilation_fixed: false,
+            compilation_broken: false,
+            compilation_errors_delta: 0,
+            clippy_warnings_delta: 0,
+            health_score_delta: 0.0,
+        };
+        assert!(mixed.is_significant());
     }
 }
