@@ -536,6 +536,35 @@ impl fmt::Display for ErrorContext {
     }
 }
 
+impl ErrorContext {
+    /// Returns a compact one-line summary of the error context.
+    ///
+    /// This provides a human-readable single-line representation suitable
+    /// for logging and quick diagnostics.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hyperagent::Error;
+    ///
+    /// let err = Error::LLM("rate limited".into());
+    /// let ctx = err.context();
+    /// assert!(ctx.summary().contains("llm"));
+    /// ```
+    pub fn summary(&self) -> String {
+        format!(
+            "{}: {} [{}]",
+            self.category,
+            if self.message.len() > 60 {
+                format!("{}...", &self.message[..57])
+            } else {
+                self.message.clone()
+            },
+            if self.retryable { "retry" } else { "fail" }
+        )
+    }
+}
+
 /// A specialized Result type for Hyperagent operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -1674,5 +1703,81 @@ mod tests {
             let ctx = err.context();
             assert_eq!(ctx.retryable, err.is_retryable(), "Context retryable should match is_retryable for {:?}", err);
         }
+    }
+
+    #[test]
+    fn test_error_context_summary_format() {
+        // Test basic summary format
+        let err = Error::LLM("rate limited".into());
+        let ctx = err.context();
+        let summary = ctx.summary();
+        assert!(summary.starts_with("llm:"));
+        assert!(summary.contains("rate limited"));
+        assert!(summary.contains("[retry]"));
+
+        // Test non-retryable error
+        let err = Error::Config("invalid settings".into());
+        let ctx = err.context();
+        let summary = ctx.summary();
+        assert!(summary.starts_with("config:"));
+        assert!(summary.contains("[fail]"));
+    }
+
+    #[test]
+    fn test_error_context_summary_truncation() {
+        // Test that long messages are truncated
+        let long_msg = "a".repeat(100);
+        let err = Error::LLM(long_msg.clone());
+        let ctx = err.context();
+        let summary = ctx.summary();
+
+        // Summary should be compact (less than 100 chars for the message part)
+        assert!(summary.len() < 100 + 20); // message + prefix/suffix overhead
+        assert!(summary.contains("aaa...")); // truncated with ellipsis
+    }
+
+    #[test]
+    fn test_error_context_summary_all_variants() {
+        // Ensure summary() works for all error variants
+        let variants: Vec<Error> = vec![
+            Error::LLM("test".into()),
+            Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            Error::Evaluation("test".into()),
+            Error::Evolution("test".into()),
+            Error::Memory("test".into()),
+            Error::Codebase("test".into()),
+            Error::Web("test".into()),
+            Error::Config("test".into()),
+            Error::Other("test".into()),
+        ];
+
+        for err in variants {
+            let ctx = err.context();
+            let summary = ctx.summary();
+            // All summaries should be non-empty and single-line
+            assert!(!summary.is_empty(), "Summary should not be empty");
+            assert!(!summary.contains('\n'), "Summary should be single-line");
+            // Should contain category
+            assert!(summary.starts_with(&format!("{}:", ctx.category)));
+        }
+    }
+
+    #[test]
+    fn test_error_context_summary_for_logging() {
+        // Practical use case: structured logging with summary
+        fn format_log_entry(err: &Error) -> String {
+            let ctx = err.context();
+            format!("[ERROR] {}", ctx.summary())
+        }
+
+        let err = Error::Web("connection timeout".into());
+        let log = format_log_entry(&err);
+        assert!(log.contains("[ERROR]"));
+        assert!(log.contains("web:"));
+        assert!(log.contains("[retry]"));
+
+        let err = Error::Evaluation("assertion failed".into());
+        let log = format_log_entry(&err);
+        assert!(log.contains("[fail]"));
     }
 }
