@@ -136,6 +136,27 @@ impl GitLog {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Returns a compact one-line summary of this log.
+    ///
+    /// Format: "{count} commit(s) from {authors}" or "empty log"
+    /// (e.g., "5 commits from Alice, Bob, Carol" or "empty log")
+    pub fn summary(&self) -> String {
+        if self.entries.is_empty() {
+            return "empty log".to_string();
+        }
+
+        use std::collections::HashSet;
+        let authors: HashSet<&str> = self.entries.iter().map(|e| e.author.as_str()).collect();
+        let count = self.entries.len();
+        let commit_str = if count == 1 { "commit" } else { "commits" };
+
+        let mut author_list: Vec<&str> = authors.into_iter().collect();
+        author_list.sort();
+        let authors_str = author_list.join(", ");
+
+        format!("{} {} from {}", count, commit_str, authors_str)
+    }
 }
 
 impl<C: LLMClient + Clone> AutoResearch<C> {
@@ -1079,5 +1100,86 @@ mod tests {
             has_conflicts: true,
         };
         assert_eq!(conflicts.summary(), "conflicts in: src/a.rs, src/b.rs, src/c.rs");
+    }
+
+    #[test]
+    fn test_git_log_summary_empty() {
+        let log = GitLog { entries: vec![] };
+        assert_eq!(log.summary(), "empty log");
+    }
+
+    #[test]
+    fn test_git_log_summary_single_commit() {
+        let log = GitLog {
+            entries: vec![GitLogEntry {
+                hash: "abc1234".to_string(),
+                author: "Alice".to_string(),
+                message: "First commit".to_string(),
+            }],
+        };
+        assert_eq!(log.summary(), "1 commit from Alice");
+    }
+
+    #[test]
+    fn test_git_log_summary_multiple_commits_same_author() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234".to_string(),
+                    author: "Alice".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def5678".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Second commit".to_string(),
+                },
+            ],
+        };
+        assert_eq!(log.summary(), "2 commits from Alice");
+    }
+
+    #[test]
+    fn test_git_log_summary_multiple_authors() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "abc1234".to_string(),
+                    author: "Bob".to_string(),
+                    message: "First commit".to_string(),
+                },
+                GitLogEntry {
+                    hash: "def5678".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Second commit".to_string(),
+                },
+            ],
+        };
+        // Authors should be sorted alphabetically
+        assert_eq!(log.summary(), "2 commits from Alice, Bob");
+    }
+
+    #[test]
+    fn test_git_log_summary_three_authors() {
+        let log = GitLog {
+            entries: vec![
+                GitLogEntry {
+                    hash: "a1".to_string(),
+                    author: "Zoe".to_string(),
+                    message: "Commit 1".to_string(),
+                },
+                GitLogEntry {
+                    hash: "b2".to_string(),
+                    author: "Alice".to_string(),
+                    message: "Commit 2".to_string(),
+                },
+                GitLogEntry {
+                    hash: "c3".to_string(),
+                    author: "Bob".to_string(),
+                    message: "Commit 3".to_string(),
+                },
+            ],
+        };
+        assert_eq!(log.summary(), "3 commits from Alice, Bob, Zoe");
     }
 }
