@@ -566,5 +566,150 @@ impl ErrorContext {
     }
 }
 
+/// Recommended action for error recovery.
+///
+/// This enum provides structured, actionable guidance for programmatic
+/// error handling, enabling automated retry logic and recovery strategies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorAction {
+    /// Retry with exponential backoff.
+    /// Contains recommended initial delay in milliseconds.
+    RetryWithBackoff {
+        /// Initial delay before first retry (milliseconds)
+        initial_delay_ms: u64,
+        /// Maximum number of retry attempts
+        max_attempts: u8,
+    },
+    /// Fail immediately, no retry.
+    FailFast,
+    /// Log and continue (non-critical error).
+    LogAndContinue,
+    /// Restore from backup.
+    RestoreFromBackup,
+    /// Rescan or refresh state.
+    Rescan,
+    /// Fix configuration and retry.
+    FixConfiguration,
+    /// Manual investigation required.
+    Investigate,
+}
+
+impl ErrorAction {
+    /// Returns the recommended initial delay in milliseconds for retryable actions.
+    ///
+    /// Returns `None` for non-retryable actions.
+    pub fn initial_delay_ms(&self) -> Option<u64> {
+        match self {
+            ErrorAction::RetryWithBackoff { initial_delay_ms, .. } => Some(*initial_delay_ms),
+            _ => None,
+        }
+    }
+
+    /// Returns the maximum number of retry attempts for retryable actions.
+    ///
+    /// Returns `None` for non-retryable actions.
+    pub fn max_attempts(&self) -> Option<u8> {
+        match self {
+            ErrorAction::RetryWithBackoff { max_attempts, .. } => Some(*max_attempts),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this action indicates the error is retryable.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, ErrorAction::RetryWithBackoff { .. })
+    }
+}
+
+impl fmt::Display for ErrorAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ErrorAction::RetryWithBackoff { initial_delay_ms, max_attempts } => {
+                write!(f, "retry_with_backoff (delay={}ms, max={})", initial_delay_ms, max_attempts)
+            }
+            ErrorAction::FailFast => write!(f, "fail_fast"),
+            ErrorAction::LogAndContinue => write!(f, "log_and_continue"),
+            ErrorAction::RestoreFromBackup => write!(f, "restore_from_backup"),
+            ErrorAction::Rescan => write!(f, "rescan"),
+            ErrorAction::FixConfiguration => write!(f, "fix_configuration"),
+            ErrorAction::Investigate => write!(f, "investigate"),
+        }
+    }
+}
+
 /// A specialized Result type for Hyperagent operations.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_action_retryable() {
+        let action = ErrorAction::RetryWithBackoff {
+            initial_delay_ms: 100,
+            max_attempts: 3,
+        };
+        assert!(action.is_retryable());
+        assert_eq!(action.initial_delay_ms(), Some(100));
+        assert_eq!(action.max_attempts(), Some(3));
+    }
+
+    #[test]
+    fn test_error_action_non_retryable() {
+        let actions = [
+            ErrorAction::FailFast,
+            ErrorAction::LogAndContinue,
+            ErrorAction::RestoreFromBackup,
+            ErrorAction::Rescan,
+            ErrorAction::FixConfiguration,
+            ErrorAction::Investigate,
+        ];
+        for action in &actions {
+            assert!(!action.is_retryable());
+            assert!(action.initial_delay_ms().is_none());
+            assert!(action.max_attempts().is_none());
+        }
+    }
+
+    #[test]
+    fn test_error_action_display() {
+        let action = ErrorAction::RetryWithBackoff {
+            initial_delay_ms: 500,
+            max_attempts: 5,
+        };
+        let display = format!("{}", action);
+        assert!(display.contains("500ms"));
+        assert!(display.contains("max=5"));
+
+        assert!(format!("{}", ErrorAction::FailFast).contains("fail_fast"));
+        assert!(format!("{}", ErrorAction::LogAndContinue).contains("log_and_continue"));
+    }
+
+    #[test]
+    fn test_error_context_summary_truncation() {
+        let long_msg = "a".repeat(100);
+        let ctx = ErrorContext {
+            category: "test",
+            message: long_msg.clone(),
+            retryable: true,
+            action: "test_action",
+        };
+        let summary = ctx.summary();
+        assert!(summary.len() < 100);
+        assert!(summary.ends_with("...]"));
+    }
+
+    #[test]
+    fn test_error_context_summary_short() {
+        let ctx = ErrorContext {
+            category: "test",
+            message: "short".into(),
+            retryable: false,
+            action: "test_action",
+        };
+        let summary = ctx.summary();
+        assert!(summary.contains("short"));
+        assert!(summary.contains("[fail]"));
+    }
+}
