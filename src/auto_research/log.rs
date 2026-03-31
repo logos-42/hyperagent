@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crate::llm::LLMClient;
+use chrono::{DateTime, Utc, Duration};
 
 use super::{AutoResearch, Experiment, ExperimentOutcome};
 
@@ -307,18 +308,77 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         let mut stats = ExperimentStats::default();
 
         for entry in &entries {
-            stats.total += 1;
-
-            // Parse outcome
-            if entry.contains("Outcome: Improved") {
-                stats.improved += 1;
-            } else if entry.contains("Outcome: Failed") {
-                stats.failed += 1;
-            } else if entry.contains("Outcome: Neutral") {
-                stats.neutral += 1;
-            } else if entry.contains("Outcome: Regressed") {
-                stats.regressed += 1;
+            if let Some(entry_stats) = self.parse_entry_stats(entry) {
+                stats.total += entry_stats.total;
+                stats.improved += entry_stats.improved;
+                stats.failed += entry_stats.failed;
+                stats.neutral += entry_stats.neutral;
+                stats.regressed += entry_stats.regressed;
+                stats.total_tests_passed += entry_stats.total_tests_passed;
+                stats.total_tests_run += entry_stats.total_tests_run;
             }
+        }
+
+        Ok(stats)
+    }
+
+    /// Get statistics for experiments within a time window (last N hours)
+    /// Useful for detecting recent research momentum and trends
+    pub fn time_window_stats(&self, hours: u64) -> Result<ExperimentStats> {
+        let entries = self.read_experiment_logs()?;
+        let cutoff = Utc::now() - Duration::hours(hours as i64);
+        let mut stats = ExperimentStats::default();
+
+        for entry in &entries {
+            // Parse timestamp from entry: "- **Time**: 2024-01-15T10:30:00Z"
+            if let Some(timestamp) = self.parse_entry_timestamp(entry) {
+                if timestamp >= cutoff {
+                    if let Some(entry_stats) = self.parse_entry_stats(entry) {
+                        stats.total += entry_stats.total;
+                        stats.improved += entry_stats.improved;
+                        stats.failed += entry_stats.failed;
+                        stats.neutral += entry_stats.neutral;
+                        stats.regressed += entry_stats.regressed;
+                        stats.total_tests_passed += entry_stats.total_tests_passed;
+                        stats.total_tests_run += entry_stats.total_tests_run;
+                    }
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Parse timestamp from experiment log entry
+    fn parse_entry_timestamp(&self, entry: &str) -> Option<DateTime<Utc>> {
+        entry.lines()
+            .find(|l| l.contains("**Time**:"))
+            .and_then(|line| {
+                // Extract timestamp after "- **Time**: "
+                line.split("**Time**:").nth(1)
+                    .map(|s| s.trim())
+                    .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+                    .map(|dt| dt.with_timezone(&Utc))
+            })
+    }
+
+    /// Parse statistics from a single experiment log entry
+    fn parse_entry_stats(&self, entry: &str) -> Option<ExperimentStats> {
+        let mut stats = ExperimentStats::default();
+        stats.total = 1;
+
+        // Parse outcome
+        if entry.contains("Outcome: Improved") {
+            stats.improved = 1;
+        } else if entry.contains("Outcome: Failed") {
+            stats.failed = 1;
+        } else if entry.contains("Outcome: Neutral") {
+            stats.neutral = 1;
+        } else if entry.contains("Outcome: Regressed") {
+            stats.regressed = 1;
+        } else {
+            return None;
+        }
 
 #[cfg(test)]
 mod tests {
@@ -469,25 +529,104 @@ mod tests {
         assert!(summary.contains("40%")); // success rate
         assert!(summary.contains("90%")); // test pass rate
     }
+
+    #[test]
+    fn test_parse_entry_timestamp_valid() {
+        let research = create_test_research();
+        let entry = "## Experiment 1 — test.rs\n- **Time**: 2024-01-15T10:30:00Z\n";
+        let ts = research.parse_entry_timestamp(entry);
+        assert!(ts.is_some());
+    }
+
+    #[test]
+    fn test_parse_entry_timestamp_missing() {
+        let research = create_test_research();
+        let entry = "## Experiment 1 — test.rs\nNo timestamp here\n";
+        let ts = research.parse_entry_timestamp(entry);
+        assert!(ts.is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_stats_improved() {
+        let research = create_test_research();
+        let entry = "## Experiment 1 — test.rs\n- **Outcome**: Improved\n- **Tests**: 3/5 → 5/5\n";
+        let stats = research.parse_entry_stats(entry);
+        assert!(stats.is_some());
+        let s = stats.unwrap();
+        assert_eq!(s.total, 1);
+        assert_eq!(s.improved, 1);
+        assert_eq!(s.total_tests_passed, 5);
+        assert_eq!(s.total_tests_run, 5);
+    }
+
+    #[test]
+    fn test_parse_entry_stats_failed() {
+        let research = create_test_research();
+        let entry = "## Experiment 2 — test.rs\n- **Outcome**: Failed\n";
+        let stats = research.parse_entry_stats(entry);
+        assert!(stats.is_some());
+        let s = stats.unwrap();
+        assert_eq!(s.failed, 1);
+    }
+
+    #[test]
+    fn test_parse_entry_stats_regressed() {
+        let research = create_test_research();
+        let entry = "## Experiment 3 — test.rs\n- **Outcome**: Regressed\n";
+        let stats = research.parse_entry_stats(entry);
+        assert!(stats.is_some());
+        let s = stats.unwrap();
+        assert_eq!(s.regressed, 1);
+    }
+
+    #[test]
+    fn test_parse_entry_stats_neutral() {
+        let research = create_test_research();
+        let entry = "## Experiment 4 — test.rs\n- **Outcome**: Neutral\n";
+        let stats = research.parse_entry_stats(entry);
+        assert!(stats.is_some());
+        let s = stats.unwrap();
+        assert_eq!(s.neutral, 1);
+    }
+
+    #[test]
+    fn test_parse_entry_stats_unknown_outcome() {
+        let research = create_test_research();
+        let entry = "## Experiment 5 — test.rs\n- **Outcome**: Unknown\n";
+        let stats = research.parse_entry_stats(entry);
+        assert!(stats.is_none());
+    }
+
+    /// Helper to create a test AutoResearch instance
+    fn create_test_research() -> crate::auto_research::AutoResearch<crate::llm::OpenAI> {
+        use crate::auto_research::ResearchConfig;
+        use crate::llm::OpenAI;
+        use std::path::PathBuf;
+        
+        let config = ResearchConfig {
+            experiment_log_dir: PathBuf::from("/tmp/test_research_logs"),
+            ..Default::default()
+        };
+        crate::auto_research::AutoResearch::new(OpenAI::default(), config)
+    }
 }
-            // Parse tests: "Tests: X/Y → Z/W"
-            if let Some(tests_line) = entry.lines().find(|l| l.contains("**Tests**:")) {
-                if let Some(after_arrow) = tests_line.split("→").nth(1) {
-                    let parts: Vec<&str> = after_arrow.trim().split('/').collect();
-                    if parts.len() >= 2 {
-                        if let Ok(passed) = parts[0].trim().parse::<usize>() {
-                            stats.total_tests_passed += passed;
-                        }
-                        // Extract total from second part (may have trailing content)
-                        let total_str = parts[1].split_whitespace().next().unwrap_or("0");
-                        if let Ok(total) = total_str.parse::<usize>() {
-                            stats.total_tests_run += total;
-                        }
+        // Parse tests: "Tests: X/Y → Z/W"
+        if let Some(tests_line) = entry.lines().find(|l| l.contains("**Tests**:")) {
+            if let Some(after_arrow) = tests_line.split("→").nth(1) {
+                let parts: Vec<&str> = after_arrow.trim().split('/').collect();
+                if parts.len() >= 2 {
+                    if let Ok(passed) = parts[0].trim().parse::<usize>() {
+                        stats.total_tests_passed = passed;
+                    }
+                    // Extract total from second part (may have trailing content)
+                    let total_str = parts[1].split_whitespace().next().unwrap_or("0");
+                    if let Ok(total) = total_str.parse::<usize>() {
+                        stats.total_tests_run = total;
                     }
                 }
             }
         }
 
-        Ok(stats)
+        Some(stats)
     }
 }
