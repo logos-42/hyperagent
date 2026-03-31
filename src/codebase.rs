@@ -75,6 +75,30 @@ pub struct FileSummary {
     pub derives: Vec<String>,
 }
 
+impl FileSummary {
+    /// Returns a compact one-line summary of the file's key metadata.
+    ///
+    /// Format: `{path} ({lines} lines, {structs} structs, {enums} enums, {functions} functions, {traits} traits)`
+    /// Useful for logging and compact display in context windows.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let summary = FileSummary { path: "agent/mod.rs".into(), lines: 193, ... };
+    /// assert_eq!(summary.summary(), "agent/mod.rs (193 lines, 2 structs, 0 enums, 6 functions, 0 traits)");
+    /// ```
+    pub fn summary(&self) -> String {
+        format!(
+            "{} ({} lines, {} structs, {} enums, {} functions, {} traits)",
+            self.path,
+            self.lines,
+            self.structs.len(),
+            self.enums.len(),
+            self.functions.len(),
+            self.traits.len()
+        )
+    }
+}
+
 /// 代码库全局上下文
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodebaseContext {
