@@ -46,6 +46,27 @@ impl ImprovementRecord {
             self.outcome,
         )
     }
+
+    /// Returns a compact one-line summary of the improvement record.
+    ///
+    /// Format: `[{time}] {file}: {hypothesis_truncated} → {outcome}`
+    /// Useful for compact logging and LLM context windows.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let record = ImprovementRecord::new("agent/mod.rs".into(), "Add caching".into(), "Improved".into());
+    /// assert_eq!(record.summary(), "[14:30] agent/mod.rs: Add caching → Improved");
+    /// ```
+    pub fn summary(&self) -> String {
+        let hypothesis_short: String = self.hypothesis.chars().take(50).collect();
+        format!(
+            "[{}] {}: {} → {}",
+            self.timestamp.format("%H:%M"),
+            self.file,
+            hypothesis_short,
+            self.outcome
+        )
+    }
 }
 
 /// 单个文件的代码摘要
@@ -1284,5 +1305,64 @@ impl CodebaseContext {
         }
 
         result
+    }
+
+    /// Returns a compact one-line summary of the codebase context.
+    ///
+    /// Format: `{total_files} files, {total_lines} lines, {iterations} iterations, {improvements} improvements`
+    /// Useful for logging and quick status checks.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// println!("{}", ctx.summary());
+    /// // Output: "43 files, 25061 lines, 126 iterations, 10 improvements"
+    /// ```
+    pub fn summary(&self) -> String {
+        format!(
+            "{} files, {} lines, {} iterations, {} improvements",
+            self.total_files,
+            self.total_lines,
+            self.total_iterations,
+            self.improvement_history.len()
+        )
+    }
+
+    /// Returns a summary of improvement outcomes across all files.
+    ///
+    /// Format: `{improved} improved, {regressed} regressed, {neutral} neutral ({success_rate:.1}% success)`
+    /// Useful for quick assessment of overall experiment effectiveness.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// println!("{}", ctx.outcome_summary());
+    /// // Output: "15 improved, 3 regressed, 7 neutral (60.0% success)"
+    /// ```
+    pub fn outcome_summary(&self) -> String {
+        let mut improved = 0u32;
+        let mut regressed = 0u32;
+        let mut neutral = 0u32;
+
+        for record in &self.improvement_history {
+            match record.outcome.as_str() {
+                "Improved" => improved += 1,
+                "Regressed" => regressed += 1,
+                "Neutral" => neutral += 1,
+                _ => {}
+            }
+        }
+
+        let total = improved + regressed + neutral;
+        let success_rate = if total > 0 {
+            (improved as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        format!(
+            "{} improved, {} regressed, {} neutral ({:.1}% success)",
+            improved, regressed, neutral, success_rate
+        )
     }
 }
