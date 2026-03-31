@@ -113,6 +113,19 @@ impl StatsDelta {
             + (self.test_pass_rate_delta * 0.3)
     }
 
+    /// Returns a human-readable trend description based on the net score
+    /// Useful for quickly communicating research momentum direction
+    pub fn trend(&self) -> &'static str {
+        let score = self.net_score();
+        if score > 1.0 {
+            "improving"
+        } else if score < -1.0 {
+            "declining"
+        } else {
+            "stable"
+        }
+    }
+
     /// Returns a human-readable one-line summary of the statistics delta
     pub fn summary(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -528,6 +541,102 @@ mod tests {
         assert!(summary.contains("4 improved"));
         assert!(summary.contains("40%")); // success rate
         assert!(summary.contains("90%")); // test pass rate
+    }
+
+    #[test]
+    fn test_stats_delta_trend_improving() {
+        let delta = StatsDelta {
+            total_delta: 5,
+            improved_delta: 4,
+            failed_delta: 0,
+            neutral_delta: 1,
+            regressed_delta: 0,
+            tests_passed_delta: 20,
+            tests_run_delta: 20,
+            success_rate_delta: 15.0,
+            test_pass_rate_delta: 10.0,
+        };
+        // net_score = 4*1.0 + 0*-2.0 + 0*-1.5 + 15.0*0.5 + 10.0*0.3 = 4 + 7.5 + 3 = 14.5
+        assert_eq!(delta.trend(), "improving");
+    }
+
+    #[test]
+    fn test_stats_delta_trend_declining() {
+        let delta = StatsDelta {
+            total_delta: 3,
+            improved_delta: 0,
+            failed_delta: 2,
+            neutral_delta: 0,
+            regressed_delta: 2,
+            tests_passed_delta: -10,
+            tests_run_delta: 0,
+            success_rate_delta: -5.0,
+            test_pass_rate_delta: -2.0,
+        };
+        // net_score = 0*1.0 + 2*-2.0 + 2*-1.5 + (-5.0)*0.5 + (-2.0)*0.3 = -4 - 3 - 2.5 - 0.6 = -10.1
+        assert_eq!(delta.trend(), "declining");
+    }
+
+    #[test]
+    fn test_stats_delta_trend_stable() {
+        let delta = StatsDelta {
+            total_delta: 2,
+            improved_delta: 1,
+            failed_delta: 0,
+            neutral_delta: 1,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: 0.5,
+            test_pass_rate_delta: 0.0,
+        };
+        // net_score = 1*1.0 + 0 + 0 + 0.5*0.5 + 0 = 1.25, but still close to threshold
+        // Let's use a clearly stable case
+        let stable_delta = StatsDelta {
+            total_delta: 1,
+            improved_delta: 0,
+            failed_delta: 0,
+            neutral_delta: 1,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: 0.0,
+            test_pass_rate_delta: 0.0,
+        };
+        // net_score = 0, clearly stable
+        assert_eq!(stable_delta.trend(), "stable");
+    }
+
+    #[test]
+    fn test_stats_delta_trend_threshold_boundary() {
+        // Test the exact threshold at 1.0
+        let just_above = StatsDelta {
+            total_delta: 0,
+            improved_delta: 1,
+            failed_delta: 0,
+            neutral_delta: 0,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: 0.1,
+            test_pass_rate_delta: 0.0,
+        };
+        // net_score = 1.0 + 0.05 = 1.05 > 1.0
+        assert_eq!(just_above.trend(), "improving");
+
+        let just_below = StatsDelta {
+            total_delta: 0,
+            improved_delta: 0,
+            failed_delta: 0,
+            neutral_delta: 1,
+            regressed_delta: 0,
+            tests_passed_delta: 0,
+            tests_run_delta: 0,
+            success_rate_delta: -0.5,
+            test_pass_rate_delta: 0.0,
+        };
+        // net_score = -0.25, which is > -1.0, so stable
+        assert_eq!(just_below.trend(), "stable");
     }
 
     #[test]
