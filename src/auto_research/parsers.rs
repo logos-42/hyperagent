@@ -19,6 +19,26 @@ pub(crate) enum EditOp {
     SearchReplace(Vec<SearchReplace>),
 }
 
+impl EditOp {
+    /// Returns true if this is a SEARCH/REPLACE operation (not a full file replacement)
+    pub fn is_search_replace(&self) -> bool {
+        matches!(self, EditOp::SearchReplace(_))
+    }
+
+    /// Returns true if this is a full file replacement (not SEARCH/REPLACE)
+    pub fn is_full_file(&self) -> bool {
+        matches!(self, EditOp::FullFile(_))
+    }
+
+    /// Returns the number of SEARCH/REPLACE blocks, or 0 for full file replacements
+    pub fn block_count(&self) -> usize {
+        match self {
+            EditOp::SearchReplace(srs) => srs.len(),
+            EditOp::FullFile(_) => 0,
+        }
+    }
+}
+
 /// 解析后的编辑指令
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedEdit {
@@ -1675,5 +1695,74 @@ mod tests {
             has_extra_whitespace: true,
         };
         assert_eq!(req.summary(), "FuzzyRequirement: needs Normalized, 10 lines, extra whitespace");
+    }
+
+    #[test]
+    fn test_edit_op_is_search_replace() {
+        let sr = EditOp::SearchReplace(vec![
+            SearchReplace {
+                search: "fn foo()".to_string(),
+                replace: "fn bar()".to_string(),
+            },
+        ]);
+        assert!(sr.is_search_replace());
+        assert!(!sr.is_full_file());
+
+        let full = EditOp::FullFile("fn main() {}".to_string());
+        assert!(!full.is_search_replace());
+        assert!(full.is_full_file());
+    }
+
+    #[test]
+    fn test_edit_op_is_full_file() {
+        let full = EditOp::FullFile("fn main() {}".to_string());
+        assert!(full.is_full_file());
+        assert!(!full.is_search_replace());
+
+        let sr = EditOp::SearchReplace(vec![]);
+        assert!(!sr.is_full_file());
+        assert!(sr.is_search_replace());
+    }
+
+    #[test]
+    fn test_edit_op_block_count_single() {
+        let sr = EditOp::SearchReplace(vec![
+            SearchReplace {
+                search: "old".to_string(),
+                replace: "new".to_string(),
+            },
+        ]);
+        assert_eq!(sr.block_count(), 1);
+    }
+
+    #[test]
+    fn test_edit_op_block_count_multiple() {
+        let sr = EditOp::SearchReplace(vec![
+            SearchReplace {
+                search: "a".to_string(),
+                replace: "b".to_string(),
+            },
+            SearchReplace {
+                search: "c".to_string(),
+                replace: "d".to_string(),
+            },
+            SearchReplace {
+                search: "e".to_string(),
+                replace: "f".to_string(),
+            },
+        ]);
+        assert_eq!(sr.block_count(), 3);
+    }
+
+    #[test]
+    fn test_edit_op_block_count_empty() {
+        let sr = EditOp::SearchReplace(vec![]);
+        assert_eq!(sr.block_count(), 0);
+    }
+
+    #[test]
+    fn test_edit_op_block_count_full_file() {
+        let full = EditOp::FullFile("fn main() {}".to_string());
+        assert_eq!(full.block_count(), 0);
     }
 }
