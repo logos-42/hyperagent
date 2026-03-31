@@ -1049,6 +1049,11 @@ impl CodebaseContext {
                 "Consider other files: {}\n",
                 recent_files.join(", ")
             ));
+            // Show activity summary for context
+            let activity = self.file_activity_summary(5);
+            if !activity.is_empty() {
+                prompt.push_str(&format!("Activity: {}\n", activity));
+            }
         }
 
         // 5. Related files context (files that use this file's items)
@@ -1422,5 +1427,41 @@ impl CodebaseContext {
             "{} improved, {} regressed, {} neutral ({:.1}% success)",
             improved, regressed, neutral, success_rate
         )
+    }
+
+    /// Returns a ranked summary of files by improvement activity count.
+    ///
+    /// This helps identify "hot" files that have been the focus of recent experiments,
+    /// useful for understanding research patterns and avoiding repeated experiments
+    /// on the same files.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of files to include in the summary
+    ///
+    /// # Returns
+    /// A formatted string with file activity, sorted by count descending
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// println!("{}", ctx.file_activity_summary(5));
+    /// // Output: "agent/mod.rs (7), lib.rs (5), tools.rs (3)"
+    /// ```
+    pub fn file_activity_summary(&self, limit: usize) -> String {
+        let mut file_counts: HashMap<&str, usize> = HashMap::new();
+
+        for record in &self.improvement_history {
+            *file_counts.entry(&record.file).or_insert(0) += 1;
+        }
+
+        let mut sorted: Vec<_> = file_counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+        sorted
+            .into_iter()
+            .take(limit)
+            .map(|(file, count)| format!("{} ({})", file, count))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
