@@ -89,6 +89,22 @@ impl EditStats {
 }
 
 impl ParsedEdit {
+    /// Returns a human-readable one-line summary of the parsed edit.
+    /// Format: "EDIT: <file> — <op_type> (<stats_summary>)" or "EDIT: <file> — full file replacement"
+    pub fn summary(&self) -> String {
+        match &self.op {
+            EditOp::SearchReplace(srs) => {
+                let stats = self.diff_stats().map(|s| s.summary()).unwrap_or_else(|| "unknown stats".to_string());
+                let op_count = srs.len();
+                let block_word = if op_count == 1 { "block" } else { "blocks" };
+                format!("EDIT: {} — {} SEARCH/REPLACE {}, {}", self.file_path, op_count, block_word, stats)
+            }
+            EditOp::FullFile(_) => {
+                format!("EDIT: {} — full file replacement", self.file_path)
+            }
+        }
+    }
+
     /// 计算 SEARCH/REPLACE 操作的统计信息
     /// 对于 FullFile 编辑，返回 None（需要读取原始文件才能比较）
     pub fn diff_stats(&self) -> Option<EditStats> {
@@ -1041,6 +1057,79 @@ mod tests {
         let result = MockResearch::apply_search_replaces_with_fuzzy(original, &ops);
         // Should have applied the replacement despite whitespace differences
         assert!(result.contains("x * 3"), "Expected replacement to be applied, got: {}", result);
+    }
+
+    #[test]
+    fn test_parsed_edit_summary_search_replace_single() {
+        let edit = ParsedEdit {
+            file_path: "src/main.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "fn foo() {\n    42\n}".to_string(), // 3 lines
+                    replace: "fn foo() -> i32 {\n    let x = 1;\n    x + 41\n}".to_string(), // 4 lines
+                },
+            ]),
+        };
+        let summary = edit.summary();
+        assert!(summary.contains("src/main.rs"));
+        assert!(summary.contains("1 SEARCH/REPLACE block"));
+        assert!(summary.contains("+1 lines"));
+    }
+
+    #[test]
+    fn test_parsed_edit_summary_search_replace_multiple() {
+        let edit = ParsedEdit {
+            file_path: "lib/utils.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "a".to_string(),
+                    replace: "b".to_string(),
+                },
+                SearchReplace {
+                    search: "c".to_string(),
+                    replace: "def".to_string(),
+                },
+            ]),
+        };
+        let summary = edit.summary();
+        assert!(summary.contains("lib/utils.rs"));
+        assert!(summary.contains("2 SEARCH/REPLACE blocks"));
+    }
+
+    #[test]
+    fn test_parsed_edit_summary_full_file() {
+        let edit = ParsedEdit {
+            file_path: "src/new_file.rs".to_string(),
+            op: EditOp::FullFile("fn main() {}".to_string()),
+        };
+        let summary = edit.summary();
+        assert_eq!(summary, "EDIT: src/new_file.rs — full file replacement");
+    }
+
+    #[test]
+    fn test_parsed_edit_summary_empty_search_replace() {
+        let edit = ParsedEdit {
+            file_path: "test.rs".to_string(),
+            op: EditOp::SearchReplace(vec![]),
+        };
+        let summary = edit.summary();
+        assert!(summary.contains("0 SEARCH/REPLACE blocks"));
+        assert!(summary.contains("no changes"));
+    }
+
+    #[test]
+    fn test_parsed_edit_summary_no_changes() {
+        let edit = ParsedEdit {
+            file_path: "unchanged.rs".to_string(),
+            op: EditOp::SearchReplace(vec![
+                SearchReplace {
+                    search: "x".to_string(),
+                    replace: "x".to_string(), // Same content
+                },
+            ]),
+        };
+        let summary = edit.summary();
+        assert!(summary.contains("no changes"));
     }
 
     #[test]
