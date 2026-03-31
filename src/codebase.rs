@@ -1246,6 +1246,78 @@ impl CodebaseContext {
         items
     }
 
+    /// Get summaries for multiple files at once.
+    ///
+    /// This is a batch version of `get_file_summary()` that returns summaries for
+    /// multiple file paths in a single call. Files that don't exist in the context
+    /// are silently skipped.
+    ///
+    /// # Arguments
+    /// * `paths` - Slice of file paths to retrieve summaries for
+    ///
+    /// # Returns
+    /// A vector of references to FileSummary for existing files
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let summaries = ctx.get_file_summaries(&["agent/mod.rs", "lib.rs", "nonexistent.rs"]);
+    /// // Returns summaries for agent/mod.rs and lib.rs only
+    /// for summary in summaries {
+    ///     println!("{}: {} lines", summary.path, summary.lines);
+    /// }
+    /// ```
+    pub fn get_file_summaries<'a>(&'a self, paths: &[&str]) -> Vec<&'a FileSummary> {
+        paths
+            .iter()
+            .filter_map(|path| self.files.get(*path))
+            .collect()
+    }
+
+    /// Find files that have no recorded improvement experiments.
+    ///
+    /// These "fresh" files haven't been experimented on and may represent unexplored
+    /// opportunities for improvement. Useful for identifying new research targets.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of files to return (None for all)
+    ///
+    /// # Returns
+    /// A vector of file paths sorted by line count descending (larger files first
+    /// as a heuristic for potential impact)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = CodebaseContext::scan(project_root)?;
+    /// let fresh_files = ctx.files_without_improvements(Some(10));
+    /// println!("Unexplored files: {:?}", fresh_files);
+    /// ```
+    pub fn files_without_improvements(&self, limit: Option<usize>) -> Vec<String> {
+        let mut unexplored: Vec<String> = self
+            .files
+            .keys()
+            .filter(|path| {
+                !self
+                    .improvement_history
+                    .iter()
+                    .any(|record| &record.file == *path)
+            })
+            .cloned()
+            .collect();
+
+        // Sort by line count descending (larger files may have more impact)
+        unexplored.sort_by(|a, b| {
+            let a_lines = self.files.get(a).map(|f| f.lines).unwrap_or(0);
+            let b_lines = self.files.get(b).map(|f| f.lines).unwrap_or(0);
+            b_lines.cmp(&a_lines)
+        });
+
+        match limit {
+            Some(n) => unexplored.into_iter().take(n).collect(),
+            None => unexplored,
+        }
+    }
+
     /// Get formatted content summaries of files that depend on a target file.
     ///
     /// This is useful for understanding the downstream impact of changes to a file.
