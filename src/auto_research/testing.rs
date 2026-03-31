@@ -65,6 +65,41 @@ impl QualityReport {
             self.tests_passed as f64 / self.tests_total as f64
         }
     }
+
+    /// Returns a human-readable one-line summary of the quality state.
+    /// Example: "10/10 tests passing, compiles cleanly, 3 warnings"
+    /// Example: "8/10 tests passing, 2 compilation errors"
+    /// Example: "no tests, compiles cleanly"
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+
+        // Test status
+        if self.tests_total > 0 {
+            parts.push(format!("{}/{} tests passing", self.tests_passed, self.tests_total));
+        } else {
+            parts.push("no tests".to_string());
+        }
+
+        // Compilation status
+        if self.compilation_errors > 0 {
+            parts.push(format!("{} compilation error{}", 
+                self.compilation_errors,
+                if self.compilation_errors == 1 { "" } else { "s" }));
+        } else if self.compiles {
+            parts.push("compiles cleanly".to_string());
+        } else {
+            parts.push("compilation failed".to_string());
+        }
+
+        // Warning count (only if present)
+        if self.clippy_warnings > 0 {
+            parts.push(format!("{} warning{}", 
+                self.clippy_warnings,
+                if self.clippy_warnings == 1 { "" } else { "s" }));
+        }
+
+        parts.join(", ")
+    }
 }
 
 /// Delta between two QualityReports, showing what changed.
@@ -1278,5 +1313,122 @@ warning: another issue
         let merged = QualityDelta::merge(&[broken1, broken2]);
         assert!(!merged.compilation_fixed);
         assert!(merged.compilation_broken); // Last delta is broken, none fixed
+    }
+
+    #[test]
+    fn test_quality_report_summary_healthy() {
+        let report = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "10/10 tests passing, compiles cleanly");
+    }
+
+    #[test]
+    fn test_quality_report_summary_with_warnings() {
+        let report = QualityReport {
+            tests_passed: 10,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 3,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "10/10 tests passing, compiles cleanly, 3 warnings");
+    }
+
+    #[test]
+    fn test_quality_report_summary_single_warning() {
+        let report = QualityReport {
+            tests_passed: 8,
+            tests_total: 10,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 1,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "8/10 tests passing, compiles cleanly, 1 warning");
+    }
+
+    #[test]
+    fn test_quality_report_summary_compilation_errors() {
+        let report = QualityReport {
+            tests_passed: 8,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 2,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "8/10 tests passing, 2 compilation errors");
+    }
+
+    #[test]
+    fn test_quality_report_summary_single_compilation_error() {
+        let report = QualityReport {
+            tests_passed: 5,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 1,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "5/10 tests passing, 1 compilation error");
+    }
+
+    #[test]
+    fn test_quality_report_summary_no_tests_clean() {
+        let report = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "no tests, compiles cleanly");
+    }
+
+    #[test]
+    fn test_quality_report_summary_no_tests_with_warnings() {
+        let report = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: true,
+            compilation_errors: 0,
+            clippy_warnings: 5,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "no tests, compiles cleanly, 5 warnings");
+    }
+
+    #[test]
+    fn test_quality_report_summary_no_tests_compilation_failed() {
+        let report = QualityReport {
+            tests_passed: 0,
+            tests_total: 0,
+            compiles: false,
+            compilation_errors: 0, // Edge case: compiles=false but no error count
+            clippy_warnings: 0,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "no tests, compilation failed");
+    }
+
+    #[test]
+    fn test_quality_report_summary_full_failure() {
+        let report = QualityReport {
+            tests_passed: 0,
+            tests_total: 10,
+            compiles: false,
+            compilation_errors: 3,
+            clippy_warnings: 7,
+            output: String::new(),
+        };
+        assert_eq!(report.summary(), "0/10 tests passing, 3 compilation errors, 7 warnings");
     }
 }
