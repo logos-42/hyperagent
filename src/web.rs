@@ -46,6 +46,20 @@ impl Default for HttpClientConfig {
     }
 }
 
+impl HttpClientConfig {
+    /// Returns a human-readable one-line summary of the configuration.
+    ///
+    /// Format: "timeout={timeout_secs}s, retries={max_retries}, max_size={max_response_size}MB"
+    /// This is useful for logging and debugging HTTP client settings.
+    pub fn summary(&self) -> String {
+        let max_mb = self.max_response_size as f64 / (1024.0 * 1024.0);
+        format!(
+            "timeout={}s, retries={}, max_size={:.1}MB",
+            self.timeout_secs, self.max_retries, max_mb
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 struct HttpClient {
     inner: reqwest::Client,
@@ -80,6 +94,14 @@ impl HttpClient {
     /// attempt to recover from transient failures.
     fn has_retry_budget(&self) -> bool {
         self.config.max_retries > 0
+    }
+
+    /// Returns the maximum response size in bytes.
+    ///
+    /// This is a convenience accessor for the `max_response_size` config field,
+    /// useful for checking size limits before or after making requests.
+    fn max_response_size(&self) -> usize {
+        self.config.max_response_size
     }
     
     /// Execute a request with retry logic and exponential backoff with jitter.
@@ -1132,6 +1154,28 @@ mod tests {
     fn test_web_fetch_tool_with_timeout() {
         let tool = WebFetchTool::with_timeout(60);
         assert!(Arc::try_unwrap(tool.client).is_ok());
+    }
+
+    #[test]
+    fn test_http_client_config_summary() {
+        let config = HttpClientConfig::default();
+        let summary = config.summary();
+        assert!(summary.contains("timeout=30s"));
+        assert!(summary.contains("retries=3"));
+        assert!(summary.contains("max_size=10.0MB"));
+
+        // Custom config summary
+        let custom = HttpClientConfig {
+            timeout_secs: 60,
+            max_retries: 5,
+            retry_base_delay_ms: 200,
+            retry_on_timeout: false,
+            max_response_size: 5 * 1024 * 1024, // 5MB
+        };
+        let custom_summary = custom.summary();
+        assert!(custom_summary.contains("timeout=60s"));
+        assert!(custom_summary.contains("retries=5"));
+        assert!(custom_summary.contains("max_size=5.0MB"));
     }
 
     #[test]
