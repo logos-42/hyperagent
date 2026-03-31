@@ -722,6 +722,27 @@ pub struct ReadFileOutput {
     pub content_with_lines: String,
 }
 
+impl ReadFileOutput {
+    /// Returns a human-readable one-line summary of the file read results.
+    /// 
+    /// # Example outputs:
+    /// - `"Read src/lib.rs: lines 1-50 of 200 (truncated)"`
+    /// - `"Read Cargo.toml: 25 lines"`
+    /// - `"Read config.json: lines 10-20 of 100"`
+    pub fn summary(&self) -> String {
+        let truncated_note = if self.truncated { " (truncated)" } else { "" };
+        
+        if self.start_line == 1 && self.end_line == self.total_lines {
+            // Full file was read
+            format!("Read {}: {} lines{}", self.path, self.total_lines, truncated_note)
+        } else {
+            // Partial file was read
+            format!("Read {}: lines {}-{} of {}{}", 
+                self.path, self.start_line, self.end_line, self.total_lines, truncated_note)
+        }
+    }
+}
+
 /// Read a file's content.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CodebaseReadTool {
@@ -2496,5 +2517,85 @@ mod tests {
         let files = output.files_with_matches();
         // Should be sorted alphabetically
         assert_eq!(files, vec!["src/a.rs", "src/b.rs", "src/c.rs"]);
+    }
+
+    #[test]
+    fn test_read_file_output_summary_full_file() {
+        let output = ReadFileOutput {
+            path: "src/lib.rs".to_string(),
+            total_lines: 100,
+            returned_lines: 100,
+            start_line: 1,
+            end_line: 100,
+            content: "content".to_string(),
+            truncated: false,
+            content_with_lines: "1: content".to_string(),
+        };
+        
+        assert_eq!(output.summary(), "Read src/lib.rs: 100 lines");
+    }
+
+    #[test]
+    fn test_read_file_output_summary_partial_file() {
+        let output = ReadFileOutput {
+            path: "src/main.rs".to_string(),
+            total_lines: 200,
+            returned_lines: 50,
+            start_line: 1,
+            end_line: 50,
+            content: "content".to_string(),
+            truncated: true,
+            content_with_lines: String::new(),
+        };
+        
+        assert_eq!(output.summary(), "Read src/main.rs: lines 1-50 of 200 (truncated)");
+    }
+
+    #[test]
+    fn test_read_file_output_summary_middle_section() {
+        let output = ReadFileOutput {
+            path: "config.json".to_string(),
+            total_lines: 100,
+            returned_lines: 10,
+            start_line: 10,
+            end_line: 19,
+            content: "content".to_string(),
+            truncated: false,
+            content_with_lines: String::new(),
+        };
+        
+        assert_eq!(output.summary(), "Read config.json: lines 10-19 of 100");
+    }
+
+    #[test]
+    fn test_read_file_output_summary_empty_file() {
+        let output = ReadFileOutput {
+            path: "empty.txt".to_string(),
+            total_lines: 0,
+            returned_lines: 0,
+            start_line: 1,
+            end_line: 0,
+            content: String::new(),
+            truncated: false,
+            content_with_lines: String::new(),
+        };
+        
+        assert_eq!(output.summary(), "Read empty.txt: 0 lines");
+    }
+
+    #[test]
+    fn test_read_file_output_summary_single_line() {
+        let output = ReadFileOutput {
+            path: "single.txt".to_string(),
+            total_lines: 1,
+            returned_lines: 1,
+            start_line: 1,
+            end_line: 1,
+            content: "one line".to_string(),
+            truncated: false,
+            content_with_lines: "1: one line".to_string(),
+        };
+        
+        assert_eq!(output.summary(), "Read single.txt: 1 lines");
     }
 }
