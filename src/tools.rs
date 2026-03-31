@@ -918,6 +918,23 @@ pub struct TreeOutput {
 }
 
 impl TreeOutput {
+    /// Returns a human-readable one-line summary of the tree results.
+    /// 
+    /// # Example outputs:
+    /// - `"Tree of src/: 25 files in 8 directories (depth 3)"`
+    /// - `"Tree of ./: 100 files in 15 directories (depth 2)"`
+    /// - `"Tree of lib.rs: empty (0 files, 0 directories)"`
+    pub fn summary(&self) -> String {
+        if self.total_files == 0 && self.total_dirs == 0 {
+            format!("Tree of {}: empty (0 files, 0 directories)", self.base_dir)
+        } else {
+            let files_word = if self.total_files == 1 { "file" } else { "files" };
+            let dirs_word = if self.total_dirs == 1 { "directory" } else { "directories" };
+            format!("Tree of {}: {} {} in {} {}", 
+                self.base_dir, self.total_files, files_word, self.total_dirs, dirs_word)
+        }
+    }
+    
     /// Format the tree as a visual string with indentation, similar to `tree` command.
     /// Returns a string representation that makes hierarchy clear at a glance.
     ///
