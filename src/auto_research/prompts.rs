@@ -282,8 +282,8 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         max_tokens.saturating_sub(estimated)
     }
 
-    /// 构建研究 prompt：注入全局架构上下文 + Web 搜索上下文 + 相关文件（Phase 4）
-    pub(crate) fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment], web_context: Option<&str>) -> String {
+    /// 构建研究 prompt：注入全局架构上下文 + Phase 0 架构理解 + Web 搜索上下文 + 相关文件（Phase 4）
+    pub(crate) fn build_research_prompt(&self, file: &str, code: &str, history: &[Experiment], web_context: Option<&str>, architecture_understanding: Option<&str>) -> String {
         let recent_history = history.iter().rev().take(5)
             .map(Self::format_experiment_summary)
             .collect::<Vec<_>>()
@@ -328,20 +328,28 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
              - If you need to add new functions, put the SEARCH block around the insertion point\n\
                (e.g., include the closing brace of the previous function)\n";
 
+        // Phase 0: 架构理解注入
+        let architecture_understanding_section = architecture_understanding
+            .map(|understanding| {
+                format!("=== ARCHITECTURE UNDERSTANDING (Phase 0 deep analysis) ===\n{}\n\n", understanding)
+            })
+            .unwrap_or_default();
+
         format!(
             "You are an AI researcher improving your own codebase. This is a self-research loop.\n\n\
              {codebase_context}\n\n\
+             {architecture_understanding_section}\
              {related_context}\n\
-             {web_section}\n\
+             {web_section}\
              === PRIMARY FILE: src/{file} ===\n\
              {code}\n\n\
              === PAST EXPERIMENTS ===\n\
              {history}\n\n\
              === YOUR TASK ===\n\
-             1. Understand the architecture above — how this file fits into the system.\n\
-             2. Read the code carefully, including the related files context.\n\
-             3. Identify ONE specific, concrete improvement.\n\
-             4. Consider cross-file dependencies — don't break other modules.\n\
+             1. Read the ARCHITECTURE UNDERSTANDING above — this was generated from a deep analysis of this file and its dependency chain.\n\
+             2. Understand how this file fits into the system — its role, its data flow, and its public interface.\n\
+             3. Identify ONE specific, concrete improvement that aligns with the IMPROVEMENT_ANGLES.\n\
+             4. Consider MODIFICATION_RISKS carefully — don't break other modules or public APIs.\n\
              5. Output in this EXACT format:\n\n\
              HYPOTHESIS: <one sentence describing what you'll improve and why>\n\n\
              {edit_mode_section}\n\
@@ -361,6 +369,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             history = if recent_history.is_empty() { "(no experiments yet)".to_string() } else { recent_history },
             web_section = web_context.map(|ctx| format!("{}\n", ctx)).unwrap_or_default(),
             related_context = related_context,
+            architecture_understanding_section = architecture_understanding_section,
             edit_mode_section = edit_mode_instruction,
             test_gen_section = test_gen_instruction,
         )

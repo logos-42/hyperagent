@@ -1570,4 +1570,218 @@ impl CodebaseContext {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// Phase 0: 深度上下文构建 — 为目标文件及其依赖链读取完整代码
+    ///
+    /// 与 `build_context_prompt()` 的区别：
+    /// - `build_context_prompt()` 只注入签名摘要（Types/Functions 名字列表）
+    /// - `build_deep_context()` 读取目标文件 + 直接依赖文件的完整源码
+    ///
+    /// 这样 LLM 在修改前可以真正理解代码的完整实现，而不只是 API 签名。
+    ///
+    /// # Token 预算
+    /// - 目标文件：完整代码（无截断）
+    /// - 直接依赖文件：最多 3 个，每个最多 200 行
+    /// - 被依赖文件：最多 2 个，每个最多 150 行
+    pub fn build_deep_context(&self, target_file: &str, project_root: &str) -> String {
+        let mut context = String::new();
+        let src_dir = PathBuf::from(project_root).join("src");
+
+        // 1. 模块架构概览（简化版，只保留模块间调用关系）
+        context.push_str("=== MODULE ARCHITECTURE ===\n");
+        context.push_str(&self.build_module_call_graph(target_file));
+        context.push_str("\n\n");
+
+        // 2. 目标文件完整代码（不在 prompt 里重复，只标注位置）
+        // 注意：目标文件完整代码在 prompt 的 PRIMARY FILE 部分已经注入
+        context.push_str(&format!("=== TARGET FILE: {} ===\n", target_file));
+        if let Some(summary) = self.files.get(target_file) {
+            context.push_str(&format!(
+                "Lines: {}, Exports: {} structs, {} enums, {} traits, {} pub functions\n",
+                summary.lines,
+                summary.structs.len(),
+                summary.enums.len(),
+                summary.traits.len(),
+                summary.functions.len(),
+            ));
+            if !summary.uses.is_empty() {
+                let crate_uses: Vec<&str> = summary.uses.iter()
+                    .filter(|u| u.contains("crate::"))
+                    .map(|u| u.trim())
+                    .collect();
+                if !crate_uses.is_empty() {
+                    context.push_str(&format!("Internal dependencies:\n{}\n", crate_uses.join("\n")));
+                }
+            }
+        }
+        context.push_str("\n");
+
+        // 3. 读取目标文件直接依赖的完整代码（目标文件 use crate::xxx 的文件）
+        let dep_files = self.get_dependency_file_paths(target_file);
+        context.push_str("=== DEPENDENCY FILES (full source) ===\n");
+        let mut dep_count = 0;
+        for dep_file in &dep_files {
+            if dep_count >= 3 { break; }
+            let dep_path = src_dir.join(dep_file);
+            if let Ok(content) = std::fs::read_to_string(&dep_path) {
+                let lines: Vec<&str> = content.lines().collect();
+                let display_lines = lines.len().min(200);
+                context.push_str(&format!("\n--- {} ({} lines, showing first {}) ---\n",
+                    dep_file, lines.len(), display_lines));
+                for line in &lines[..display_lines] {
+                    context.push_str(line);
+                    context.push('\n');
+                }
+                if lines.len() > 200 {
+                    context.push_str(&format!("... ({} more lines)\n", lines.len() - 200));
+                }
+                dep_count += 1;
+            }
+        }
+        if dep_count == 0 {
+            context.push_str("(no internal dependencies)\n");
+        }
+        context.push_str("\n");
+
+        // 4. 读取依赖目标文件的完整代码（谁 use 了目标文件）
+        let dependent_files = self.find_dependents(target_file);
+        context.push_str("=== DEPENDENT FILES (full source) ===\n");
+        let mut dep_count = 0;
+        for dep_file in &dependent_files {
+            if dep_count >= 2 { break; }
+            let dep_path = src_dir.join(dep_file);
+            if let Ok(content) = std::fs::read_to_string(&dep_path) {
+                let lines: Vec<&str> = content.lines().collect();
+                let display_lines = lines.len().min(150);
+                context.push_str(&format!("\n--- {} ({} lines, showing first {}) ---\n",
+                    dep_file, lines.len(), display_lines));
+                for line in &lines[..display_lines] {
+                    context.push_str(line);
+                    context.push('\n');
+                }
+                if lines.len() > 150 {
+                    context.push_str(&format!("... ({} more lines)\n", lines.len() - 150));
+                }
+                dep_count += 1;
+            }
+        }
+        if dep_count == 0 {
+            context.push_str("(no dependents)\n");
+        }
+
+        context
+    }
+
+    /// 构建模块调用关系图（以目标文件为中心）
+    ///
+    /// 输出格式：
+    /// ```
+    /// TARGET: auto_research/mod.rs
+    ///   ├─ USES: crate::codebase → codebase.rs
+    ///   │    ├─ USES: crate::llm → llm/mod.rs
+    ///   │    └─ USES: crate::strategy → strategy.rs
+    ///   ├─ USES: crate::strategy → strategy.rs
+    ///   └─ USED BY: bin/research.rs
+    ///        └─ USES: crate::auto_research → auto_research/mod.rs (cycle)
+    /// ```
+    fn build_module_call_graph(&self, target_file: &str) -> String {
+        let mut graph = String::new();
+        graph.push_str(&format!("TARGET: {}\n", target_file));
+
+        if let Some(target_summary) = self.files.get(target_file) {
+            // 目标文件依赖的模块
+            let crate_uses: Vec<&str> = target_summary.uses.iter()
+                .filter(|u| u.contains("crate::"))
+                .map(|u| u.trim())
+                .collect();
+
+            for (i, use_stmt) in crate_uses.iter().enumerate() {
+                let prefix = if i == crate_uses.len() - 1 { "└─" } else { "├─" };
+                let resolved = self.resolve_use_to_file(use_stmt);
+                graph.push_str(&format!("  {} USES: {} → {}\n", prefix, use_stmt, resolved));
+            }
+
+            // 依赖目标文件的模块
+            let dependents = self.find_dependents(target_file);
+            for (i, dep) in dependents.iter().enumerate() {
+                let prefix = if i == dependents.len() - 1 { "└─" } else { "├─" };
+                graph.push_str(&format!("  {} USED BY: {}\n", prefix, dep));
+
+                // 展开一层：依赖者还用了什么
+                if let Some(dep_summary) = self.files.get(dep) {
+                    let dep_uses: Vec<&str> = dep_summary.uses.iter()
+                        .filter(|u| u.contains("crate::") && !u.contains(target_file.replace('/', "::").replace(".rs", "").replace("mod.rs", "").as_str()))
+                        .take(3)
+                        .map(|u| u.trim())
+                        .collect();
+                    for (j, sub_use) in dep_uses.iter().enumerate() {
+                        let sub_prefix = if j == dep_uses.len() - 1 { "└─" } else { "├─" };
+                        let resolved = self.resolve_use_to_file(sub_use);
+                        graph.push_str(&format!("     {} USES: {} → {}\n", sub_prefix, sub_use, resolved));
+                    }
+                }
+            }
+        }
+
+        if graph.lines().count() <= 1 {
+            graph.push_str("  (isolated module with no dependencies)\n");
+        }
+
+        graph
+    }
+
+    /// 将 use crate::xxx 语句解析为文件路径
+    fn resolve_use_to_file(&self, use_stmt: &str) -> String {
+        let binding = use_stmt
+            .trim()
+            .trim_start_matches("use ")
+            .trim_end_matches(';')
+            .trim_start_matches("crate::");
+
+        // 提取第一个模块名
+        let first_module = binding.split("::").next().unwrap_or(binding);
+        let first_module = first_module.split('{').next().unwrap_or(first_module).trim();
+
+        // 在文件列表中查找匹配的文件
+        let candidates: Vec<&String> = self.files.keys()
+            .filter(|p| {
+                let path_module = p.split('/').next().unwrap_or(p).replace(".rs", "");
+                path_module == first_module || **p == format!("{}.rs", first_module)
+            })
+            .collect();
+
+        if candidates.len() == 1 {
+            candidates[0].clone()
+        } else if !candidates.is_empty() {
+            // 多个候选，优先选 mod.rs
+            if let Some(mod_file) = candidates.iter().find(|p| p.ends_with("mod.rs")) {
+                (*mod_file).clone()
+            } else {
+                candidates[0].clone()
+            }
+        } else {
+            format!("{} (unresolved)", first_module)
+        }
+    }
+
+    /// 获取目标文件依赖的文件路径列表（从 use crate::xxx 推导）
+    fn get_dependency_file_paths(&self, target_file: &str) -> Vec<String> {
+        let Some(target_summary) = self.files.get(target_file) else {
+            return Vec::new();
+        };
+
+        target_summary.uses.iter()
+            .filter(|u| u.contains("crate::"))
+            .filter_map(|u| {
+                let resolved = self.resolve_use_to_file(u);
+                if resolved.contains("(unresolved)") {
+                    None
+                } else {
+                    Some(resolved)
+                }
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
+    }
 }

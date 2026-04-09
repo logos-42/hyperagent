@@ -182,7 +182,7 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         path.exists()
     }
 
-    /// 单次研究迭代（含 Phase 1 多维评估 + Phase 2 测试生成 + Phase 5 安全机制）
+    /// 单次研究迭代（含 Phase 0 架构理解 + Phase 1 多维评估 + Phase 2 测试生成 + Phase 5 安全机制）
     async fn run_iteration(&mut self, iteration: u32, file: &str) -> Result<Experiment> {
         tracing::info!("[Research {}] Improving src/{}", iteration, file);
 
@@ -218,11 +218,20 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
             binary_delta: 0,
         };
 
+        // Phase 0: 架构深度理解 — 在修改前先理解整个文件架构
+        // 用 LLM 阅读目标文件及其依赖链的完整代码，生成结构化理解笔记
+        let architecture_understanding = self.deep_understand_architecture(file, &code).await;
+        tracing::info!("  Phase 0: Architecture understanding completed ({} chars)", architecture_understanding.len());
+
         // 3. Web 搜索（获取外部知识）
         let web_context = self.gather_web_context(file, &code).await;
 
-        // 4. LLM 提出改进（含 Phase 2 测试生成指令 + Phase 4 相关文件上下文）
-        let prompt = self.build_research_prompt(file, &code, &self.experiments, web_context.as_deref());
+        // 4. LLM 提出改进（含 Phase 0 架构理解 + Phase 2 测试生成指令 + Phase 4 相关文件上下文）
+        let prompt = self.build_research_prompt(
+            file, &code, &self.experiments,
+            web_context.as_deref(),
+            Some(&architecture_understanding),
+        );
         let response = self.client.complete(&prompt).await?;
         let response_text = response.content;
 
@@ -596,6 +605,88 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
         }
 
         Ok(experiment)
+    }
+
+    /// Phase 0: 深度架构理解 — 在修改文件前先理解整个文件架构
+    ///
+    /// 这是关键的"先读后改"步骤：
+    /// 1. 收集目标文件 + 依赖链的完整代码（而非仅签名摘要）
+    /// 2. 构建 LLM 理解 prompt，让 LLM 生成结构化的架构理解笔记
+    /// 3. 理解笔记包含：模块职责、数据流、关键接口、修改注意事项
+    ///
+    /// 返回的理解笔记会注入到后续的 research prompt 中，
+    /// 让 LLM 在提出改进假设时拥有真正的代码理解，而非仅仅看签名。
+    async fn deep_understand_architecture(&self, file: &str, code: &str) -> String {
+        // 收集深度上下文：模块调用图 + 依赖文件完整代码
+        let deep_context = self.codebase.build_deep_context(
+            file,
+            &self.config.project_root.to_string_lossy(),
+        );
+
+        // 获取该文件的改进历史（理解过去的成功/失败模式）
+        let file_history: Vec<String> = self.experiments.iter()
+            .rev()
+            .filter(|e| e.file == file)
+            .take(5)
+            .map(|e| format!("[{}] {} → {:?}", e.iteration, e.hypothesis.chars().take(60).collect::<String>(), e.outcome))
+            .collect();
+
+        let history_section = if file_history.is_empty() {
+            "(no prior experiments on this file)".to_string()
+        } else {
+            file_history.join("\n")
+        };
+
+        let prompt = format!(
+            "You are analyzing the architecture of a codebase to build deep understanding before making changes.\n\n\
+             {deep_context}\n\n\
+             === TARGET FILE SOURCE (src/{file}) ===\n\
+             {code}\n\n\
+             === PAST EXPERIMENTS ON THIS FILE ===\n\
+             {history}\n\n\
+             === YOUR TASK ===\n\
+             Analyze the code above and produce a structured architecture understanding note.\n\
+             This note will be given to another LLM that will propose code improvements.\n\n\
+             Output EXACTLY in this format (no code blocks, no markdown):\n\n\
+             MODULE_ROLE: <1-2 sentences describing what this module does and why it exists>\n\
+             KEY_STRUCTURES: <list the most important structs/enums and their roles>\n\
+             DATA_FLOW: <how data enters, transforms, and exits this module>\n\
+             PUBLIC_INTERFACE: <the key public functions/traits that other modules depend on>\n\
+             INTERNAL_DEPS: <what this module depends on and why>\n\
+             EXTERNAL_DEPS: <what depends on this module and how they use it>\n\
+             MODIFICATION_RISKS: <what could break if we change this file, and what to be careful about>\n\
+             IMPROVEMENT_ANGLES: <2-3 specific areas where this code could be improved>\n",
+            file = file,
+            code = code,
+            deep_context = deep_context,
+            history = history_section,
+        );
+
+        match self.client.complete(&prompt).await {
+            Ok(response) => {
+                let understanding = response.content.trim().to_string();
+                if understanding.len() > 50 {
+                    understanding
+                } else {
+                    tracing::warn!("  Phase 0: LLM understanding too short, using fallback");
+                    format!(
+                        "MODULE_ROLE: {} (auto-summary)\nMODIFICATION_RISKS: Verify changes don't break dependents\n",
+                        self.codebase.files.get(file)
+                            .map(|s| s.doc_summary.as_str())
+                            .unwrap_or("Unknown module")
+                    )
+                }
+            }
+            Err(e) => {
+                tracing::warn!("  Phase 0: LLM understanding failed: {}, using fallback", e);
+                format!(
+                    "MODULE_ROLE: {} (auto-summary)\nMODIFICATION_RISKS: Verify changes don't break dependents\n",
+                    self.codebase.files.get(file)
+                        .map(|s| s.doc_summary.as_str())
+                        .unwrap_or("Unknown module")
+                )
+            }
+        }
     }
 
     /// 运行完整研究循环
