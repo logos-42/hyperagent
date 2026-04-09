@@ -140,46 +140,49 @@ impl<C: LLMClient + Clone> AutoResearch<C> {
 
     /// 读取源文件（支持项目根目录下任意文件）
     fn read_file(&self, rel: &str) -> Result<String> {
-        let path = if rel.starts_with("src/") {
-            // 已经是 src/ 开头的完整路径
-            self.config.project_root.join(rel)
-        } else if rel.contains('/') {
-            // 包含 / 但不以 src/ 开头，说明是 src 下的子目录（如 auto_research/mod.rs）
-            self.config.project_root.join("src").join(rel)
-        } else {
-            // 顶层文件（如 lib.rs）
-            self.config.project_root.join("src").join(rel)
-        };
+        let path = self.resolve_path(rel);
         std::fs::read_to_string(&path)
             .with_context(|| format!("Cannot read {}", path.display()))
     }
 
     /// 写入源文件（支持项目根目录下任意文件）
     fn write_file(&self, rel: &str, content: &str) -> Result<()> {
-        let path = if rel.starts_with("src/") {
-            // 已经是 src/ 开头的完整路径
-            self.config.project_root.join(rel)
-        } else if rel.contains('/') {
-            // 包含 / 但不以 src/ 开头，说明是 src 下的子目录（如 auto_research/mod.rs）
-            self.config.project_root.join("src").join(rel)
-        } else {
-            // 顶层文件（如 lib.rs）
-            self.config.project_root.join("src").join(rel)
-        };
+        let path = self.resolve_path(rel);
+        // 确保父目录存在
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(&path, content)
             .with_context(|| format!("Cannot write {}", path.display()))
     }
 
+    /// 解析文件路径（支持多种路径格式）
+    fn resolve_path(&self, rel: &str) -> PathBuf {
+        // 1. 先尝试直接从项目根目录解析（如 "src-tauri/src/main.rs", "Cargo.toml"）
+        let direct = self.config.project_root.join(rel);
+        if direct.exists() {
+            return direct;
+        }
+
+        // 2. 尝试从 src/ 目录解析（标准 Rust 项目，如 "lib.rs" → {root}/src/lib.rs）
+        let in_src = self.config.project_root.join("src").join(rel);
+        if in_src.exists() {
+            return in_src;
+        }
+
+        // 3. 尝试从 src-tauri/src/ 解析（Tauri 项目）
+        let in_tauri = self.config.project_root.join("src-tauri/src").join(rel);
+        if in_tauri.exists() {
+            return in_tauri;
+        }
+
+        // 4. 回退：返回直接路径（即使不存在，让后续操作报错）
+        direct
+    }
+
     /// 检查文件是否存在（用于验证 LLM 建议的文件路径）
     fn file_exists(&self, rel: &str) -> bool {
-        let path = if rel.starts_with("src/") {
-            self.config.project_root.join(rel)
-        } else if rel.contains('/') {
-            self.config.project_root.join("src").join(rel)
-        } else {
-            self.config.project_root.join("src").join(rel)
-        };
-        path.exists()
+        self.resolve_path(rel).exists()
     }
 
     /// 单次研究迭代（含 Phase 0 架构理解 + Phase 1 多维评估 + Phase 2 测试生成 + Phase 5 安全机制）

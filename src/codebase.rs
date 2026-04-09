@@ -144,12 +144,28 @@ pub struct CodebaseContext {
 impl CodebaseContext {
     /// 扫描代码库，构建全局上下文
     pub fn scan(project_root: &str) -> Result<Self> {
-        let src_dir = PathBuf::from(project_root).join("src");
+        let root = PathBuf::from(project_root);
         let mut files = HashMap::new();
         let mut total_lines = 0usize;
 
-        // 递归扫描所有 .rs 文件（包括子目录）
-        Self::scan_dir(&src_dir, &src_dir, &mut files, &mut total_lines);
+        // 智能查找 Rust 源码目录
+        // 1. 标准: {project_root}/src/
+        // 2. Tauri: {project_root}/src-tauri/src/
+        // 3. 也扫描项目根目录下的其他 src-*/src/ 目录
+        let src_dirs = Self::find_src_dirs(&root);
+
+        if src_dirs.is_empty() {
+            tracing::warn!("No Rust source directories found under {}", project_root);
+        }
+
+        for src_dir in &src_dirs {
+            let prefix_name = src_dir.strip_prefix(&root)
+                .unwrap_or(src_dir)
+                .to_string_lossy()
+                .to_string();
+            tracing::info!("Scanning source directory: {}", prefix_name);
+            Self::scan_dir_with_prefix(&root, src_dir, &prefix_name, &mut files, &mut total_lines);
+        }
 
         let total_files = files.len();
         let module_tree = Self::build_module_tree(&files);
@@ -165,6 +181,98 @@ impl CodebaseContext {
             total_iterations: 0,
             improvement_history: Vec::new(),
         })
+    }
+
+    /// 智能查找项目中的 Rust 源码目录
+    fn find_src_dirs(root: &std::path::Path) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+
+        // 1. 标准目录: {root}/src/
+        let std_src = root.join("src");
+        if std_src.is_dir() && std_src.join("main.rs").exists() || std_src.join("lib.rs").exists() {
+            dirs.push(std_src);
+        } else if std_src.is_dir() {
+            // 检查是否有任何 .rs 文件
+            if Self::has_rs_files(&std_src) {
+                dirs.push(std_src);
+            }
+        }
+
+        // 2. Tauri 项目: {root}/src-tauri/src/
+        let tauri_src = root.join("src-tauri/src");
+        if tauri_src.is_dir() && Self::has_rs_files(&tauri_src) {
+            dirs.push(tauri_src);
+        }
+
+        // 3. 其他 src-*/src/ 模式（如 src-server/src/）
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if name.starts_with("src-") && name != "src-tauri" {
+                        let sub_src = path.join("src");
+                        if sub_src.is_dir() && Self::has_rs_files(&sub_src) {
+                            dirs.push(sub_src);
+                        }
+                    }
+                }
+            }
+        }
+
+        dirs
+    }
+
+    /// 检查目录下是否有 .rs 文件
+    fn has_rs_files(dir: &std::path::Path) -> bool {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                    return true;
+                }
+                if path.is_dir() && Self::has_rs_files(&path) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// 带前缀的递归扫描（文件 key 包含源码目录前缀如 "src-tauri/src/main.rs"）
+    fn scan_dir_with_prefix(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        prefix: &str,
+        files: &mut HashMap<String, FileSummary>,
+        total_lines: &mut usize,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // 跳过 target、node_modules 等目录
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if name == "target" || name == "node_modules" || name == ".git" {
+                        continue;
+                    }
+                    Self::scan_dir_with_prefix(root, &path, prefix, files, total_lines);
+                } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                    // key 使用相对于 root 的路径，如 "src-tauri/src/main.rs"
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let summary = Self::summarize_file(&rel, &content);
+                        *total_lines += summary.lines;
+                        files.insert(rel.clone(), summary);
+                    }
+                }
+            }
+        }
     }
 
     /// 递归扫描目录下所有 .rs 文件
